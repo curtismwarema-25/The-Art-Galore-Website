@@ -1,0 +1,614 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  STAFF
+  MODERATOR
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  ARCHIVED
+}
+
+enum PersonStatus {
+  DRAFT
+  ACTIVE
+  HIDDEN
+  ARCHIVED
+}
+
+enum PersonRoleType {
+  LEADERSHIP
+  MEMBER
+  ARTIST
+}
+
+enum PartnerStatus {
+  DRAFT
+  ACTIVE
+  HIDDEN
+  ARCHIVED
+}
+
+enum PartnerPlacementContext {
+  HOMEPAGE
+  DIRECTORY
+  EVENT
+}
+
+enum TicketTierStatus {
+  DRAFT
+  ACTIVE
+  SOLD_OUT
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  EXPIRED
+  REFUNDED
+}
+
+enum TicketStatus {
+  ACTIVE
+  CHECKED_IN
+  REVOKED
+  CANCELLED
+}
+
+enum TicketDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum PaymentProvider {
+  MPESA
+  CARD
+  BANK
+  MANUAL
+}
+
+enum PaymentStatus {
+  INITIATED
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum CheckInMethod {
+  QR
+  MANUAL
+}
+
+enum ModerationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ReviewDecision {
+  APPROVED
+  REJECTED
+}
+
+enum NewsletterStatus {
+  ACTIVE
+  UNSUBSCRIBED
+}
+
+model AuthUser {
+  id           String     @id @default(cuid()) @db.VarChar(191)
+  email        String     @unique @db.VarChar(191)
+  passwordHash String     @db.VarChar(255)
+  fullName     String     @db.VarChar(191)
+  role         UserRole   @default(STAFF)
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  sessions       AuthSession[]
+  ticketCheckIns TicketCheckIn[]         @relation("CheckInByUser")
+  uploadReviews  CommunityUploadReview[]
+}
+
+model AuthSession {
+  id               String    @id @default(cuid()) @db.VarChar(191)
+  userId           String    @db.VarChar(191)
+  sessionTokenHash String    @unique @db.Char(64)
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  ipAddress        String?   @db.VarChar(64)
+  userAgent        String?   @db.VarChar(255)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user AuthUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model Person {
+  id                 String       @id @default(cuid()) @db.VarChar(191)
+  slug               String       @unique @db.VarChar(191)
+  fullName           String       @db.VarChar(191)
+  headline           String?      @db.VarChar(191)
+  bio                String       @db.Text
+  medium             String?      @db.VarChar(191)
+  profileImageUrl    String?      @db.VarChar(500)
+  profileStorageKey  String?      @db.VarChar(255)
+  profileMimeType    String?      @db.VarChar(100)
+  profileSizeBytes   Int?
+  profileWidth       Int?
+  profileHeight      Int?
+  coverImageUrl      String?      @db.VarChar(500)
+  coverStorageKey    String?      @db.VarChar(255)
+  coverMimeType      String?      @db.VarChar(100)
+  coverSizeBytes     Int?
+  coverWidth         Int?
+  coverHeight        Int?
+  displayOrder       Int          @default(0)
+  status             PersonStatus @default(ACTIVE)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  roles          PersonRole[]
+  featuredWorks  PersonFeaturedWork[]
+  lineupItems    EventLineupItem[]
+  participations EventParticipation[]
+
+  @@index([status, displayOrder])
+}
+
+model PersonRole {
+  id          String         @id @default(cuid()) @db.VarChar(191)
+  personId    String         @db.VarChar(191)
+  role        PersonRoleType
+  title       String?        @db.VarChar(191)
+  createdAt   DateTime       @default(now())
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, role])
+  @@index([role])
+}
+
+model PersonFeaturedWork {
+  id          String   @id @default(cuid()) @db.VarChar(191)
+  personId    String   @db.VarChar(191)
+  title       String   @db.VarChar(191)
+  description String?  @db.Text
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, sortOrder])
+}
+
+model Event {
+  id                String      @id @default(cuid()) @db.VarChar(191)
+  slug              String      @unique @db.VarChar(191)
+  title             String      @db.VarChar(191)
+  eventType         String      @db.VarChar(100)
+  summary           String      @db.VarChar(500)
+  description       String      @db.Text
+  startAt           DateTime
+  endAt             DateTime
+  timezone          String      @db.VarChar(64)
+  venueName         String      @db.VarChar(191)
+  capacity          Int?
+  status            EventStatus @default(DRAFT)
+  heroImageUrl      String?     @db.VarChar(500)
+  heroStorageKey    String?     @db.VarChar(255)
+  heroMimeType      String?     @db.VarChar(100)
+  heroSizeBytes     Int?
+  heroWidth         Int?
+  heroHeight        Int?
+  displayOrder      Int         @default(0)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  lineupItems      EventLineupItem[]
+  highlights       EventHighlight[]
+  partnerPlacements PartnerPlacement[]
+  ticketTiers      TicketTier[]
+  orders           Order[]
+  tickets          Ticket[]
+  galleryImages    GalleryImage[]
+  communityUploads CommunityUpload[]
+  participations   EventParticipation[]
+  featuredInSettings SiteSettings[]   @relation("FeaturedEvent")
+
+  @@index([status, startAt])
+  @@index([startAt])
+  @@index([endAt])
+}
+
+model EventLineupItem {
+  id          String   @id @default(cuid()) @db.VarChar(191)
+  eventId     String   @db.VarChar(191)
+  personId    String?  @db.VarChar(191)
+  displayName String   @db.VarChar(191)
+  roleLabel   String   @db.VarChar(191)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  event  Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, sortOrder])
+  @@index([personId])
+}
+
+model EventHighlight {
+  id        String   @id @default(cuid()) @db.VarChar(191)
+  eventId   String   @db.VarChar(191)
+  text      String   @db.VarChar(255)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, sortOrder])
+}
+
+model EventParticipation {
+  id                String   @id @default(cuid()) @db.VarChar(191)
+  eventId           String   @db.VarChar(191)
+  personId          String   @db.VarChar(191)
+  participationRole String?  @db.VarChar(191)
+  createdAt         DateTime @default(now())
+
+  event  Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, personId])
+  @@index([personId])
+}
+
+model Partner {
+  id             String        @id @default(cuid()) @db.VarChar(191)
+  slug           String        @unique @db.VarChar(191)
+  name           String        @db.VarChar(191)
+  description    String        @db.Text
+  partnershipType String?      @db.VarChar(100)
+  website        String?       @db.VarChar(500)
+  logoText       String?       @db.VarChar(16)
+  logoUrl        String?       @db.VarChar(500)
+  logoStorageKey String?       @db.VarChar(255)
+  logoMimeType   String?       @db.VarChar(100)
+  logoSizeBytes  Int?
+  status         PartnerStatus @default(ACTIVE)
+  displayOrder   Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  placements PartnerPlacement[]
+
+  @@index([status, displayOrder])
+  @@index([name])
+}
+
+model PartnerPlacement {
+  id          String                  @id @default(cuid()) @db.VarChar(191)
+  partnerId   String                  @db.VarChar(191)
+  context     PartnerPlacementContext
+  contextKey  String                  @db.VarChar(191)
+  eventId     String?                 @db.VarChar(191)
+  displayOrder Int                    @default(0)
+  isActive    Boolean                 @default(true)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@unique([partnerId, context, contextKey])
+  @@index([context, isActive, displayOrder])
+  @@index([eventId, context])
+}
+
+model TicketTier {
+  id                String           @id @default(cuid()) @db.VarChar(191)
+  eventId           String           @db.VarChar(191)
+  slug              String           @unique @db.VarChar(191)
+  name              String           @db.VarChar(120)
+  description       String?          @db.Text
+  price             Decimal          @db.Decimal(12, 2)
+  currency          String           @default("KES") @db.VarChar(3)
+  availableQuantity Int
+  maxPerOrder       Int?
+  saleStartAt       DateTime?
+  saleEndAt         DateTime?
+  status            TicketTierStatus @default(DRAFT)
+  sortOrder         Int              @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  event      Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  perks      TicketTierPerk[]
+  orderItems OrderItem[]
+  tickets    Ticket[]
+
+  @@unique([eventId, name])
+  @@index([eventId, status, saleStartAt])
+  @@index([eventId, sortOrder])
+}
+
+model TicketTierPerk {
+  id           String   @id @default(cuid()) @db.VarChar(191)
+  ticketTierId String   @db.VarChar(191)
+  label        String   @db.VarChar(191)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  ticketTier TicketTier @relation(fields: [ticketTierId], references: [id], onDelete: Cascade)
+
+  @@index([ticketTierId, sortOrder])
+}
+
+model BuyerProfile {
+  id        String   @id @default(cuid()) @db.VarChar(191)
+  fullName  String   @db.VarChar(191)
+  phone     String   @db.VarChar(32)
+  email     String?  @db.VarChar(191)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders  Order[]
+  tickets Ticket[]
+
+  @@index([phone])
+  @@index([email])
+}
+
+model Order {
+  id                  String              @id @default(cuid()) @db.VarChar(191)
+  orderNumber         String              @unique @db.VarChar(40)
+  eventId             String              @db.VarChar(191)
+  buyerId             String              @db.VarChar(191)
+  buyerFullName       String              @db.VarChar(191)
+  buyerPhone          String              @db.VarChar(32)
+  buyerEmail          String?             @db.VarChar(191)
+  status              OrderStatus         @default(PENDING)
+  currency            String              @default("KES") @db.VarChar(3)
+  subtotalAmount      Decimal             @db.Decimal(12, 2)
+  totalAmount         Decimal             @db.Decimal(12, 2)
+  reservationExpiresAt DateTime
+  ticketDeliveryStatus TicketDeliveryStatus @default(PENDING)
+  placedAt            DateTime            @default(now())
+  paidAt              DateTime?
+  expiredAt           DateTime?
+  refundedAt          DateTime?
+  notes               String?             @db.Text
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  event               Event               @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  buyer               BuyerProfile        @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  items               OrderItem[]
+  tickets             Ticket[]
+  paymentTransactions PaymentTransaction[]
+
+  @@index([eventId, status, createdAt])
+  @@index([status, reservationExpiresAt])
+  @@index([buyerId, createdAt])
+  @@index([buyerPhone, createdAt])
+  @@index([status, createdAt])
+}
+
+model OrderItem {
+  id          String   @id @default(cuid()) @db.VarChar(191)
+  orderId     String   @db.VarChar(191)
+  ticketTierId String  @db.VarChar(191)
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  lineTotal   Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ticketTier TicketTier @relation(fields: [ticketTierId], references: [id], onDelete: Restrict)
+  tickets    Ticket[]
+
+  @@index([orderId])
+  @@index([ticketTierId])
+}
+
+model Ticket {
+  id          String       @id @default(cuid()) @db.VarChar(191)
+  ticketNumber String      @unique @db.VarChar(50)
+  orderId      String      @db.VarChar(191)
+  orderItemId  String      @db.VarChar(191)
+  eventId      String      @db.VarChar(191)
+  ticketTierId String      @db.VarChar(191)
+  buyerId      String      @db.VarChar(191)
+  status       TicketStatus @default(ACTIVE)
+  qrCodeValue  String       @unique @db.VarChar(255)
+  issuedAt     DateTime     @default(now())
+  revokedAt    DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem  OrderItem   @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  event      Event       @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  ticketTier TicketTier  @relation(fields: [ticketTierId], references: [id], onDelete: Restrict)
+  buyer      BuyerProfile @relation(fields: [buyerId], references: [id], onDelete: Restrict)
+  checkIns   TicketCheckIn[]
+
+  @@index([eventId, status])
+  @@index([orderId])
+  @@index([buyerId])
+}
+
+model TicketCheckIn {
+  id               String        @id @default(cuid()) @db.VarChar(191)
+  ticketId         String        @db.VarChar(191)
+  checkedInByUserId String?      @db.VarChar(191)
+  method           CheckInMethod
+  checkpointLabel  String?       @db.VarChar(100)
+  notes            String?       @db.VarChar(255)
+  checkedInAt      DateTime      @default(now())
+
+  ticket       Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  checkedInBy  AuthUser? @relation("CheckInByUser", fields: [checkedInByUserId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, checkedInAt])
+  @@index([checkedInAt])
+}
+
+model PaymentTransaction {
+  id                    String         @id @default(cuid()) @db.VarChar(191)
+  orderId               String         @db.VarChar(191)
+  provider              PaymentProvider
+  status                PaymentStatus  @default(INITIATED)
+  amount                Decimal        @db.Decimal(12, 2)
+  currency              String         @default("KES") @db.VarChar(3)
+  idempotencyKey        String?        @unique @db.VarChar(191)
+  providerReference     String?        @db.VarChar(191)
+  externalRequestId     String?        @db.VarChar(191)
+  externalTransactionId String?        @db.VarChar(191)
+  resultCode            String?        @db.VarChar(32)
+  resultMessage         String?        @db.VarChar(255)
+  rawRequest            Json?
+  rawResponse           Json?
+  rawCallback           Json?
+  initiatedAt           DateTime       @default(now())
+  completedAt           DateTime?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, status, createdAt])
+  @@index([provider, providerReference])
+  @@index([status, createdAt])
+}
+
+model GalleryImage {
+  id          String   @id @default(cuid()) @db.VarChar(191)
+  eventId     String   @db.VarChar(191)
+  caption     String   @db.VarChar(255)
+  imageUrl    String   @db.VarChar(500)
+  storageKey  String   @db.VarChar(255)
+  mimeType    String   @db.VarChar(100)
+  sizeBytes   Int?
+  width       Int?
+  height      Int?
+  altText     String?  @db.VarChar(255)
+  featured    Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, sortOrder])
+  @@index([eventId, featured, isActive])
+}
+
+model CommunityUpload {
+  id            String           @id @default(cuid()) @db.VarChar(191)
+  eventId       String           @db.VarChar(191)
+  alias         String           @db.VarChar(120)
+  submitterEmail String?         @db.VarChar(191)
+  submitterPhone String?         @db.VarChar(32)
+  consentGiven  Boolean          @default(false)
+  imageUrl      String           @db.VarChar(500)
+  storageKey    String           @db.VarChar(255)
+  mimeType      String           @db.VarChar(100)
+  sizeBytes     Int?
+  width         Int?
+  height        Int?
+  status        ModerationStatus @default(PENDING)
+  submittedAt   DateTime         @default(now())
+  lastReviewedAt DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  event   Event                  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  reviews CommunityUploadReview[]
+
+  @@index([eventId, status, submittedAt])
+  @@index([status, submittedAt])
+}
+
+model CommunityUploadReview {
+  id         String         @id @default(cuid()) @db.VarChar(191)
+  uploadId   String         @db.VarChar(191)
+  reviewerId String         @db.VarChar(191)
+  decision   ReviewDecision
+  notes      String?        @db.VarChar(500)
+  reviewedAt DateTime       @default(now())
+  createdAt  DateTime       @default(now())
+
+  upload   CommunityUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  reviewer AuthUser        @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([uploadId, reviewedAt])
+  @@index([reviewerId, reviewedAt])
+}
+
+model SiteSettings {
+  id                           String   @id @default(cuid()) @db.VarChar(191)
+  settingsKey                  String   @unique @default("default") @db.VarChar(32)
+  siteName                     String   @db.VarChar(191)
+  tagline                      String   @db.VarChar(255)
+  footerText                   String   @db.Text
+  contactEmail                 String   @db.VarChar(191)
+  contactPhone                 String   @db.VarChar(32)
+  whatsappLink                 String   @db.VarChar(500)
+  instagramUrl                 String   @db.VarChar(500)
+  tiktokUrl                    String   @db.VarChar(500)
+  xUrl                         String   @db.VarChar(500)
+  facebookUrl                  String   @db.VarChar(500)
+  heroTitle                    String   @db.VarChar(191)
+  heroSubtitle                 String   @db.Text
+  featuredEventId              String?  @db.VarChar(191)
+  defaultMetaTitle             String   @db.VarChar(191)
+  defaultMetaDescription       String   @db.Text
+  defaultSocialPreviewImageUrl String   @db.VarChar(500)
+  privacyPolicyLink            String   @db.VarChar(500)
+  termsLink                    String   @db.VarChar(500)
+  refundPolicyLink             String   @db.VarChar(500)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  featuredEvent Event? @relation("FeaturedEvent", fields: [featuredEventId], references: [id], onDelete: SetNull)
+}
+
+model NewsletterSubscription {
+  id             String           @id @default(cuid()) @db.VarChar(191)
+  email          String           @unique @db.VarChar(191)
+  status         NewsletterStatus @default(ACTIVE)
+  source         String?          @db.VarChar(64)
+  subscribedAt   DateTime         @default(now())
+  unsubscribedAt DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([status, subscribedAt])
+}

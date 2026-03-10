@@ -1,0 +1,110 @@
+﻿import { EventStatus, PartnerPlacementContext, PartnerStatus, PersonRoleType, PersonStatus, TicketTierStatus } from "@prisma/client";
+import type { SeedBundle } from "../types.js";
+
+export const localSeedData: SeedBundle = {
+  people: [
+    {
+      slug: "anthony-kebabe",
+      fullName: "Anthony Kebabe",
+      headline: "Public Relations",
+      bio: "Supports public visibility through relationship building and community outreach.",
+      medium: "Mixed Media",
+      status: PersonStatus.ACTIVE,
+      displayOrder: 1,
+      roles: [
+        { role: PersonRoleType.LEADERSHIP, title: "Public Relations" },
+        { role: PersonRoleType.ARTIST },
+      ],
+      featuredWorks: [{ title: "Sunset Social Canvas", sortOrder: 1 }],
+    },
+  ],
+  partners: [
+    {
+      slug: "creative-futures-trust",
+      name: "Creative Futures Trust",
+      description: "Supports community-led arts programming and artist mentorship initiatives.",
+      partnershipType: "Program Sponsor",
+      website: "https://example.org/creative-futures-trust",
+      logoText: "CFT",
+      status: PartnerStatus.ACTIVE,
+      displayOrder: 1,
+      placements: [
+        { context: PartnerPlacementContext.HOMEPAGE, contextKey: "homepage-main", displayOrder: 1, isActive: true },
+        { context: PartnerPlacementContext.DIRECTORY, contextKey: "directory-main", displayOrder: 1, isActive: true },
+      ],
+    },
+  ],
+  events: [
+    {
+      slug: "sip-paint-sunset-edition",
+      title: "Sip & Paint: Sunset Edition",
+      eventType: "Sip & Paint",
+      summary: "An intimate guided painting evening with music and collaborative art moments.",
+      description: "Guided painting evening bringing artists, first-timers, and art lovers together.",
+      startAt: "2026-03-15T15:00:00.000Z",
+      endAt: "2026-03-15T18:00:00.000Z",
+      timezone: "Africa/Nairobi",
+      venueName: "The Yard, Kisii Town",
+      capacity: 40,
+      status: EventStatus.PUBLISHED,
+      displayOrder: 1,
+      highlights: [
+        { text: "Live guided canvas session", sortOrder: 1 },
+        { text: "Community art wall", sortOrder: 2 },
+      ],
+      lineup: [
+        { personSlug: "anthony-kebabe", displayName: "Anthony Kebabe", roleLabel: "Host", sortOrder: 1 },
+      ],
+      supportedPartnerSlugs: ["creative-futures-trust"],
+      ticketTiers: [
+        {
+          slug: "sip-paint-sunset-edition-early-bird",
+          name: "Early Bird",
+          price: 1200,
+          currency: "KES",
+          availableQuantity: 20,
+          maxPerOrder: 4,
+          status: TicketTierStatus.ACTIVE,
+          sortOrder: 1,
+          perks: [
+            { label: "Canvas", sortOrder: 1 },
+            { label: "Art Kit", sortOrder: 2 },
+          ],
+        },
+      ],
+      galleryImages: [
+        {
+          caption: "Warm-up strokes at sunset",
+          imageUrl: "https://example.org/media/gallery/sunset-1.jpg",
+          storageKey: "gallery/sunset-1.jpg",
+          mimeType: "image/jpeg",
+          featured: true,
+          sortOrder: 1,
+          isActive: true,
+        },
+      ],
+    },
+  ],
+  siteSettings: {
+    settingsKey: "default",
+    siteName: "Art Galore International",
+    tagline: "Where Art Comes Alive",
+    footerText: "Art Galore International creates immersive art experiences and cultural collaborations.",
+    contactEmail: "hello@artgaloreinternational.org",
+    contactPhone: "+254700000000",
+    whatsappLink: "https://wa.me/254711000000",
+    instagramUrl: "https://instagram.com/artgaloreinternational",
+    tiktokUrl: "https://tiktok.com/@artgaloreinternational",
+    xUrl: "https://x.com/artgaloreintl",
+    facebookUrl: "https://facebook.com/artgaloreinternational",
+    heroTitle: "Where Art Comes Alive",
+    heroSubtitle: "Immersive events, shared creativity, and community-centered experiences.",
+    featuredEventSlug: "sip-paint-sunset-edition",
+    defaultMetaTitle: "Art Galore International | Immersive Art Experiences",
+    defaultMetaDescription: "Discover events, artists, galleries, and collaborations.",
+    defaultSocialPreviewImageUrl: "/og-image.jpg",
+    privacyPolicyLink: "/privacy-policy",
+    termsLink: "/terms-of-use",
+    refundPolicyLink: "/ticket-refund-policy",
+  },
+};

@@ -1,0 +1,52 @@
+export type PublicSiteSettingsRecord = {
+  id: string;
+  slug: string;
+  status: "draft" | "published" | "archived" | "cancelled";
+  displayOrder: number;
+  siteName: string;
+  tagline: string;
+  footerText: string;
+  contactEmail: string;
+  contactPhone: string;
+  whatsappLink: string;
+  instagram: string;
+  tiktok: string;
+  x: string;
+  facebook: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  featuredEventId: string;
+  defaultMetaTitle: string;
+  defaultMetaDescription: string;
+  defaultSocialPreviewImage: string;
+  privacyPolicyLink: string;
+  termsLink: string;
+  refundPolicyLink: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AdminSiteSettingsRecord = PublicSiteSettingsRecord;
+export type SerializedSiteSettingsRecord = PublicSiteSettingsRecord;
+
+export type UpdateSiteSettingsInput = Partial<{
+  siteName: string;
+  tagline: string;
+  footerText: string;
+  contactEmail: string;
+  contactPhone: string;
+  whatsappLink: string;
+  instagram: string;
+  tiktok: string;
+  x: string;
+  facebook: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  featuredEventId: string;
+  defaultMetaTitle: string;
+  defaultMetaDescription: string;
+  defaultSocialPreviewImage: string;
+  privacyPolicyLink: string;
+  termsLink: string;
+  refundPolicyLink: string;
+}>;

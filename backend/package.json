@@ -1,0 +1,45 @@
+{
+  "name": "kisii-art-collective-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "prisma:sync-schema": "node ./scripts/syncPrismaSchema.mjs",
+    "prisma:validate": "npm run prisma:sync-schema && dotenv -e .env -- prisma validate --schema prisma/schema.prisma",
+    "prisma:generate": "npm run prisma:sync-schema && dotenv -e .env -- prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "npm run prisma:sync-schema && dotenv -e .env -- prisma migrate dev --schema prisma/schema.prisma",
+    "prisma:migrate:init": "npm run prisma:sync-schema && dotenv -e .env -- prisma migrate dev --schema prisma/schema.prisma --name init",
+    "prisma:migrate:deploy": "npm run prisma:sync-schema && dotenv -e .env -- prisma migrate deploy --schema prisma/schema.prisma",
+    "prisma:studio": "npm run prisma:sync-schema && dotenv -e .env -- prisma studio --schema prisma/schema.prisma",
+    "prisma:seed": "npm run prisma:sync-schema && dotenv -e .env -- prisma db seed --schema prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0",
+    "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "image-size": "^2.0.2",
+    "multer": "^2.1.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.9",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.23",
+    "@types/multer": "^2.1.0",
+    "@types/node": "^22.16.5",
+    "dotenv-cli": "^7.4.4",
+    "prisma": "^6.6.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.8.3"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}
