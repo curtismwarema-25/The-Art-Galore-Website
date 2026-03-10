@@ -1,150 +1,414 @@
+import { ChangeEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Calendar, MapPin, Clock, Users, ArrowLeft, Minus, Plus } from "lucide-react";
+import { ArrowLeft, Handshake, Share2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import ScrollReveal from "@/components/ScrollReveal";
-
-import sipPaintImg from "@/assets/sip-paint.jpg";
-import artist1 from "@/assets/artist-1.jpg";
-import artist2 from "@/assets/artist-2.jpg";
-import artist3 from "@/assets/artist-3.jpg";
-
-const ticketTiers = [
-  { name: "Early Bird", price: "KES 1,200", perks: "Canvas, 2 Drinks, Art Kit", available: 8 },
-  { name: "Standard", price: "KES 1,500", perks: "Canvas, 1 Drink, Art Kit", available: 24 },
-  { name: "VIP", price: "KES 2,500", perks: "Premium Canvas, Unlimited Drinks, Art Kit, Front Row", available: 6 },
-];
-
-const lineup = [
-  { name: "Akinyi Moraa", role: "Lead Instructor", img: artist1 },
-  { name: "Obare Nyakundi", role: "Guest Artist", img: artist2 },
-  { name: "Kemunto Gesare", role: "DJ Set", img: artist3 },
-];
+import ConfirmationBanner from "@/components/common/ConfirmationBanner";
+import EmptyState from "@/components/common/EmptyState";
+import PageHeader from "@/components/common/PageHeader";
+import StatusBadge from "@/components/common/StatusBadge";
+import OrderSummaryCard from "@/components/tickets/OrderSummaryCard";
+import PaymentStatusPanel from "@/components/tickets/PaymentStatusPanel";
+import TicketTierSelector from "@/components/tickets/TicketTierSelector";
+import { ApiError } from "@/api/client";
+import { communityUploadFormSchema, ticketPurchaseFormSchema } from "@/features/forms/schemas";
+import { createPreviewUrl, revokePreviewUrl, validateFile } from "@/features/uploads/uploadService";
+import { useCreateOrderMutation } from "@/hooks/mutations/useCreateOrderMutation";
+import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
+import { useSubmitCommunityUploadMutation } from "@/hooks/mutations/useUploadMutations";
+import { useEventQuery } from "@/hooks/queries/useEventQuery";
+import type { OrderDetailsRecord } from "@/api/endpoints/orders";
+import type { PaymentStatus } from "@/types/models";
+import { toast } from "@/components/ui/sonner";
 
 export default function EventDetail() {
-  const { id } = useParams();
+  const { slug = "" } = useParams();
+  const { data: event, isLoading, isError } = useEventQuery(slug);
+  const createOrderMutation = useCreateOrderMutation();
+  const submitUploadMutation = useSubmitCommunityUploadMutation();
+  const uploadMediaMutation = useUploadMediaMutation();
+
+  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("idle");
+  const [createdOrder, setCreatedOrder] = useState<OrderDetailsRecord | null>(null);
+
+  const [alias, setAlias] = useState("");
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadPreview, setUploadPreview] = useState("");
+  const [uploadMessage, setUploadMessage] = useState("");
+
+  useEffect(() => {
+    return () => {
+      revokePreviewUrl(uploadPreview);
+    };
+  }, [uploadPreview]);
+
+  if (isLoading) {
+    return (
+      <section className="section-padding">
+        <div className="container-narrow">
+          <p className="text-sm text-foreground-secondary">Loading event details...</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (isError || !event) {
+    return (
+      <section className="section-padding">
+        <div className="container-narrow">
+          <EmptyState
+            title="Event Not Found"
+            description="This event detail is unavailable right now."
+            action={<Link to="/events" className="text-xs font-display tracking-[0.14em] uppercase text-accent">Back to Events</Link>}
+          />
+        </div>
+      </section>
+    );
+  }
+
+  const tiers = event.ticketTiers ?? [];
+  const approvedUploads = event.approvedUploads ?? [];
+  const gallery = event.galleryImages ?? [];
+
+  const increaseTier = (tierId: string) => setQuantities((current) => ({ ...current, [tierId]: (current[tierId] ?? 0) + 1 }));
+  const decreaseTier = (tierId: string) => setQuantities((current) => ({ ...current, [tierId]: Math.max((current[tierId] ?? 0) - 1, 0) }));
+
+  const initiatePayment = async () => {
+    const parsed = ticketPurchaseFormSchema.safeParse({
+      eventId: event.id,
+      fullName,
+      phone,
+      email,
+      quantities,
+    });
+
+    if (!parsed.success) {
+      toast.error("Select ticket quantity and enter valid buyer details.");
+      return;
+    }
+
+    const selectedItems = tiers
+      .map((tier) => ({
+        ticketTierId: tier.id,
+        quantity: quantities[tier.id] ?? 0,
+      }))
+      .filter((item) => item.quantity > 0);
+
+    if (selectedItems.length === 0) {
+      toast.error("Select at least one ticket tier.");
+      return;
+    }
+
+    setPaymentStatus("initiating");
+
+    try {
+      const idempotencyKey =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `order-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+      const result = await createOrderMutation.mutateAsync({
+        input: {
+          eventId: event.id,
+          buyer: {
+            fullName: parsed.data.fullName.trim(),
+            phone: parsed.data.phone.trim(),
+            email: parsed.data.email?.trim() || undefined,
+          },
+          items: selectedItems,
+        },
+        idempotencyKey,
+      });
+
+      setCreatedOrder(result.order);
+      setPaymentStatus(result.order.status === "paid" ? "paid" : result.order.status === "failed" ? "failed" : "pending");
+
+      if (result.idempotentReplay) {
+        toast.success(`Loaded existing order ${result.order.orderNumber}.`);
+      } else {
+        toast.success(`Order ${result.order.orderNumber} created. Payment is pending.`);
+      }
+    } catch (error) {
+      setPaymentStatus("failed");
+      const message = error instanceof ApiError || error instanceof Error ? error.message : "Could not create order.";
+      toast.error(message);
+    }
+  };
+
+  const handleUploadFile = (eventInput: ChangeEvent<HTMLInputElement>) => {
+    const file = eventInput.target.files?.[0];
+    if (!file) return;
+
+    const validation = validateFile(file, "community");
+    if (!validation.valid) {
+      setUploadMessage(validation.error ?? "Invalid file.");
+      return;
+    }
+
+    revokePreviewUrl(uploadPreview);
+    setUploadFile(file);
+    setUploadPreview(createPreviewUrl(file));
+    setUploadMessage("");
+  };
+
+  const submitCommunityUpload = async () => {
+    if (!uploadFile) {
+      setUploadMessage("Add an image before submitting.");
+      return;
+    }
+
+    const parsed = communityUploadFormSchema.safeParse({
+      alias,
+      eventId: event.id,
+      file: uploadFile,
+    });
+
+    if (!parsed.success) {
+      setUploadMessage("Add an alias and image before submitting.");
+      return;
+    }
+
+    try {
+      const uploadedMedia = await uploadMediaMutation.mutateAsync({
+        file: uploadFile,
+        target: "community",
+      });
+
+      await submitUploadMutation.mutateAsync({
+        eventId: event.id,
+        alias: parsed.data.alias.trim(),
+        consentGiven: true,
+        media: {
+          storageKey: uploadedMedia.storageKey,
+          mimeType: uploadedMedia.mimeType,
+          sizeBytes: uploadedMedia.sizeBytes,
+          width: uploadedMedia.width,
+          height: uploadedMedia.height,
+          url: uploadedMedia.url,
+        },
+      });
+
+      setUploadMessage("Upload submitted successfully. Pending moderation.");
+      toast.success("Upload submitted successfully. Pending moderation.");
+    } catch (error) {
+      setUploadMessage(error instanceof Error ? error.message : "Upload failed.");
+      toast.error(error instanceof Error ? error.message : "Upload failed.");
+    }
+  };
+
+  const supportedByText = event.supportedBy.length > 0 ? event.supportedBy.join(" and ") : "Community Partners";
 
   return (
     <>
-      {/* Hero */}
-      <section className="relative h-[60vh] min-h-[400px] overflow-hidden">
-        <img
-          src={sipPaintImg}
-          alt="Sip & Paint event"
-          className="w-full h-full object-cover"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 p-4 md:p-8 lg:p-16">
+      <section className="relative h-[56vh] min-h-[380px] overflow-hidden">
+        <img src={event.heroImage} alt={event.title} className="w-full h-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/55 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 p-4 md:p-8 lg:p-14">
           <div className="container-narrow">
-            <Link
-              to="/events"
-              className="inline-flex items-center gap-2 text-accent font-display text-xs tracking-widest uppercase mb-4 hover:opacity-80 transition-opacity"
-            >
+            <Link to="/events" className="inline-flex items-center gap-2 text-accent font-display text-xs tracking-widest uppercase mb-4 hover:opacity-80 transition-opacity">
               <ArrowLeft size={14} /> Back to Events
             </Link>
-            <span className="block font-display text-xs tracking-widest uppercase text-accent mb-3">
-              Sip & Paint
-            </span>
-            <h1 className="text-display-xl text-foreground mb-4">
-              Sunset Edition
-            </h1>
+            <PageHeader eyebrow={event.type} title={event.title} description={event.summary} />
+            <p className="inline-flex items-center gap-2 text-xs md:text-sm font-display uppercase tracking-wider text-background/90">
+              <Handshake size={14} className="text-accent" />
+              Supported By {supportedByText}
+            </p>
           </div>
         </div>
       </section>
 
-      {/* Details */}
       <section className="section-padding">
-        <div className="container-narrow">
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-12 lg:gap-16">
-            {/* Left */}
-            <div className="space-y-16">
-              <ScrollReveal>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                  {[
-                    { icon: Calendar, label: "Date", value: "Mar 15, 2026" },
-                    { icon: Clock, label: "Time", value: "6:00 — 9:00 PM" },
-                    { icon: MapPin, label: "Venue", value: "The Yard, Kisii" },
-                    { icon: Users, label: "Capacity", value: "40 Guests" },
-                  ].map((item) => (
-                    <div key={item.label}>
-                      <item.icon size={16} className="text-accent mb-2" />
-                      <p className="font-display text-xs tracking-wider uppercase text-foreground-secondary mb-1">{item.label}</p>
-                      <p className="font-display font-semibold text-sm text-foreground">{item.value}</p>
-                    </div>
-                  ))}
-                </div>
-              </ScrollReveal>
-
-              <ScrollReveal>
-                <h2 className="text-display-md mb-4">About This Event</h2>
-                <div className="text-body space-y-4">
-                  <p>
-                    Join us for an unforgettable evening of guided painting as the sun sets over Kisii. 
-                    Whether you're a first-time painter or a seasoned artist, this session is designed to 
-                    inspire creativity in a relaxed, social atmosphere.
-                  </p>
-                  <p>
-                    Each guest receives a canvas, full art kit, and complimentary drinks. Our lead artist 
-                    will guide you step-by-step through creating your own sunset masterpiece.
-                  </p>
-                </div>
-              </ScrollReveal>
-
-              {/* Lineup */}
-              <ScrollReveal>
-                <h2 className="text-display-md mb-8">Lineup</h2>
-                <div className="grid grid-cols-3 gap-4 md:gap-6">
-                  {lineup.map((artist) => (
-                    <div key={artist.name}>
-                      <img
-                        src={artist.img}
-                        alt={artist.name}
-                        className="w-full aspect-square object-cover mb-3"
-                      />
-                      <h4 className="font-display font-semibold text-sm text-foreground">{artist.name}</h4>
-                      <p className="text-foreground-secondary text-xs font-body">{artist.role}</p>
-                    </div>
-                  ))}
-                </div>
-              </ScrollReveal>
+        <div className="container-narrow grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8 md:gap-12">
+          <div className="space-y-8">
+            <div className="border border-border bg-card p-5 md:p-6">
+              <h2 className="font-display text-2xl text-foreground mb-4">Event Details</h2>
+              <p className="text-sm text-foreground-secondary mb-4">{event.description}</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-foreground-secondary">
+                <p><span className="text-foreground">Date:</span> {event.date}</p>
+                <p><span className="text-foreground">Time:</span> {event.time}</p>
+                <p><span className="text-foreground">Venue:</span> {event.venue}</p>
+                <p><span className="text-foreground">Capacity:</span> {event.capacity} guests</p>
+              </div>
             </div>
 
-            {/* Right - Tickets */}
-            <div className="lg:sticky lg:top-24 self-start">
-              <ScrollReveal>
-                <div className="border border-border p-6 space-y-6">
-                  <h3 className="font-display text-lg font-semibold text-foreground">Select Tickets</h3>
+            <div className="border border-border bg-card p-5 md:p-6">
+              <h3 className="font-display text-xl text-foreground mb-3">Share & Invite</h3>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="outline" size="sm" onClick={() => toast.success("Share flow placeholder ready for backend deep links.")}>
+                  <Share2 size={14} /> Share Event
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => toast.success("Bring-a-friend referral placeholder triggered.")}>
+                  <UserPlus size={14} /> Bring a Friend
+                </Button>
+              </div>
+            </div>
 
-                  {ticketTiers.map((tier) => (
-                    <div key={tier.name} className="py-4 border-b border-border last:border-0">
-                      <div className="flex justify-between items-start mb-1">
-                        <div>
-                          <h4 className="font-display font-semibold text-sm text-foreground">{tier.name}</h4>
-                          <p className="text-xs text-foreground-secondary font-body">{tier.perks}</p>
-                        </div>
-                        <span className="font-display font-bold text-foreground">{tier.price}</span>
-                      </div>
-                      <div className="flex items-center justify-between mt-3">
-                        <span className="text-xs text-accent font-body">{tier.available} left</span>
-                        <div className="flex items-center gap-3 border border-border">
-                          <button className="p-2 text-foreground-secondary hover:text-foreground transition-colors" aria-label="Decrease quantity">
-                            <Minus size={14} />
-                          </button>
-                          <span className="font-display text-sm w-4 text-center text-foreground">0</span>
-                          <button className="p-2 text-foreground-secondary hover:text-foreground transition-colors" aria-label="Increase quantity">
-                            <Plus size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+            <div className="border border-border bg-card p-5 md:p-6">
+              <h3 className="font-display text-xl text-foreground mb-3">Event Highlights</h3>
+              {event.highlights.length === 0 ? (
+                <p className="text-sm text-foreground-secondary">Highlights will be added soon.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {event.highlights.map((item) => (
+                    <li key={item} className="text-sm text-foreground-secondary">- {item}</li>
                   ))}
+                </ul>
+              )}
+            </div>
 
-                  <Button variant="accent" size="lg" className="w-full">
-                    Checkout — KES 0
+            <div className="border border-border bg-card p-5 md:p-6">
+              <h3 className="font-display text-xl text-foreground mb-4">Community Upload</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <input
+                    value={alias}
+                    onChange={(eventInput) => setAlias(eventInput.target.value)}
+                    placeholder="Alias"
+                    className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleUploadFile}
+                    className="w-full text-xs font-body text-foreground-secondary file:mr-3 file:border-0 file:bg-accent/15 file:px-3 file:py-1.5 file:text-xs file:font-display file:tracking-wide file:text-foreground"
+                  />
+                  <p className="text-xs text-foreground-secondary">
+                    Upload policy notice: only event-relevant content will be approved for the public archive.
+                  </p>
+                  <Button variant="accent" size="sm" onClick={submitCommunityUpload} disabled={submitUploadMutation.isPending}>
+                    {submitUploadMutation.isPending || uploadMediaMutation.isPending ? "Submitting..." : "Submit Upload"}
                   </Button>
+                  {uploadMessage && <p className="text-xs text-accent">{uploadMessage}</p>}
                 </div>
-              </ScrollReveal>
+                <div className="border border-border bg-secondary/20 p-3 rounded-md">
+                  {uploadPreview ? (
+                    <img src={uploadPreview} alt="Upload preview" className="w-full aspect-[4/5] object-cover" />
+                  ) : (
+                    <p className="text-xs text-foreground-secondary">Image preview appears here.</p>
+                  )}
+                </div>
+              </div>
+
+              {approvedUploads.length > 0 && (
+                <div className="mt-5">
+                  <h4 className="font-display text-sm text-foreground mb-3">Approved Uploads Preview</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {approvedUploads.map((upload) => (
+                      <article key={upload.id} className="border border-border bg-background p-2">
+                        <img src={upload.image} alt={upload.alias} className="w-full aspect-[4/5] object-cover mb-2" />
+                        <p className="text-xs text-foreground-secondary">{upload.alias}</p>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {event.lifecycle === "past" && (
+              <div className="space-y-6">
+                <div className="border border-border bg-card p-5 md:p-6">
+                  <h3 className="font-display text-xl text-foreground mb-4">Post-Event Archive</h3>
+                  <p className="text-sm text-foreground-secondary">
+                    This archive section is prepared for backend media, highlights, uploads, and partner history.
+                  </p>
+                </div>
+
+                <div className="border border-border bg-card p-5 md:p-6">
+                  <h4 className="font-display text-lg text-foreground mb-3">Gallery</h4>
+                  {gallery.length === 0 ? (
+                    <p className="text-sm text-foreground-secondary">No gallery images are available for this event yet.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {gallery.map((image) => (
+                        <img key={image.id} src={image.image} alt={image.caption} className="w-full aspect-[4/5] object-cover" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
+
+          <aside className="space-y-4 lg:sticky lg:top-20 self-start">
+            <div className="border border-border bg-card p-5 md:p-6">
+              <h3 className="font-display text-lg text-foreground mb-4">Select Tickets</h3>
+              <TicketTierSelector tiers={tiers} quantities={quantities} onIncrease={increaseTier} onDecrease={decreaseTier} />
+
+              <div className="mt-4">
+                <label className="block mb-1.5 text-[11px] font-display tracking-[0.18em] uppercase text-foreground-secondary">
+                  Full Name
+                </label>
+                <input
+                  value={fullName}
+                  onChange={(eventInput) => setFullName(eventInput.target.value)}
+                  placeholder="Your full name"
+                  className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                />
+              </div>
+
+              <div className="mt-3">
+                <label className="block mb-1.5 text-[11px] font-display tracking-[0.18em] uppercase text-foreground-secondary">
+                  M-Pesa Phone Number
+                </label>
+                <input
+                  value={phone}
+                  onChange={(eventInput) => setPhone(eventInput.target.value)}
+                  placeholder="07XXXXXXXX"
+                  className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                />
+              </div>
+
+              <div className="mt-3">
+                <label className="block mb-1.5 text-[11px] font-display tracking-[0.18em] uppercase text-foreground-secondary">
+                  Email (Optional)
+                </label>
+                <input
+                  value={email}
+                  onChange={(eventInput) => setEmail(eventInput.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                />
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <OrderSummaryCard tiers={tiers} quantities={quantities} phoneNumber={phone} />
+                <PaymentStatusPanel status={paymentStatus} />
+              </div>
+
+              <Button
+                variant="accent"
+                size="lg"
+                className="w-full mt-4"
+                onClick={() => void initiatePayment()}
+                disabled={createOrderMutation.isPending}
+              >
+                {createOrderMutation.isPending ? "Creating Order..." : "Initiate Payment"}
+              </Button>
+
+              {createdOrder && (
+                <div className="mt-4">
+                  <ConfirmationBanner
+                    title={`Order ${createdOrder.orderNumber}`}
+                    message={
+                      paymentStatus === "paid"
+                        ? "Payment succeeded. Ticket issuance will run in the next pass."
+                        : `Payment is pending. Reservation expires at ${new Date(createdOrder.reservationExpiresAt).toLocaleString()}.`
+                    }
+                    tone={paymentStatus === "paid" ? "approved" : paymentStatus === "failed" ? "rejected" : "pending"}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="border border-border bg-secondary/15 p-4">
+              <h4 className="font-display text-sm text-foreground mb-2">Partner Support</h4>
+              <p className="text-xs text-foreground-secondary">In Collaboration With {event.supportedBy.join(", ") || "Community Partners"}</p>
+              <StatusBadge tone={event.lifecycle === "past" ? "approved" : "published"} label={event.lifecycle} />
+            </div>
+          </aside>
         </div>
       </section>
     </>

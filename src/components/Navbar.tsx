@@ -4,21 +4,29 @@ import { Menu, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const navLinks = [
+  { label: "Home", path: "/" },
   { label: "Events", path: "/events" },
   { label: "Artists", path: "/artists" },
   { label: "Gallery", path: "/gallery" },
-  { label: "Share", path: "/share" },
+  { label: "Partners", path: "/partners" },
+  { label: "About", path: "/about" },
+  { label: "Contact", path: "/contact" },
 ];
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
 
+  const isLinkActive = (path: string) => {
+    if (path === "/") return location.pathname === "/";
+    return location.pathname.startsWith(path);
+  };
+
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-sm">
       <div className="container-narrow flex items-center justify-between h-16 px-4 md:px-8">
-        <Link to="/" className="font-display font-bold text-xl tracking-tight text-foreground">
-          KISII<span className="text-accent">ART</span>
+        <Link to="/" className="font-display font-bold text-base md:text-lg tracking-tight text-foreground">
+          Art Galore <span className="text-accent">International</span>
         </Link>
 
         {/* Desktop */}
@@ -28,7 +36,7 @@ export default function Navbar() {
               key={link.path}
               to={link.path}
               className={`font-display text-sm tracking-wider uppercase transition-colors duration-200 ${
-                location.pathname.startsWith(link.path)
+                isLinkActive(link.path)
                   ? "text-accent"
                   : "text-foreground-secondary hover:text-foreground"
               }`}
@@ -71,7 +79,7 @@ export default function Navbar() {
                   to={link.path}
                   onClick={() => setOpen(false)}
                   className={`font-display text-lg tracking-wide ${
-                    location.pathname.startsWith(link.path)
+                    isLinkActive(link.path)
                       ? "text-accent"
                       : "text-foreground"
                   }`}

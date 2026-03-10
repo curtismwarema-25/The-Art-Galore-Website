@@ -1,0 +1,10 @@
+export { default as AdminLayout } from "@/features/admin/layout/AdminLayout";
+export { default as AdminDashboardPage } from "@/features/admin/dashboard/AdminDashboardPage";
+export { default as AdminEventsPage } from "@/features/admin/events/AdminEventsPage";
+export { default as AdminOrdersPage } from "@/features/admin/orders/AdminOrdersPage";
+export { default as AdminCheckInPage } from "@/features/admin/checkin/AdminCheckInPage";
+export { default as AdminPeoplePage } from "@/features/admin/people/AdminPeoplePage";
+export { default as AdminGalleriesPage } from "@/features/admin/galleries/AdminGalleriesPage";
+export { default as AdminUploadsPage } from "@/features/admin/uploads/AdminUploadsPage";
+export { default as AdminPartnersPage } from "@/features/admin/partners/AdminPartnersPage";
+export { default as AdminSettingsPage } from "@/features/admin/settings/AdminSettingsPage";

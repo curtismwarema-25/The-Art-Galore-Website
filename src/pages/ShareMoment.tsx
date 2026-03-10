@@ -1,106 +1,203 @@
+import { useEffect, useState } from "react";
 import { Upload, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import ScrollReveal from "@/components/ScrollReveal";
-
-import gallery1 from "@/assets/gallery-1.jpg";
-import gallery2 from "@/assets/gallery-2.jpg";
-import gallery3 from "@/assets/gallery-3.jpg";
-import gallery4 from "@/assets/gallery-4.jpg";
-
-const communityUploads = [
-  { img: gallery1, alias: "Moraa K.", event: "Sip & Paint Vol. 2" },
-  { img: gallery2, alias: "Nyakundi O.", event: "Art Night Vol. 3" },
-  { img: gallery3, alias: "Anonymous", event: "Pajama Night" },
-  { img: gallery4, alias: "Gesare M.", event: "Sip & Paint Vol. 1" },
-];
+import PageHeader from "@/components/common/PageHeader";
+import ConfirmationBanner from "@/components/common/ConfirmationBanner";
+import UploadCard from "@/components/cards/UploadCard";
+import { communityUploadFormSchema } from "@/features/forms/schemas";
+import { createPreviewUrl, revokePreviewUrl, validateFile } from "@/features/uploads/uploadService";
+import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
+import { useSubmitCommunityUploadMutation } from "@/hooks/mutations/useUploadMutations";
+import { useApprovedUploadsQuery } from "@/hooks/queries/useApprovedUploadsQuery";
+import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
+import type { UploadState } from "@/types/models";
+import { toast } from "@/components/ui/sonner";
 
 export default function ShareMoment() {
+  const { data: events = [] } = useEventsQuery();
+  const { data: approvedUploads = [], isLoading: isApprovedUploadsLoading } = useApprovedUploadsQuery();
+  const submitUploadMutation = useSubmitCommunityUploadMutation();
+  const uploadMediaMutation = useUploadMediaMutation();
+
+  const [alias, setAlias] = useState("");
+  const [eventId, setEventId] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState("");
+  const [uploadState, setUploadState] = useState<UploadState>("idle");
+
+  useEffect(() => {
+    if (!eventId && events[0]) {
+      setEventId(events[0].id);
+    }
+  }, [eventId, events]);
+
+  useEffect(() => {
+    return () => {
+      revokePreviewUrl(preview);
+    };
+  }, [preview]);
+
+  const submitUpload = async () => {
+    if (!file) {
+      setUploadState("failed");
+      toast.error("Add an image before submitting.");
+      return;
+    }
+
+    const parsed = communityUploadFormSchema.safeParse({ alias, eventId, file });
+    if (!parsed.success) {
+      setUploadState("failed");
+      toast.error("Add alias, event, and image before submitting.");
+      return;
+    }
+
+    setUploadState("uploading");
+
+    try {
+      const uploadedMedia = await uploadMediaMutation.mutateAsync({
+        file,
+        target: "community",
+      });
+
+      await submitUploadMutation.mutateAsync({
+        eventId,
+        alias,
+        consentGiven: true,
+        media: {
+          storageKey: uploadedMedia.storageKey,
+          mimeType: uploadedMedia.mimeType,
+          sizeBytes: uploadedMedia.sizeBytes,
+          width: uploadedMedia.width,
+          height: uploadedMedia.height,
+          url: uploadedMedia.url,
+        },
+      });
+
+      setUploadState("uploaded");
+      toast.success("Upload submitted successfully. Pending moderation.");
+    } catch (error) {
+      setUploadState("failed");
+      toast.error(error instanceof Error ? error.message : "Failed to submit upload.");
+    }
+  };
+
   return (
-    <>
-      <section className="section-padding">
-        <div className="container-narrow">
-          <ScrollReveal>
-            <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-4">
-              Community
-            </p>
-            <h1 className="text-display-xl mb-4">Share Your Moment</h1>
-            <p className="text-body-lg max-w-lg">
-              Upload your art, your memories, your perspective. This is your gallery.
-            </p>
-          </ScrollReveal>
+    <section className="section-padding">
+      <div className="container-narrow space-y-8">
+        <PageHeader
+          eyebrow="Community"
+          title="Share Your Moment"
+          description="Submit your event photos and stories. Approved uploads become part of the public archive."
+        />
 
-          {/* Upload Zone */}
-          <ScrollReveal delay={0.1}>
-            <div className="mt-12 max-w-xl">
-              <div className="border-2 border-dashed border-border hover:border-accent transition-colors p-12 text-center cursor-pointer group">
-                <Upload size={32} className="mx-auto mb-4 text-foreground-secondary group-hover:text-accent transition-colors" />
-                <p className="font-display text-sm font-semibold text-foreground mb-1">
-                  Drop your image here
-                </p>
-                <p className="text-xs text-foreground-secondary font-body">
-                  or click to browse · JPG, PNG up to 10MB
-                </p>
+        {uploadState === "uploaded" && (
+          <ConfirmationBanner
+            title="Upload submitted successfully"
+            message="Your upload is pending moderation and will appear when approved."
+            tone="approved"
+          />
+        )}
+
+        {uploadState === "failed" && (
+          <ConfirmationBanner
+            title="Upload rejected"
+            message="Missing required fields. Add alias, event, and an image before submitting."
+            tone="failed"
+          />
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-5 md:gap-8">
+          <div className="border border-border bg-card p-5 md:p-6">
+            <h2 className="font-display text-xl text-foreground mb-4">Upload Zone</h2>
+            <div className="space-y-4">
+              <div className="border-2 border-dashed border-border hover:border-accent transition-colors p-8 text-center">
+                <Upload size={30} className="mx-auto mb-3 text-foreground-secondary" />
+                <p className="font-display text-sm text-foreground mb-1">Drop your image here</p>
+                <p className="text-xs text-foreground-secondary">JPG, PNG, or WEBP up to 10MB</p>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const selected = event.target.files?.[0];
+                    if (!selected) return;
+
+                    const validation = validateFile(selected, "community");
+                    if (!validation.valid) {
+                      setUploadState("failed");
+                      toast.error(validation.error ?? "Invalid image file.");
+                      return;
+                    }
+
+                    revokePreviewUrl(preview);
+                    setFile(selected);
+                    setPreview(createPreviewUrl(selected));
+                    setUploadState("idle");
+                  }}
+                  className="mt-4 w-full text-xs font-body text-foreground-secondary file:mr-3 file:border-0 file:bg-accent/15 file:px-3 file:py-1.5 file:text-xs file:font-display file:tracking-wide file:text-foreground"
+                />
               </div>
 
-              <div className="mt-6 space-y-4">
-                <div>
-                  <label className="font-display text-xs tracking-widest uppercase text-foreground-secondary block mb-2">
-                    Your Alias
-                  </label>
-                  <div className="flex items-center border border-border">
-                    <span className="pl-3 text-foreground-secondary">
-                      <User size={16} />
-                    </span>
-                    <input
-                      type="text"
-                      placeholder="How should we credit you?"
-                      className="flex-1 px-3 py-3 bg-transparent text-foreground font-body text-sm focus:outline-none placeholder:text-foreground-secondary/50"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="font-display text-xs tracking-widest uppercase text-foreground-secondary block mb-2">
-                    Event
-                  </label>
-                  <select className="w-full border border-border bg-transparent px-3 py-3 font-body text-sm text-foreground focus:outline-none appearance-none">
-                    <option value="">Select an event</option>
-                    <option>Sip & Paint Vol. 2</option>
-                    <option>Art Night Vol. 4</option>
-                    <option>Pajama Night</option>
-                  </select>
-                </div>
-                <Button variant="accent" size="lg" className="w-full">
-                  Submit Your Moment
-                </Button>
-              </div>
-            </div>
-          </ScrollReveal>
-        </div>
-      </section>
-
-      {/* Community Grid */}
-      <section className="section-padding bg-secondary/30">
-        <div className="container-narrow">
-          <ScrollReveal>
-            <h2 className="text-display-md mb-8">From the Community</h2>
-          </ScrollReveal>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {communityUploads.map((item, i) => (
-              <ScrollReveal key={i} delay={i * 0.06}>
-                <div>
-                  <img
-                    src={item.img}
-                    alt={`Upload by ${item.alias}`}
-                    className="w-full aspect-square object-cover mb-3"
+              <div>
+                <label className="font-display text-xs tracking-widest uppercase text-foreground-secondary block mb-2">Alias</label>
+                <div className="flex items-center border border-border rounded-md">
+                  <span className="pl-3 text-foreground-secondary"><User size={16} /></span>
+                  <input
+                    value={alias}
+                    onChange={(event) => setAlias(event.target.value)}
+                    placeholder="How should we credit you?"
+                    className="flex-1 px-3 py-3 bg-transparent text-foreground font-body text-sm focus:outline-none"
                   />
-                  <p className="font-display text-sm font-semibold text-foreground">{item.alias}</p>
-                  <p className="text-xs text-foreground-secondary font-body">{item.event}</p>
                 </div>
-              </ScrollReveal>
-            ))}
+              </div>
+
+              <div>
+                <label className="font-display text-xs tracking-widest uppercase text-foreground-secondary block mb-2">Event</label>
+                <select
+                  value={eventId}
+                  onChange={(event) => setEventId(event.target.value)}
+                  className="w-full border border-border bg-transparent px-3 py-3 font-body text-sm text-foreground focus:outline-none rounded-md"
+                >
+                  <option value="">Select an event</option>
+                  {events.map((event) => (
+                    <option key={event.id} value={event.id}>{event.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <p className="text-xs text-foreground-secondary">
+                Upload policy notice: offensive, unrelated, or copyrighted content may be rejected.
+              </p>
+
+              <Button variant="accent" size="lg" className="w-full" onClick={submitUpload}>
+                {uploadState === "uploading" || submitUploadMutation.isPending || uploadMediaMutation.isPending ? "Uploading..." : "Submit Your Moment"}
+              </Button>
+            </div>
+          </div>
+
+          <aside className="border border-border bg-secondary/20 p-4 md:p-5 rounded-md">
+            <h3 className="font-display text-sm text-foreground mb-3">Image Preview</h3>
+            {preview ? (
+              <img src={preview} alt="Selected upload" className="w-full aspect-[4/5] object-cover mb-3" />
+            ) : (
+              <div className="border border-border bg-background p-8 text-center text-xs text-foreground-secondary mb-3">
+                Preview will appear here
+              </div>
+            )}
+            <p className="text-xs text-foreground-secondary">Status: {uploadState}</p>
+          </aside>
+        </div>
+
+        <div>
+          <h2 className="font-display text-2xl text-foreground mb-4">Approved Community Uploads</h2>
+          {isApprovedUploadsLoading && <p className="text-sm text-foreground-secondary mb-3">Loading approved uploads...</p>}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {approvedUploads.map((upload) => {
+              const event = events.find((item) => item.id === upload.eventId);
+              return <UploadCard key={upload.id} upload={upload} eventTitle={event?.title ?? "Event"} />;
+            })}
           </div>
         </div>
-      </section>
-    </>
+      </div>
+    </section>
   );
 }

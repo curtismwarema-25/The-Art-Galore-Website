@@ -1,139 +1,136 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import ScrollReveal from "@/components/ScrollReveal";
-import ParallaxText from "@/components/ParallaxText";
-
-import gallery1 from "@/assets/gallery-1.jpg";
-import gallery2 from "@/assets/gallery-2.jpg";
-import gallery3 from "@/assets/gallery-3.jpg";
-import gallery4 from "@/assets/gallery-4.jpg";
-import sipPaint from "@/assets/sip-paint.jpg";
-import artNight from "@/assets/art-night.jpg";
-import pajamaNight from "@/assets/pajama-night.jpg";
-import heroImg from "@/assets/hero-art-event.jpg";
-
-const filters = ["All", "Sip & Paint", "Art Night", "Pajama Night"];
-
-const galleryItems = [
-  { img: gallery1, event: "Sip & Paint", title: "Faces of Kisii" },
-  { img: gallery2, event: "Art Night", title: "Golden Hour" },
-  { img: gallery3, event: "Sip & Paint", title: "The Gaze" },
-  { img: gallery4, event: "Pajama Night", title: "Savanna Dreams" },
-  { img: sipPaint, event: "Sip & Paint", title: "Brushwork" },
-  { img: artNight, event: "Art Night", title: "Exhibition View" },
-  { img: pajamaNight, event: "Pajama Night", title: "Late Night Canvas" },
-  { img: heroImg, event: "Art Night", title: "Collective Session" },
-];
+import PageHeader from "@/components/common/PageHeader";
+import FilterBar from "@/components/common/FilterBar";
+import EmptyState from "@/components/common/EmptyState";
+import LoadingSkeleton from "@/components/common/LoadingSkeleton";
+import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
+import { useGalleryQuery } from "@/hooks/queries/useGalleryQuery";
 
 export default function Gallery() {
-  const [activeFilter, setActiveFilter] = useState("All");
-  const [lightboxImg, setLightboxImg] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [eventFilter, setEventFilter] = useState("all");
+  const [lightboxId, setLightboxId] = useState<string | null>(null);
 
-  const filtered = activeFilter === "All"
-    ? galleryItems
-    : galleryItems.filter((item) => item.event === activeFilter);
+  const { data: events = [], isLoading: isEventsLoading, isError: hasEventsError } = useEventsQuery();
+  const { data: galleryImages = [], isLoading: isGalleryLoading, isError: hasGalleryError } = useGalleryQuery();
+  const isLoading = isEventsLoading || isGalleryLoading;
+  const hasError = hasEventsError || hasGalleryError;
+
+  const filteredImages = useMemo(() => {
+    const normalized = search.trim().toLowerCase();
+
+    return galleryImages
+      .filter((image) => (eventFilter === "all" ? true : image.eventId === eventFilter))
+      .filter((image) => {
+        if (!normalized) return true;
+        const event = events.find((item) => item.id === image.eventId);
+        return (
+          image.caption.toLowerCase().includes(normalized) ||
+          (event?.title.toLowerCase().includes(normalized) ?? false)
+        );
+      })
+      .sort((a, b) => a.sortOrder - b.sortOrder);
+  }, [eventFilter, events, galleryImages, search]);
+
+  const selectedImage = filteredImages.find((image) => image.id === lightboxId);
 
   return (
-    <>
-      <section className="section-padding pb-8">
-        <div className="container-narrow">
-          <ScrollReveal>
-            <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-4">
-              Archive
-            </p>
-            <h1 className="text-display-xl mb-4">Gallery</h1>
-            <p className="text-body-lg max-w-lg">
-              Moments captured, stories preserved.
-            </p>
-          </ScrollReveal>
-        </div>
-      </section>
+    <section className="section-padding">
+      <div className="container-narrow space-y-6 md:space-y-8">
+        <PageHeader
+          eyebrow="Archive"
+          title="Gallery"
+          description="Explore event galleries, archive moments, and community visual storytelling."
+        />
 
-      <div className="relative overflow-hidden mb-4">
-        <ParallaxText className="watermark-text absolute top-0 left-0 whitespace-nowrap" speed={0.2}>
-          ARCHIVE
-        </ParallaxText>
-      </div>
+        <FilterBar
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search by caption or event"
+          filters={[
+            {
+              key: "event",
+              label: "Event",
+              value: eventFilter,
+              onChange: setEventFilter,
+              options: [
+                { label: "All Events", value: "all" },
+                ...events.map((event) => ({ label: event.title, value: event.id })),
+              ],
+            },
+          ]}
+        />
 
-      {/* Filters */}
-      <section className="px-4 md:px-8 lg:px-16 pb-8">
-        <div className="container-narrow">
-          <div className="flex gap-2 flex-wrap">
-            {filters.map((f) => (
-              <button
-                key={f}
-                onClick={() => setActiveFilter(f)}
-                className={`px-4 py-2 font-display text-xs tracking-widest uppercase transition-colors ${
-                  activeFilter === f
-                    ? "bg-accent text-accent-foreground"
-                    : "border border-border text-foreground-secondary hover:text-foreground"
-                }`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+        {isLoading && <LoadingSkeleton rows={4} />}
 
-      {/* Masonry Grid */}
-      <section className="px-4 md:px-8 lg:px-16 pb-16">
-        <div className="container-narrow">
+        {hasError && (
+          <EmptyState
+            title="Gallery unavailable"
+            description="Error state placeholder. Wire to backend image request failures."
+          />
+        )}
+
+        {!isLoading && !hasError && filteredImages.length === 0 && (
+          <EmptyState
+            title="No gallery images found"
+            description="Try another event filter or search term."
+          />
+        )}
+
+        {!isLoading && !hasError && filteredImages.length > 0 && (
           <div className="columns-2 md:columns-3 gap-4 space-y-4">
-            {filtered.map((item, i) => (
-              <ScrollReveal key={`${item.title}-${i}`} delay={i * 0.04}>
+            {filteredImages.map((image) => {
+              const event = events.find((eventItem) => eventItem.id === image.eventId);
+              return (
                 <button
-                  onClick={() => setLightboxImg(item.img)}
-                  className="block w-full group relative break-inside-avoid"
+                  key={image.id}
+                  onClick={() => setLightboxId(image.id)}
+                  className="block w-full break-inside-avoid relative group"
                 >
-                  <img
-                    src={item.img}
-                    alt={item.title}
-                    className="w-full object-cover group-hover:opacity-90 transition-opacity"
-                  />
-                  <div className="absolute inset-0 bg-foreground/0 group-hover:bg-foreground/40 transition-colors duration-300 flex items-end p-4">
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                      <p className="text-background font-display font-semibold text-sm">{item.title}</p>
-                      <p className="text-background/70 text-xs font-body">{item.event}</p>
+                  <img src={image.image} alt={image.caption} className="w-full object-cover" />
+                  <div className="absolute inset-0 bg-foreground/0 group-hover:bg-foreground/40 transition-colors duration-300 flex items-end p-3">
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 text-left">
+                      <p className="text-background font-display text-sm">{image.caption}</p>
+                      <p className="text-background/75 text-xs">{event?.title}</p>
                     </div>
                   </div>
                 </button>
-              </ScrollReveal>
-            ))}
+              );
+            })}
           </div>
-        </div>
-      </section>
+        )}
+      </div>
 
-      {/* Lightbox */}
       <AnimatePresence>
-        {lightboxImg && (
+        {selectedImage && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-foreground/90 flex items-center justify-center p-4"
-            onClick={() => setLightboxImg(null)}
+            onClick={() => setLightboxId(null)}
           >
             <button
               className="absolute top-4 right-4 text-background hover:text-accent transition-colors"
-              onClick={() => setLightboxImg(null)}
+              onClick={() => setLightboxId(null)}
               aria-label="Close lightbox"
             >
               <X size={28} />
             </button>
-            <motion.img
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              src={lightboxImg}
-              alt="Gallery full view"
-              className="max-w-full max-h-[85vh] object-contain"
-              onClick={(e) => e.stopPropagation()}
-            />
+            <div onClick={(event) => event.stopPropagation()} className="max-w-4xl w-full">
+              <img src={selectedImage.image} alt={selectedImage.caption} className="w-full max-h-[78vh] object-contain" />
+              <div className="mt-3 text-center">
+                <p className="text-background font-display text-base">{selectedImage.caption}</p>
+                <p className="text-background/75 text-sm">
+                  {events.find((event) => event.id === selectedImage.eventId)?.title}
+                </p>
+              </div>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
-    </>
+    </section>
   );
 }
