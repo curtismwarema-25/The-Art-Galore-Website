@@ -59,11 +59,18 @@ enum TicketTierStatus {
 }
 
 enum OrderStatus {
-  PENDING
+  PENDING_PAYMENT
+  PAYMENT_SUBMITTED
+  PAYMENT_VERIFIED
+  PAYMENT_REJECTED
   PAID
-  FAILED
   EXPIRED
-  REFUNDED
+}
+
+enum PaymentVerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum TicketStatus {
@@ -130,6 +137,7 @@ model AuthUser {
   sessions       AuthSession[]
   ticketCheckIns TicketCheckIn[]         @relation("CheckInByUser")
   uploadReviews  CommunityUploadReview[]
+  paymentReviews PaymentProofSubmission[] @relation("PaymentProofReviewedBy")
 }
 
 model AuthSession {
@@ -153,9 +161,21 @@ model Person {
   id                 String       @id @default(cuid()) @db.VarChar(191)
   slug               String       @unique @db.VarChar(191)
   fullName           String       @db.VarChar(191)
+  preferredName      String?      @db.VarChar(191)
+  pronunciation      String?      @db.VarChar(191)
+  email              String?      @db.VarChar(191)
+  phone              String?      @db.VarChar(64)
+  city               String?      @db.VarChar(191)
+  preferredContactMethod String?  @db.VarChar(64)
   headline           String?      @db.VarChar(191)
   bio                String       @db.Text
+  shortBio           String?      @db.Text
+  quote              String?      @db.VarChar(500)
+  artistStatement    String?      @db.Text
   medium             String?      @db.VarChar(191)
+  primaryArtForm     String?      @db.VarChar(191)
+  secondaryArtForm   String?      @db.VarChar(191)
+  yearsPracticing    String?      @db.VarChar(191)
   profileImageUrl    String?      @db.VarChar(500)
   profileStorageKey  String?      @db.VarChar(255)
   profileMimeType    String?      @db.VarChar(100)
@@ -170,6 +190,9 @@ model Person {
   coverHeight        Int?
   displayOrder       Int          @default(0)
   status             PersonStatus @default(ACTIVE)
+  importedFrom       String?      @db.VarChar(100)
+  consentGiven       Boolean?
+  importMetadata     Json?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -179,6 +202,7 @@ model Person {
   participations EventParticipation[]
 
   @@index([status, displayOrder])
+  @@index([email])
 }
 
 model PersonRole {
@@ -387,16 +411,18 @@ model BuyerProfile {
 model Order {
   id                  String              @id @default(cuid()) @db.VarChar(191)
   orderNumber         String              @unique @db.VarChar(40)
+  publicToken         String              @unique @db.VarChar(191)
   eventId             String              @db.VarChar(191)
   buyerId             String              @db.VarChar(191)
-  buyerFullName       String              @db.VarChar(191)
+  buyerName           String              @map("buyerFullName") @db.VarChar(191)
   buyerPhone          String              @db.VarChar(32)
   buyerEmail          String?             @db.VarChar(191)
-  status              OrderStatus         @default(PENDING)
+  status              OrderStatus         @default(PENDING_PAYMENT)
   currency            String              @default("KES") @db.VarChar(3)
   subtotalAmount      Decimal             @db.Decimal(12, 2)
   totalAmount         Decimal             @db.Decimal(12, 2)
   reservationExpiresAt DateTime
+  verificationSubmittedAt DateTime?
   ticketDeliveryStatus TicketDeliveryStatus @default(PENDING)
   placedAt            DateTime            @default(now())
   paidAt              DateTime?
@@ -411,6 +437,7 @@ model Order {
   items               OrderItem[]
   tickets             Ticket[]
   paymentTransactions PaymentTransaction[]
+  paymentProofSubmissions PaymentProofSubmission[]
 
   @@index([eventId, status, createdAt])
   @@index([status, reservationExpiresAt])
@@ -439,6 +466,7 @@ model OrderItem {
 model Ticket {
   id          String       @id @default(cuid()) @db.VarChar(191)
   ticketNumber String      @unique @db.VarChar(50)
+  publicTicketToken String @unique @db.VarChar(191)
   orderId      String      @db.VarChar(191)
   orderItemId  String      @db.VarChar(191)
   eventId      String      @db.VarChar(191)
@@ -461,6 +489,35 @@ model Ticket {
   @@index([eventId, status])
   @@index([orderId])
   @@index([buyerId])
+}
+
+model PaymentProofSubmission {
+  id                   String                    @id @default(cuid()) @db.VarChar(191)
+  orderId              String                    @db.VarChar(191)
+  paymentMethod        PaymentProvider
+  payerName            String                    @db.VarChar(191)
+  phoneNumber          String                    @db.VarChar(32)
+  amountPaid           Decimal                   @db.Decimal(12, 2)
+  transactionReference String                    @db.VarChar(191)
+  screenshotUrl        String?                   @db.VarChar(500)
+  screenshotStorageKey String?                   @db.VarChar(255)
+  screenshotMimeType   String?                   @db.VarChar(100)
+  screenshotSizeBytes  Int?
+  notes                String?                   @db.Text
+  verificationStatus   PaymentVerificationStatus @default(PENDING)
+  verificationNote     String?                   @db.VarChar(500)
+  submittedAt          DateTime                  @default(now())
+  reviewedAt           DateTime?
+  reviewedByUserId     String?                   @db.VarChar(191)
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  reviewedBy AuthUser? @relation("PaymentProofReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, submittedAt])
+  @@index([verificationStatus, submittedAt])
+  @@index([reviewedByUserId, reviewedAt])
 }
 
 model TicketCheckIn {
@@ -594,6 +651,15 @@ model SiteSettings {
   privacyPolicyLink            String   @db.VarChar(500)
   termsLink                    String   @db.VarChar(500)
   refundPolicyLink             String   @db.VarChar(500)
+  manualPaymentEnabled         Boolean  @default(true)
+  bankAccountName              String?  @db.VarChar(191)
+  bankAccountNumber            String?  @db.VarChar(64)
+  bankName                     String?  @db.VarChar(191)
+  bankBranch                   String?  @db.VarChar(191)
+  mpesaPaybill                 String?  @db.VarChar(32)
+  mpesaAccountInstructions     String?  @db.VarChar(500)
+  supportContactText           String?  @db.VarChar(255)
+  mpesaComingSoonMessage       String   @default("Automated M-Pesa checkout coming soon") @db.VarChar(255)
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 

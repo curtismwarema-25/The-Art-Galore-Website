@@ -5,7 +5,13 @@ export type EventPhase = "upcoming" | "past";
 export type EventLifecycle = "draft" | EventPhase | "cancelled";
 
 export type PaymentStatus = "idle" | "initiating" | "pending" | "paid" | "failed" | "refunded";
-export type OrderStatus = "pending" | "paid" | "failed" | "expired" | "refunded";
+export type OrderStatus =
+  | "pending_payment"
+  | "payment_submitted"
+  | "payment_verified"
+  | "payment_rejected"
+  | "paid"
+  | "expired";
 export type TicketDeliveryStatus = "pending" | "sent" | "failed";
 export type CheckInStatus = "checked-in" | "not-checked-in";
 export type ModerationStatus = "pending" | "approved" | "rejected";
@@ -215,6 +221,15 @@ export interface SiteSettings extends BaseRecord {
   privacyPolicyLink: string;
   termsLink: string;
   refundPolicyLink: string;
+  manualPaymentEnabled: boolean;
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankName?: string;
+  bankBranch?: string;
+  mpesaPaybill?: string;
+  mpesaAccountInstructions?: string;
+  supportContactText?: string;
+  mpesaComingSoonMessage: string;
 }
 
 export interface DashboardStats {

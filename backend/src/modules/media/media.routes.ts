@@ -63,7 +63,9 @@ mediaRouter.post("/upload", (req, res, next) => {
       const target = mediaTargetSchema.parse(req.body?.target);
       const context = await resolveAuthContext(req);
 
-      if (target !== "community") {
+      const isPublicTarget = target === "community" || target === "payment-proof";
+
+      if (!isPublicTarget) {
         if (!context) {
           throw new UnauthorizedError("Authentication required");
         }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mediaUrlOrPathSchema } from "../../common/validation/mediaUrl.js";
 
 const moderationStatusSchema = z.enum(["pending", "approved", "rejected"]);
 const reviewDecisionSchema = z.enum(["approved", "rejected"]);
@@ -9,7 +10,7 @@ const uploadMediaSchema = z.object({
   sizeBytes: z.number().int().nonnegative().optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
-  url: z.string().trim().url(),
+  url: mediaUrlOrPathSchema,
 });
 
 export const listCommunityUploadsQuerySchema = z.object({

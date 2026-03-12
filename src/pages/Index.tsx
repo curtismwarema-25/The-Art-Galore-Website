@@ -13,6 +13,7 @@ import { usePartnersQuery } from "@/hooks/queries/usePartnersQuery";
 import { usePeopleQuery } from "@/hooks/queries/usePeopleQuery";
 import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSettingsQuery";
 import type { EventRecord, PartnerRecord, PersonRecord } from "@/types/models";
+import { formInputClassName, formLabelClassName } from "@/lib/formStyles";
 
 import heroImg from "@/assets/hero-art-event.jpg";
 import paintingShot from "@/assets/painting-shot.heic";
@@ -66,7 +67,7 @@ function HeroSection({ heroTitle, heroSubtitle }: { heroTitle: string; heroSubti
             transition={{ delay: 0.2, duration: 0.6 }}
             className="font-display text-xs tracking-[0.3em] uppercase mb-4 text-accent"
           >
-            Art Galore International
+            The Art Galore International
           </motion.p>
           <motion.h1
             initial={{ opacity: 0, y: 24 }}
@@ -193,10 +194,12 @@ function JoinCommunitySection({ whatsappLink }: { whatsappLink: string }) {
                   toast.success("Newsletter signup captured. Backend hook pending.");
                 }}
               >
+                <label className={formLabelClassName}>Email Address</label>
                 <input
                   type="email"
                   placeholder="you@example.com"
-                  className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                  className={formInputClassName}
+                  required
                 />
                 <Button type="submit" variant="outline" size="sm" className="w-full">Subscribe</Button>
               </form>
@@ -376,7 +379,7 @@ function PartnersPreviewSection({ homePartners }: { homePartners: PartnerRecord[
           <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-4">Partners & Collaborations</p>
           <h2 className="text-display-lg mb-5">Partners & Collaborations</h2>
           <p className="text-body-lg max-w-3xl mb-10">
-            Art Galore International collaborates with artists, institutions, brands, and
+            The Art Galore International collaborates with artists, institutions, brands, and
             community organizations to create vibrant cultural experiences.
           </p>
         </ScrollReveal>

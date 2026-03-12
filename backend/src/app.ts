@@ -8,17 +8,43 @@ import { prisma } from "./lib/prisma.js";
 import { resolveMediaRootPath } from "./modules/media/storage/localStorage.js";
 import { registerRoutes } from "./routes.js";
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
+function normalizeOrigin(origin: string) {
+  try {
+    const url = new URL(origin);
+    const port = url.port || (url.protocol === "https:" ? "443" : "80");
+    const host = LOOPBACK_HOSTS.has(url.hostname) ? "loopback" : url.hostname;
+    return `${url.protocol}//${host}:${port}`;
+  } catch {
+    return origin.trim();
+  }
+}
+
+function isLoopbackOrigin(origin: string) {
+  try {
+    const url = new URL(origin);
+    return LOOPBACK_HOSTS.has(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function createApp() {
   const app = express();
 
   const allowedOrigins = env.CORS_ORIGIN.split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const normalizedAllowedOrigins = new Set(allowedOrigins.map((origin) => normalizeOrigin(origin)));
 
   app.use(
     cors({
       origin(origin, callback) {
-        if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+        const originValue = origin ?? "";
+        const allowInDev = Boolean(origin) && env.NODE_ENV !== "production" && isLoopbackOrigin(originValue);
+
+        if (!origin || allowInDev || allowedOrigins.length === 0 || normalizedAllowedOrigins.has(normalizeOrigin(origin))) {
           callback(null, true);
           return;
         }

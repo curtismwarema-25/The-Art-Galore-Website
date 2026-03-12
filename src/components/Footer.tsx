@@ -3,8 +3,8 @@ import { Link } from "react-router-dom";
 import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSettingsQuery";
 
 const fallbackSettings = {
-  siteName: "Art Galore International",
-  footerText: "Art Galore International creates immersive art experiences and community-centered cultural collaborations.",
+  siteName: "The Art Galore International",
+  footerText: "The Art Galore International creates immersive art experiences and community-centered cultural collaborations.",
   instagram: "https://instagram.com/artgaloreinternational",
   x: "https://x.com/artgaloreintl",
   whatsappLink: "https://wa.me/254711000000",

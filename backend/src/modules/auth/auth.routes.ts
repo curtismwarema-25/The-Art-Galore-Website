@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { clearSessionCookie, getSessionCookieName, setSessionCookie } from "../../common/auth/session.js";
+import { UnauthorizedError } from "../../common/errors/httpErrors.js";
 import { authenticate } from "../../common/middleware/authenticate.js";
 import { ADMIN_ACCESS_ROLES, authorize } from "../../common/middleware/authorize.js";
+import { loginRateLimiter } from "../../common/middleware/loginRateLimit.js";
 import { validateRequest } from "../../common/validation/validateRequest.js";
 import { loginRequestSchema } from "./auth.schema.js";
 import { AuthService } from "./auth.service.js";
@@ -11,11 +13,17 @@ export const authRouter = Router();
 const authService = new AuthService();
 
 authRouter.post("/login", validateRequest(loginRequestSchema), async (req, res, next) => {
+  const emailForLimit = typeof req.body?.email === "string" ? req.body.email : undefined;
+  const limiterKey = loginRateLimiter.buildKey(req.ip, emailForLimit);
+
   try {
+    loginRateLimiter.assertAllowed(limiterKey);
+
     const result = await authService.login(req.body, {
       ipAddress: req.ip,
       userAgent: req.get("user-agent") ?? undefined,
     });
+    loginRateLimiter.recordSuccess(limiterKey);
 
     setSessionCookie(res, result.sessionToken);
 
@@ -26,6 +34,10 @@ authRouter.post("/login", validateRequest(loginRequestSchema), async (req, res, 
       },
     });
   } catch (error) {
+    if (error instanceof UnauthorizedError) {
+      loginRateLimiter.recordFailure(limiterKey);
+    }
+
     next(error);
   }
 });

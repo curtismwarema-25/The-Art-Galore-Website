@@ -1,8 +1,10 @@
-import { EventStatus, OrderStatus, PaymentProvider, PaymentStatus, TicketTierStatus, type Prisma } from "@prisma/client";
-import { randomInt } from "node:crypto";
+import { EventStatus, OrderStatus, PaymentProvider, PaymentStatus, type Prisma, TicketTierStatus } from "@prisma/client";
+import { randomBytes, randomInt } from "node:crypto";
 import { NotFoundError, ValidationError } from "../../common/errors/httpErrors.js";
 import { env } from "../../config/index.js";
 import {
+  mapTicketStatusForSerialization,
+  mapVerificationStatus,
   OrdersRepository,
   type CreateOrderWriteInput,
   type EventForOrderRecord,
@@ -16,7 +18,10 @@ import type {
   OrderLifecycleStatus,
   PaymentLifecycleStatus,
   PaymentProviderCode,
+  PublicTrackedOrderRecord,
+  SerializedOrderPaymentProof,
   SerializedOrderRecord,
+  VerificationStatus,
 } from "./orders.types.js";
 
 type RequestedTier = {
@@ -29,17 +34,19 @@ function toFixedAmount(value: number) {
 }
 
 function mapOrderStatus(status: OrderStatus): OrderLifecycleStatus {
+  if (status === OrderStatus.PAYMENT_SUBMITTED) return "payment_submitted";
+  if (status === OrderStatus.PAYMENT_VERIFIED) return "payment_verified";
+  if (status === OrderStatus.PAYMENT_REJECTED) return "payment_rejected";
   if (status === OrderStatus.PAID) return "paid";
-  if (status === OrderStatus.FAILED) return "failed";
   if (status === OrderStatus.EXPIRED) return "expired";
-  if (status === OrderStatus.REFUNDED) return "refunded";
-  return "pending";
+  return "pending_payment";
 }
 
 function mapPaymentStatus(status: PaymentStatus): PaymentLifecycleStatus {
   if (status === PaymentStatus.SUCCEEDED) return "paid";
-  if (status === PaymentStatus.REFUNDED) return "refunded";
-  if (status === PaymentStatus.FAILED || status === PaymentStatus.CANCELLED) return "failed";
+  if (status === PaymentStatus.FAILED || status === PaymentStatus.CANCELLED || status === PaymentStatus.REFUNDED) {
+    return "failed";
+  }
   return "pending";
 }
 
@@ -50,30 +57,54 @@ function mapPaymentProvider(provider: PaymentProvider): PaymentProviderCode {
   return "mpesa";
 }
 
+function mapProofPaymentMethod(provider: PaymentProvider): SerializedOrderPaymentProof["paymentMethod"] {
+  if (provider === PaymentProvider.BANK) return "bank";
+  if (provider === PaymentProvider.MPESA) return "mpesa";
+  return "manual";
+}
+
+function deriveOrderPaymentStatus(order: OrderWithRelations): PaymentLifecycleStatus {
+  if (order.status === OrderStatus.PAID || order.status === OrderStatus.PAYMENT_VERIFIED) {
+    return "paid";
+  }
+
+  if (order.status === OrderStatus.EXPIRED || order.status === OrderStatus.PAYMENT_REJECTED) {
+    return "failed";
+  }
+
+  return "pending";
+}
+
 function mapOrderRecord(order: OrderWithRelations): SerializedOrderRecord {
   const latestPayment = order.paymentTransactions[0] ?? null;
+  const latestProof = order.paymentProofSubmissions[0] ?? null;
 
   return {
     id: order.id,
     orderNumber: order.orderNumber,
+    publicToken: order.publicToken,
     status: mapOrderStatus(order.status),
+    verificationStatus: mapVerificationStatus(latestProof?.verificationStatus),
     currency: order.currency,
     subtotalAmount: Number(order.subtotalAmount),
     totalAmount: Number(order.totalAmount),
     reservationExpiresAt: order.reservationExpiresAt.toISOString(),
+    verificationSubmittedAt: order.verificationSubmittedAt?.toISOString(),
     placedAt: order.placedAt.toISOString(),
     paidAt: order.paidAt?.toISOString(),
     expiredAt: order.expiredAt?.toISOString(),
-    refundedAt: order.refundedAt?.toISOString(),
     event: {
       id: order.event.id,
       slug: order.event.slug,
       title: order.event.title,
+      startAt: order.event.startAt.toISOString(),
+      endAt: order.event.endAt.toISOString(),
+      venueName: order.event.venueName,
     },
     buyer: {
-      fullName: order.buyerFullName,
-      phone: order.buyerPhone,
-      email: order.buyerEmail ?? undefined,
+      buyerName: order.buyerName,
+      buyerPhone: order.buyerPhone,
+      buyerEmail: order.buyerEmail ?? undefined,
     },
     items: order.items.map((item) => ({
       id: item.id,
@@ -97,8 +128,67 @@ function mapOrderRecord(order: OrderWithRelations): SerializedOrderRecord {
           completedAt: latestPayment.completedAt?.toISOString(),
         }
       : null,
+    latestPaymentProof: latestProof
+      ? {
+          id: latestProof.id,
+          paymentMethod: mapProofPaymentMethod(latestProof.paymentMethod),
+          payerName: latestProof.payerName,
+          phoneNumber: latestProof.phoneNumber,
+          amountPaid: Number(latestProof.amountPaid),
+          transactionReference: latestProof.transactionReference,
+          screenshotUrl: latestProof.screenshotUrl ?? undefined,
+          notes: latestProof.notes ?? undefined,
+          verificationStatus: mapVerificationStatus(latestProof.verificationStatus),
+          verificationNote: latestProof.verificationNote ?? undefined,
+          submittedAt: latestProof.submittedAt.toISOString(),
+          reviewedAt: latestProof.reviewedAt?.toISOString(),
+        }
+      : null,
+    tickets: order.tickets.map((ticket) => ({
+      ticketNumber: ticket.ticketNumber,
+      publicTicketToken: ticket.publicTicketToken,
+      qrCodeValue: ticket.qrCodeValue,
+      ticketStatus: mapTicketStatusForSerialization(ticket.status),
+      issuedAt: ticket.issuedAt.toISOString(),
+      checkedInAt: ticket.checkIns[0]?.checkedInAt?.toISOString(),
+    })),
     createdAt: order.createdAt.toISOString(),
     updatedAt: order.updatedAt.toISOString(),
+  };
+}
+
+function mapPublicTrackedOrderRecord(order: OrderWithRelations): PublicTrackedOrderRecord {
+  const latestProof = order.paymentProofSubmissions[0] ?? null;
+  const mappedStatus = mapOrderStatus(order.status);
+  const verificationStatus = mapVerificationStatus(latestProof?.verificationStatus);
+
+  return {
+    orderNumber: order.orderNumber,
+    status: mappedStatus,
+    paymentStatus: deriveOrderPaymentStatus(order),
+    verificationStatus,
+    currency: order.currency,
+    amountDue: Number(order.totalAmount),
+    reservationExpiresAt: order.reservationExpiresAt.toISOString(),
+    verificationSubmittedAt: order.verificationSubmittedAt?.toISOString(),
+    event: {
+      slug: order.event.slug,
+      title: order.event.title,
+      startAt: order.event.startAt.toISOString(),
+      endAt: order.event.endAt.toISOString(),
+      venueName: order.event.venueName,
+    },
+    ticketQuantities: order.items.map((item) => ({
+      tierName: item.ticketTier.name,
+      quantity: item.quantity,
+    })),
+    canSubmitPaymentProof: mappedStatus === "pending_payment" || mappedStatus === "payment_rejected",
+    tickets: order.tickets.map((ticket) => ({
+      ticketNumber: ticket.ticketNumber,
+      publicTicketToken: ticket.publicTicketToken,
+      ticketStatus: mapTicketStatusForSerialization(ticket.status),
+      issuedAt: ticket.issuedAt.toISOString(),
+    })),
   };
 }
 
@@ -125,6 +215,10 @@ export class OrdersService {
     return `ORD-${stamp}-${randomInt(100000, 999999)}`;
   }
 
+  private createPublicToken() {
+    return randomBytes(32).toString("base64url");
+  }
+
   private async getUniqueOrderNumber(tx: Prisma.TransactionClient, now: Date) {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const candidate = this.createOrderNumber(now);
@@ -136,6 +230,19 @@ export class OrdersService {
     }
 
     throw new ValidationError("Unable to generate a unique order number");
+  }
+
+  private async getUniquePublicToken(tx: Prisma.TransactionClient) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const candidate = this.createPublicToken();
+      const exists = await this.repository.publicTokenExists(candidate, tx);
+
+      if (!exists) {
+        return candidate;
+      }
+    }
+
+    throw new ValidationError("Unable to generate a secure order tracking token");
   }
 
   private assertEventCanSellTickets(event: EventForOrderRecord, now: Date) {
@@ -165,26 +272,26 @@ export class OrdersService {
       }
 
       if (tier.status !== TicketTierStatus.ACTIVE) {
-        throw new ValidationError(`Ticket tier "${tier.name}" is not available for purchase`);
+        throw new ValidationError(`Ticket tier \"${tier.name}\" is not available for purchase`);
       }
 
       if (tier.saleStartAt && tier.saleStartAt > now) {
-        throw new ValidationError(`Ticket sales for "${tier.name}" have not started`);
+        throw new ValidationError(`Ticket sales for \"${tier.name}\" have not started`);
       }
 
       if (tier.saleEndAt && tier.saleEndAt < now) {
-        throw new ValidationError(`Ticket sales for "${tier.name}" have ended`);
+        throw new ValidationError(`Ticket sales for \"${tier.name}\" have ended`);
       }
 
       if (tier.maxPerOrder && item.quantity > tier.maxPerOrder) {
-        throw new ValidationError(`Ticket tier "${tier.name}" allows maximum ${tier.maxPerOrder} per order`);
+        throw new ValidationError(`Ticket tier \"${tier.name}\" allows maximum ${tier.maxPerOrder} per order`);
       }
 
       const reserved = reservedQuantities.get(tier.id) ?? 0;
       const available = Math.max(tier.availableQuantity - reserved, 0);
 
       if (item.quantity > available) {
-        throw new ValidationError(`Ticket tier "${tier.name}" has only ${available} ticket(s) remaining`);
+        throw new ValidationError(`Ticket tier \"${tier.name}\" has only ${available} ticket(s) remaining`);
       }
 
       currencies.add(tier.currency);
@@ -219,9 +326,9 @@ export class OrdersService {
     const now = new Date();
     const normalizedKey = idempotencyKey?.trim();
     const normalizedBuyer = {
-      fullName: input.buyer.fullName.trim(),
-      phone: normalizePhone(input.buyer.phone),
-      email: input.buyer.email?.trim() || undefined,
+      buyerName: input.buyer.buyerName.trim(),
+      buyerPhone: normalizePhone(input.buyer.buyerPhone),
+      buyerEmail: input.buyer.buyerEmail?.trim() || undefined,
     };
     const requestedItems = normalizeItems(input.items);
 
@@ -266,16 +373,17 @@ export class OrdersService {
 
       const writeInput: CreateOrderWriteInput = {
         orderNumber: await this.getUniqueOrderNumber(tx, now),
+        publicToken: await this.getUniquePublicToken(tx),
         eventId: event.id,
         buyer: normalizedBuyer,
-        status: OrderStatus.PENDING,
+        status: OrderStatus.PENDING_PAYMENT,
         currency: pricing.currency,
         subtotalAmount: pricing.subtotalAmount,
         totalAmount: pricing.totalAmount,
         reservationExpiresAt,
         items: pricing.items,
         payment: {
-          provider: PaymentProvider.MPESA,
+          provider: PaymentProvider.MANUAL,
           status: PaymentStatus.PENDING,
           amount: pricing.totalAmount,
           currency: pricing.currency,
@@ -284,7 +392,7 @@ export class OrdersService {
           externalRequestId: undefined,
           rawRequest: {
             source: "order-create",
-            orderNumberPending: true,
+            manualFallback: true,
           },
         },
       };
@@ -298,15 +406,15 @@ export class OrdersService {
     };
   }
 
-  async getOrderByOrderNumber(orderNumber: string) {
+  async getPublicTrackedOrder(publicToken: string): Promise<PublicTrackedOrderRecord> {
     await this.repository.expirePendingOrders(new Date());
 
-    const order = await this.repository.getOrderByOrderNumber(orderNumber);
+    const order = await this.repository.getOrderByPublicToken(publicToken);
     if (!order) {
       throw new NotFoundError("Order not found");
     }
 
-    return mapOrderRecord(order);
+    return mapPublicTrackedOrderRecord(order);
   }
 
   async listAdminOrders(filters: AdminOrdersListFilters) {
@@ -324,4 +432,8 @@ export class OrdersService {
 
     return mapOrderRecord(order);
   }
+}
+
+export function toVerificationStatus(order: OrderWithRelations): VerificationStatus {
+  return mapVerificationStatus(order.paymentProofSubmissions[0]?.verificationStatus);
 }

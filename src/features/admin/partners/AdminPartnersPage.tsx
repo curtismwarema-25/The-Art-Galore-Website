@@ -7,7 +7,13 @@ import EmptyState from "@/components/common/EmptyState";
 import FilterBar from "@/components/common/FilterBar";
 import SectionHeader from "@/components/common/SectionHeader";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { adminInputClassName, adminTextareaClassName } from "@/features/admin/shared/utils";
+import {
+  adminCheckboxClassName,
+  adminCheckboxFieldClassName,
+  adminFileInputClassName,
+  adminInputClassName,
+  adminTextareaClassName,
+} from "@/features/admin/shared/utils";
 import { useAuth } from "@/features/auth/AuthContext";
 import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
 import {
@@ -253,7 +259,7 @@ export default function AdminPartnersPage() {
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp,image/svg+xml"
-              className={adminInputClassName}
+              className={adminFileInputClassName}
               disabled={!canWrite || uploadMediaMutation.isPending}
               onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -282,8 +288,8 @@ export default function AdminPartnersPage() {
             <option value="published">Published</option>
             <option value="archived">Archived</option>
           </select>
-          <label className="rounded-md border border-border bg-background px-4 py-3 flex items-center gap-2 text-sm text-foreground">
-            <input type="checkbox" checked={createForm.showOnHomepage} onChange={(event) => setCreateForm((current) => ({ ...current, showOnHomepage: event.target.checked }))} className="h-4 w-4 accent-[hsl(var(--accent))]" />
+          <label className={adminCheckboxFieldClassName}>
+            <input type="checkbox" checked={createForm.showOnHomepage} onChange={(event) => setCreateForm((current) => ({ ...current, showOnHomepage: event.target.checked }))} className={adminCheckboxClassName} />
             Show on homepage
           </label>
           <div className="md:col-span-2">
@@ -388,7 +394,7 @@ export default function AdminPartnersPage() {
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp,image/svg+xml"
-                  className={adminInputClassName}
+                  className={adminFileInputClassName}
                   disabled={!canWrite || uploadMediaMutation.isPending}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
@@ -417,8 +423,8 @@ export default function AdminPartnersPage() {
                 <option value="published">Published</option>
                 <option value="archived">Archived</option>
               </select>
-              <label className="rounded-md border border-border bg-background px-4 py-3 flex items-center gap-2 text-sm text-foreground">
-                <input type="checkbox" checked={editForm.showOnHomepage} onChange={(event) => setEditForm((current) => ({ ...current, showOnHomepage: event.target.checked }))} className="h-4 w-4 accent-[hsl(var(--accent))]" />
+              <label className={adminCheckboxFieldClassName}>
+                <input type="checkbox" checked={editForm.showOnHomepage} onChange={(event) => setEditForm((current) => ({ ...current, showOnHomepage: event.target.checked }))} className={adminCheckboxClassName} />
                 Show on homepage
               </label>
               <div className="md:col-span-2">

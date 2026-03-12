@@ -2,7 +2,14 @@ import { z } from "zod";
 
 const phoneRegex = /^\+?\d{9,15}$/;
 
-const orderStatusSchema = z.enum(["pending", "paid", "failed", "expired", "refunded"]);
+const orderStatusSchema = z.enum([
+  "pending_payment",
+  "payment_submitted",
+  "payment_verified",
+  "payment_rejected",
+  "paid",
+  "expired",
+]);
 
 const createOrderItemSchema = z.object({
   ticketTierId: z.string().trim().min(1),
@@ -10,9 +17,9 @@ const createOrderItemSchema = z.object({
 });
 
 const createOrderBuyerSchema = z.object({
-  fullName: z.string().trim().min(2).max(191),
-  phone: z.string().trim().regex(phoneRegex, "Enter a valid phone number"),
-  email: z.string().trim().email().max(191).optional(),
+  buyerName: z.string().trim().min(2).max(191),
+  buyerPhone: z.string().trim().regex(phoneRegex, "Enter a valid phone number"),
+  buyerEmail: z.string().trim().email().max(191).optional(),
 });
 
 export const createOrderSchema = z.object({
@@ -23,9 +30,9 @@ export const createOrderSchema = z.object({
   }),
 });
 
-export const orderNumberParamsSchema = z.object({
+export const orderTrackingTokenParamsSchema = z.object({
   params: z.object({
-    orderNumber: z.string().trim().min(1).max(40),
+    publicToken: z.string().trim().min(20).max(191),
   }),
 });
 
@@ -44,6 +51,6 @@ export const listAdminOrdersQuerySchema = z.object({
 });
 
 export type CreateOrderBody = z.infer<typeof createOrderSchema>["body"];
-export type OrderNumberParams = z.infer<typeof orderNumberParamsSchema>["params"];
+export type OrderTrackingTokenParams = z.infer<typeof orderTrackingTokenParamsSchema>["params"];
 export type AdminOrderIdParams = z.infer<typeof adminOrderIdParamsSchema>["params"];
 export type ListAdminOrdersQuery = z.infer<typeof listAdminOrdersQuerySchema>["query"];

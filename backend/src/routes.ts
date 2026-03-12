@@ -1,6 +1,5 @@
 import type { Express } from "express";
 import { authRouter } from "./modules/auth/auth.routes.js";
-import { checkinRouter } from "./modules/checkin/checkin.routes.js";
 import { adminEventsRouter, adminTicketTiersRouter } from "./modules/events/events.admin.routes.js";
 import { eventsRouter } from "./modules/events/events.routes.js";
 import { adminGalleryRouter } from "./modules/gallery/gallery.admin.routes.js";
@@ -9,11 +8,11 @@ import { mediaRouter } from "./modules/media/media.routes.js";
 import { adminOrdersRouter, ordersRouter } from "./modules/orders/orders.routes.js";
 import { adminPartnersRouter } from "./modules/partners/partners.admin.routes.js";
 import { partnersRouter } from "./modules/partners/partners.routes.js";
-import { paymentsRouter } from "./modules/payments/payments.routes.js";
+import { adminPaymentsRouter, paymentsRouter } from "./modules/payments/payments.routes.js";
 import { adminPeopleRouter } from "./modules/people/people.admin.routes.js";
 import { peopleRouter } from "./modules/people/people.routes.js";
 import { adminSettingsRouter, settingsRouter } from "./modules/settings/settings.routes.js";
-import { ticketsRouter } from "./modules/tickets/tickets.routes.js";
+import { adminTicketsRouter, ticketsRouter } from "./modules/tickets/tickets.routes.js";
 import { adminUploadsRouter, uploadsRouter } from "./modules/uploads/uploads.routes.js";
 
 export function registerRoutes(app: Express, apiPrefix = "/api") {
@@ -36,12 +35,12 @@ export function registerRoutes(app: Express, apiPrefix = "/api") {
   app.use(`${apiPrefix}/admin/community-uploads`, adminUploadsRouter);
 
   app.use(`${apiPrefix}/admin/orders`, adminOrdersRouter);
+  app.use(`${apiPrefix}/admin/payments`, adminPaymentsRouter);
+  app.use(`${apiPrefix}/admin/tickets`, adminTicketsRouter);
 
-  // Existing placeholders/scaffolds not implemented in this pass.
   app.use(`${apiPrefix}/orders`, ordersRouter);
   app.use(`${apiPrefix}/tickets`, ticketsRouter);
   // Backward-compatible alias for earlier upload path usage.
   app.use(`${apiPrefix}/uploads`, uploadsRouter);
   app.use(`${apiPrefix}/payments`, paymentsRouter);
-  app.use(`${apiPrefix}/checkin`, checkinRouter);
 }

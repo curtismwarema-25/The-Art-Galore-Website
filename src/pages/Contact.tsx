@@ -1,10 +1,43 @@
 import { Mail, Phone, MessageCircle } from "lucide-react";
 import ScrollReveal from "@/components/ScrollReveal";
 import { Button } from "@/components/ui/button";
+import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSettingsQuery";
 
 export default function Contact() {
+  const { data: settings } = usePublicSiteSettingsQuery();
+  const fallbackEmail = "hello@artgaloreinternational.org";
+  const fallbackPhone = "+254 700 000 000";
+  const fallbackWhatsapp = "https://wa.me/254711000000";
+
+  const contactEmail = settings?.contactEmail?.trim() || fallbackEmail;
+  const contactPhone = settings?.contactPhone?.trim() || fallbackPhone;
+  const whatsappLink = settings?.whatsappLink?.trim() || fallbackWhatsapp;
+  const whatsappText = settings?.supportContactText?.trim() || "+254 711 000 000";
+  const partnershipEmail = contactEmail || "partnerships@artgaloreinternational.org";
+
+  const contactMethods = [
+    {
+      icon: Mail,
+      label: "Email",
+      value: contactEmail,
+      href: `mailto:${contactEmail}`,
+    },
+    {
+      icon: Phone,
+      label: "Phone",
+      value: contactPhone,
+      href: `tel:${contactPhone.replace(/\s+/g, "")}`,
+    },
+    {
+      icon: MessageCircle,
+      label: "WhatsApp",
+      value: whatsappText,
+      href: whatsappLink,
+    },
+  ] as const;
+
   return (
-    <section className="section-padding">
+    <section className="section-padding pt-8 md:pt-12 lg:pt-16">
       <div className="container-narrow">
         <ScrollReveal>
           <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-4">Contact</p>
@@ -14,39 +47,22 @@ export default function Contact() {
           </p>
         </ScrollReveal>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {[
-            {
-              icon: Mail,
-              label: "Email",
-              value: "hello@artgaloreinternational.org",
-              href: "mailto:hello@artgaloreinternational.org",
-            },
-            {
-              icon: Phone,
-              label: "Phone",
-              value: "+254 700 000 000",
-              href: "tel:+254700000000",
-            },
-            {
-              icon: MessageCircle,
-              label: "WhatsApp",
-              value: "+254 711 000 000",
-              href: "https://wa.me/254711000000",
-            },
-          ].map((item) => (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
+          {contactMethods.map((item) => (
             <ScrollReveal key={item.label}>
               <a
                 href={item.href}
                 target={item.label === "WhatsApp" ? "_blank" : undefined}
                 rel={item.label === "WhatsApp" ? "noreferrer" : undefined}
-                className="border border-border bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_32px_-20px_hsl(var(--foreground)/0.35)]"
+                className="block h-full rounded-md border border-border bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_32px_-20px_hsl(var(--foreground)/0.35)]"
               >
-                <item.icon size={18} className="text-accent mb-4" />
-                <p className="font-display text-xs tracking-wider uppercase text-foreground-secondary mb-2">
-                  {item.label}
-                </p>
-                <p className="font-display text-sm text-foreground">{item.value}</p>
+                <div className="flex h-full flex-col">
+                  <item.icon size={18} className="text-accent mb-4" />
+                  <p className="font-display text-xs tracking-wider uppercase text-foreground-secondary mb-2">
+                    {item.label}
+                  </p>
+                  <p className="font-display text-sm text-foreground break-words">{item.value}</p>
+                </div>
               </a>
             </ScrollReveal>
           ))}
@@ -62,7 +78,7 @@ export default function Contact() {
               will follow up.
             </p>
             <Button variant="accent" size="lg" asChild>
-              <a href="mailto:partnerships@artgaloreinternational.org">Email Partnerships Team</a>
+              <a href={`mailto:${partnershipEmail}`}>Email Partnerships Team</a>
             </Button>
           </div>
         </ScrollReveal>

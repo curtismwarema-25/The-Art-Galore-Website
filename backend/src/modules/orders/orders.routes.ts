@@ -8,7 +8,7 @@ import {
   adminOrderIdParamsSchema,
   createOrderSchema,
   listAdminOrdersQuerySchema,
-  orderNumberParamsSchema,
+  orderTrackingTokenParamsSchema,
 } from "./orders.schema.js";
 
 const ORDER_ADMIN_READ_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.STAFF];
@@ -35,10 +35,10 @@ ordersRouter.post("/", validateRequest(createOrderSchema), async (req, res, next
   }
 });
 
-ordersRouter.get("/:orderNumber", validateRequest(orderNumberParamsSchema), async (req, res, next) => {
+ordersRouter.get("/track/:publicToken", validateRequest(orderTrackingTokenParamsSchema), async (req, res, next) => {
   try {
-    const { orderNumber } = orderNumberParamsSchema.shape.params.parse(req.params);
-    const order = await ordersService.getOrderByOrderNumber(orderNumber);
+    const { publicToken } = orderTrackingTokenParamsSchema.shape.params.parse(req.params);
+    const order = await ordersService.getPublicTrackedOrder(publicToken);
 
     res.status(200).json({ data: order });
   } catch (error) {

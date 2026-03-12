@@ -21,6 +21,8 @@ const DEFAULT_SETTINGS_DATA: Prisma.SiteSettingsUncheckedCreateInput = {
   privacyPolicyLink: "/privacy-policy",
   termsLink: "/terms-of-use",
   refundPolicyLink: "/ticket-refund-policy",
+  manualPaymentEnabled: true,
+  mpesaComingSoonMessage: "Automated M-Pesa checkout coming soon",
 };
 
 export type SiteSettingsWriteInput = Partial<{
@@ -43,6 +45,15 @@ export type SiteSettingsWriteInput = Partial<{
   privacyPolicyLink: string;
   termsLink: string;
   refundPolicyLink: string;
+  manualPaymentEnabled: boolean;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankName: string | null;
+  bankBranch: string | null;
+  mpesaPaybill: string | null;
+  mpesaAccountInstructions: string | null;
+  supportContactText: string | null;
+  mpesaComingSoonMessage: string;
 }>;
 
 export class SettingsRepository {

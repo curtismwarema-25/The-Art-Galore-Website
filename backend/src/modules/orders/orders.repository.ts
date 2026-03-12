@@ -2,7 +2,9 @@ import {
   EventStatus,
   OrderStatus,
   PaymentStatus,
+  PaymentVerificationStatus,
   type PaymentProvider,
+  TicketStatus,
   TicketTierStatus,
   type Prisma,
   type PrismaClient,
@@ -16,14 +18,9 @@ const orderInclude = {
       id: true,
       slug: true,
       title: true,
-    },
-  },
-  buyer: {
-    select: {
-      id: true,
-      fullName: true,
-      phone: true,
-      email: true,
+      startAt: true,
+      endAt: true,
+      venueName: true,
     },
   },
   items: {
@@ -40,6 +37,26 @@ const orderInclude = {
   },
   paymentTransactions: {
     orderBy: [{ createdAt: "desc" }] as const,
+  },
+  paymentProofSubmissions: {
+    orderBy: [{ submittedAt: "desc" }] as const,
+    include: {
+      reviewedBy: {
+        select: {
+          id: true,
+          fullName: true,
+        },
+      },
+    },
+  },
+  tickets: {
+    orderBy: [{ issuedAt: "asc" }] as const,
+    include: {
+      checkIns: {
+        orderBy: [{ checkedInAt: "desc" }] as const,
+        take: 1,
+      },
+    },
   },
 } satisfies Prisma.OrderInclude;
 
@@ -74,11 +91,12 @@ export type TierForOrderRecord = {
 
 export type CreateOrderWriteInput = {
   orderNumber: string;
+  publicToken: string;
   eventId: string;
   buyer: {
-    fullName: string;
-    phone: string;
-    email?: string;
+    buyerName: string;
+    buyerPhone: string;
+    buyerEmail?: string;
   };
   status: OrderStatus;
   currency: string;
@@ -118,7 +136,7 @@ export class OrdersRepository {
 
     await client.order.updateMany({
       where: {
-        status: OrderStatus.PENDING,
+        status: OrderStatus.PENDING_PAYMENT,
         reservationExpiresAt: { lte: now },
       },
       data: {
@@ -202,7 +220,12 @@ export class OrdersRepository {
               status: OrderStatus.PAID,
             },
             {
-              status: OrderStatus.PENDING,
+              status: {
+                in: [OrderStatus.PAYMENT_SUBMITTED, OrderStatus.PAYMENT_REJECTED, OrderStatus.PAYMENT_VERIFIED],
+              },
+            },
+            {
+              status: OrderStatus.PENDING_PAYMENT,
               reservationExpiresAt: {
                 gt: now,
               },
@@ -228,6 +251,16 @@ export class OrdersRepository {
     return Boolean(existing);
   }
 
+  async publicTokenExists(publicToken: string, tx?: Prisma.TransactionClient) {
+    const client = getClient(tx);
+    const existing = await client.order.findUnique({
+      where: { publicToken },
+      select: { id: true },
+    });
+
+    return Boolean(existing);
+  }
+
   async findOrderByIdempotencyKey(idempotencyKey: string) {
     const record = await prisma.paymentTransaction.findUnique({
       where: { idempotencyKey },
@@ -244,20 +277,21 @@ export class OrdersRepository {
   async createOrder(data: CreateOrderWriteInput, tx: Prisma.TransactionClient): Promise<OrderWithRelations> {
     const buyer = await tx.buyerProfile.create({
       data: {
-        fullName: data.buyer.fullName,
-        phone: data.buyer.phone,
-        email: data.buyer.email,
+        fullName: data.buyer.buyerName,
+        phone: data.buyer.buyerPhone,
+        email: data.buyer.buyerEmail,
       },
     });
 
     return tx.order.create({
       data: {
         orderNumber: data.orderNumber,
+        publicToken: data.publicToken,
         eventId: data.eventId,
         buyerId: buyer.id,
-        buyerFullName: data.buyer.fullName,
-        buyerPhone: data.buyer.phone,
-        buyerEmail: data.buyer.email,
+        buyerName: data.buyer.buyerName,
+        buyerPhone: data.buyer.buyerPhone,
+        buyerEmail: data.buyer.buyerEmail,
         status: data.status,
         currency: data.currency,
         subtotalAmount: data.subtotalAmount,
@@ -289,6 +323,13 @@ export class OrdersRepository {
     });
   }
 
+  async getOrderByPublicToken(publicToken: string) {
+    return prisma.order.findUnique({
+      where: { publicToken },
+      include: orderInclude,
+    });
+  }
+
   async getOrderByOrderNumber(orderNumber: string) {
     return prisma.order.findUnique({
       where: { orderNumber },
@@ -299,22 +340,24 @@ export class OrdersRepository {
   async listAdminOrders(filters: AdminOrdersListFilters) {
     const where: Prisma.OrderWhereInput = {
       status:
-        filters.status === "pending"
-          ? OrderStatus.PENDING
-          : filters.status === "paid"
-            ? OrderStatus.PAID
-            : filters.status === "failed"
-              ? OrderStatus.FAILED
-              : filters.status === "expired"
-                ? OrderStatus.EXPIRED
-                : filters.status === "refunded"
-                  ? OrderStatus.REFUNDED
-                  : undefined,
+        filters.status === "pending_payment"
+          ? OrderStatus.PENDING_PAYMENT
+          : filters.status === "payment_submitted"
+            ? OrderStatus.PAYMENT_SUBMITTED
+            : filters.status === "payment_verified"
+              ? OrderStatus.PAYMENT_VERIFIED
+              : filters.status === "payment_rejected"
+                ? OrderStatus.PAYMENT_REJECTED
+                : filters.status === "paid"
+                  ? OrderStatus.PAID
+                  : filters.status === "expired"
+                    ? OrderStatus.EXPIRED
+                    : undefined,
       eventId: filters.eventId,
       OR: filters.search
         ? [
             { orderNumber: { contains: filters.search } },
-            { buyerFullName: { contains: filters.search } },
+            { buyerName: { contains: filters.search } },
             { buyerPhone: { contains: filters.search } },
             { buyerEmail: { contains: filters.search } },
             { event: { title: { contains: filters.search } } },
@@ -335,4 +378,18 @@ export class OrdersRepository {
       include: orderInclude,
     });
   }
+}
+
+export function mapTicketStatusForSerialization(status: TicketStatus) {
+  if (status === TicketStatus.CHECKED_IN) return "checked_in" as const;
+  if (status === TicketStatus.REVOKED) return "revoked" as const;
+  if (status === TicketStatus.CANCELLED) return "cancelled" as const;
+  return "active" as const;
+}
+
+export function mapVerificationStatus(proofStatus?: PaymentVerificationStatus) {
+  if (proofStatus === PaymentVerificationStatus.APPROVED) return "approved" as const;
+  if (proofStatus === PaymentVerificationStatus.REJECTED) return "rejected" as const;
+  if (proofStatus === PaymentVerificationStatus.PENDING) return "pending_review" as const;
+  return "not_submitted" as const;
 }

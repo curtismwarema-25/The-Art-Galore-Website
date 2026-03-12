@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import { formInputClassName } from "@/lib/formStyles";
 
 type SearchInputProps = {
   value: string;
@@ -14,7 +15,7 @@ export default function SearchInput({ value, onChange, placeholder = "Search" }:
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full border border-border bg-background text-foreground text-sm rounded-md pl-9 pr-3 py-2.5 font-body outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+        className={`${formInputClassName} pl-9 pr-3`}
       />
     </label>
   );

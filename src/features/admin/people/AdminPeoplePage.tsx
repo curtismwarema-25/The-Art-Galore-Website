@@ -10,7 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/sonner";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { adminInputClassName } from "@/features/admin/shared/utils";
+import {
+  adminCheckboxClassName,
+  adminCheckboxFieldClassName,
+  adminFileInputClassName,
+  adminInputClassName,
+  adminTextareaClassName,
+} from "@/features/admin/shared/utils";
 import { useAuth } from "@/features/auth/AuthContext";
 import { validateFile } from "@/features/uploads/uploadService";
 import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
@@ -303,11 +309,12 @@ export default function AdminPeoplePage() {
             <option value="leadership">Leadership</option>
             <option value="member">Member</option>
           </select>
-          <label className="flex items-center gap-2 text-sm text-foreground-secondary">
+          <label className={adminCheckboxFieldClassName}>
             <input
               type="checkbox"
               checked={createForm.isArtist}
               onChange={(event) => setCreateForm((current) => ({ ...current, isArtist: event.target.checked }))}
+              className={adminCheckboxClassName}
             />
             Artist profile
           </label>
@@ -332,7 +339,7 @@ export default function AdminPeoplePage() {
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              className={adminInputClassName}
+              className={adminFileInputClassName}
               disabled={!canWrite || uploadMediaMutation.isPending}
               onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -352,7 +359,7 @@ export default function AdminPeoplePage() {
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              className={adminInputClassName}
+              className={adminFileInputClassName}
               disabled={!canWrite || uploadMediaMutation.isPending}
               onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -372,7 +379,7 @@ export default function AdminPeoplePage() {
             <Textarea
               value={createForm.bio}
               onChange={(event) => setCreateForm((current) => ({ ...current, bio: event.target.value }))}
-              className={adminInputClassName}
+              className={adminTextareaClassName}
               placeholder="Bio"
             />
           </div>
@@ -380,7 +387,7 @@ export default function AdminPeoplePage() {
             <Textarea
               value={createForm.featuredWorks}
               onChange={(event) => setCreateForm((current) => ({ ...current, featuredWorks: event.target.value }))}
-              className={adminInputClassName}
+              className={adminTextareaClassName}
               placeholder="Featured works (comma or newline separated)"
             />
           </div>
@@ -430,7 +437,7 @@ export default function AdminPeoplePage() {
           ) : (
             <DataTable
               headers={["Name", "Role", "Category", "Artist", "Status", "Actions"]}
-              minWidthClassName="min-w-[900px]"
+              minWidthClassName="min-w-[760px] md:min-w-[900px]"
             >
               {people.map((person) => (
                 <tr key={person.id} className="bg-background border border-border">
@@ -503,11 +510,12 @@ export default function AdminPeoplePage() {
                 <option value="leadership">Leadership</option>
                 <option value="member">Member</option>
               </select>
-              <label className="flex items-center gap-2 text-sm text-foreground-secondary">
+              <label className={adminCheckboxFieldClassName}>
                 <input
                   type="checkbox"
                   checked={editForm.isArtist}
                   onChange={(event) => setEditForm((current) => ({ ...current, isArtist: event.target.checked }))}
+                  className={adminCheckboxClassName}
                 />
                 Artist profile
               </label>
@@ -532,7 +540,7 @@ export default function AdminPeoplePage() {
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  className={adminInputClassName}
+                  className={adminFileInputClassName}
                   disabled={!canWrite || uploadMediaMutation.isPending}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
@@ -552,7 +560,7 @@ export default function AdminPeoplePage() {
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  className={adminInputClassName}
+                  className={adminFileInputClassName}
                   disabled={!canWrite || uploadMediaMutation.isPending}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
@@ -572,7 +580,7 @@ export default function AdminPeoplePage() {
                 <Textarea
                   value={editForm.bio}
                   onChange={(event) => setEditForm((current) => ({ ...current, bio: event.target.value }))}
-                  className={adminInputClassName}
+                  className={adminTextareaClassName}
                   placeholder="Bio"
                 />
               </div>
@@ -580,7 +588,7 @@ export default function AdminPeoplePage() {
                 <Textarea
                   value={editForm.featuredWorks}
                   onChange={(event) => setEditForm((current) => ({ ...current, featuredWorks: event.target.value }))}
-                  className={adminInputClassName}
+                  className={adminTextareaClassName}
                   placeholder="Featured works (comma or newline separated)"
                 />
               </div>

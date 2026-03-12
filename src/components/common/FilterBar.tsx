@@ -1,4 +1,5 @@
 import SearchInput from "@/components/common/SearchInput";
+import { formLabelClassName, formSelectClassName } from "@/lib/formStyles";
 
 export type FilterOption = {
   label: string;
@@ -34,13 +35,13 @@ export default function FilterBar({
 
       {filters.map((filter) => (
         <label key={filter.key} className="block">
-          <span className="block mb-1 text-[10px] font-display tracking-[0.16em] uppercase text-foreground-secondary">
+          <span className={formLabelClassName}>
             {filter.label}
           </span>
           <select
             value={filter.value}
             onChange={(event) => filter.onChange(event.target.value)}
-            className="w-full border border-border bg-background text-foreground text-sm rounded-md px-3 py-2.5 font-body outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+            className={formSelectClassName}
           >
             {filter.options.map((option) => (
               <option key={option.value} value={option.value}>

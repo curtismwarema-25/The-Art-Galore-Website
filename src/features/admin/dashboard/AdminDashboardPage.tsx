@@ -40,7 +40,7 @@ export default function AdminDashboardPage() {
     <div className="space-y-5 md:space-y-6">
       <SectionHeader title="Overview" subtitle="Backend-ready operational summary with mock analytics placeholders." />
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 md:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
         {statCards.map((card) => (
           <StatCard
             key={card.key}

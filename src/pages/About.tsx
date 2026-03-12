@@ -50,11 +50,6 @@ export default function About() {
               contributors dedicated to connecting artists and art lovers through immersive events,
               shared experiences, and creative community building.
             </p>
-            <p>
-              Art Galore International is powered by a committed collective of artists, organizers,
-              and members who work together to create meaningful artistic experiences and community
-              events.
-            </p>
           </div>
         </ScrollReveal>
 

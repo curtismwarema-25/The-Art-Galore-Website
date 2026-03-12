@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Calendar,
   ChevronLeft,
@@ -8,11 +8,14 @@ import {
   Image,
   LayoutDashboard,
   LogOut,
+  Menu,
   Settings,
   Ticket,
   Upload,
   Users,
+  X,
 } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import PageHeader from "@/components/common/PageHeader";
 import { useAuth } from "@/features/auth/AuthContext";
 
@@ -36,11 +39,16 @@ function getTitle(pathname: string) {
 
 export default function AdminLayout() {
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, isLoggingOut } = useAuth();
 
   const title = useMemo(() => getTitle(location.pathname), [location.pathname]);
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   async function handleLogout() {
     try {
@@ -50,10 +58,16 @@ export default function AdminLayout() {
     }
   }
 
+  const desktopSidebarWidthClassName = collapsed ? "w-[74px]" : "w-64";
+  const isMobileNavLinkActive = (path: string, end?: boolean) => {
+    if (end) return location.pathname === path;
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+  };
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="min-h-screen flex">
-        <aside className={`${collapsed ? "w-[74px]" : "w-64"} shrink-0 border-r border-border bg-secondary/35 transition-all duration-200`}>
+        <aside className={`${desktopSidebarWidthClassName} hidden md:block shrink-0 border-r border-border bg-secondary/35 transition-all duration-200`}>
           <div className="h-16 px-3 md:px-4 border-b border-border flex items-center justify-between">
             {!collapsed && (
               <div>
@@ -92,12 +106,70 @@ export default function AdminLayout() {
           </nav>
         </aside>
 
-        <main className="flex-1 min-w-0 p-4 md:p-6 lg:p-8 overflow-auto">
-          <div className="max-w-7xl mx-auto">
+        <main className="flex-1 min-w-0 overflow-auto">
+          <div className="mx-auto max-w-screen-xl px-4 py-4 md:px-6 md:py-6 lg:px-8 lg:py-8">
+            <div className="mb-4 md:hidden">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-display font-bold text-base tracking-tight text-foreground">
+                    Art Galore <span className="text-accent">Admin</span>
+                  </p>
+                  <p className="font-display text-[10px] tracking-[0.14em] uppercase text-foreground-secondary">
+                    Control Panel
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen((current) => !current)}
+                  className="text-foreground p-2"
+                  aria-label="Toggle menu"
+                >
+                  {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+                </button>
+              </div>
+
+              <AnimatePresence>
+                {mobileMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.2 }}
+                    className="bg-background border-b border-border mt-2"
+                  >
+                    <div className="px-4 py-6 flex flex-col gap-4">
+                      {navItems.map((item) => (
+                        <Link
+                          key={`mobile-${item.path}`}
+                          to={item.path}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={`font-display text-lg tracking-wide flex items-center gap-2.5 ${
+                            isMobileNavLinkActive(item.path, item.end) ? "text-accent" : "text-foreground"
+                          }`}
+                        >
+                          <item.icon size={18} className="shrink-0" />
+                          <span>{item.label}</span>
+                        </Link>
+                      ))}
+
+                      <button
+                        type="button"
+                        onClick={() => void handleLogout()}
+                        disabled={isLoggingOut}
+                        className="bg-accent text-accent-foreground px-5 py-3 font-display text-sm tracking-widest uppercase text-center mt-2 disabled:opacity-70"
+                      >
+                        {isLoggingOut ? "Signing out..." : "Sign Out"}
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-secondary/20 px-3 py-2">
               <p className="text-xs md:text-sm text-foreground-secondary">
                 Signed in as <span className="text-foreground">{user?.fullName ?? "Admin"}</span>
-                {" · "}
+                {" | "}
                 <span className="uppercase tracking-[0.1em]">{user?.role ?? "admin"}</span>
               </p>
               <button
@@ -118,3 +190,4 @@ export default function AdminLayout() {
     </div>
   );
 }
+

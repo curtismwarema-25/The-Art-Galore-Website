@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mediaUrlOrPathSchema } from "../../common/validation/mediaUrl.js";
 
 const booleanQueryParam = z
   .union([z.boolean(), z.literal("true"), z.literal("false")])
@@ -34,7 +35,7 @@ const galleryMediaSchema = z.object({
   sizeBytes: z.number().int().nonnegative().optional(),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
-  url: z.string().trim().url(),
+  url: mediaUrlOrPathSchema,
   alt: z.string().trim().min(1).max(255).optional(),
 });
 

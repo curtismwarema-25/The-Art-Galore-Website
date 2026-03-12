@@ -4,7 +4,8 @@ export type UploadTarget =
   | "partner-logo"
   | "event-hero"
   | "person-profile"
-  | "person-cover";
+  | "person-cover"
+  | "payment-proof";
 
 export type FileValidationOptions = {
   acceptedMimeTypes?: string[];
@@ -23,6 +24,7 @@ const defaultValidationByTarget: Record<UploadTarget, FileValidationOptions> = {
   "event-hero": { acceptedMimeTypes: ["image/jpeg", "image/png", "image/webp"], maxSizeBytes: 10 * 1024 * 1024 },
   "person-profile": { acceptedMimeTypes: ["image/jpeg", "image/png", "image/webp"], maxSizeBytes: 8 * 1024 * 1024 },
   "person-cover": { acceptedMimeTypes: ["image/jpeg", "image/png", "image/webp"], maxSizeBytes: 10 * 1024 * 1024 },
+  "payment-proof": { acceptedMimeTypes: ["image/jpeg", "image/png", "image/webp"], maxSizeBytes: 5 * 1024 * 1024 },
 };
 
 export function validateFile(file: File, target: UploadTarget, overrides?: FileValidationOptions): FileValidationResult {

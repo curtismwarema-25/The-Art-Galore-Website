@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mediaMetadataSchema, mediaUrlOrPathSchema } from "../../common/validation/mediaUrl.js";
 
 const phaseSchema = z.enum(["upcoming", "past", "all"]);
 const adminEventStatusSchema = z.enum(["draft", "published", "cancelled", "archived"]);
@@ -49,17 +50,7 @@ export const listAdminEventsQuerySchema = z.object({
   }),
 });
 
-const eventMediaMetaSchema = z
-  .object({
-    storageKey: z.string().trim().min(1).max(255).optional(),
-    mimeType: z.string().trim().min(1).max(100).optional(),
-    sizeBytes: z.number().int().nonnegative().optional(),
-    width: z.number().int().positive().optional(),
-    height: z.number().int().positive().optional(),
-    url: z.string().trim().url().optional(),
-    alt: z.string().trim().min(1).max(255).optional(),
-  })
-  .partial();
+const eventMediaMetaSchema = mediaMetadataSchema;
 
 const eventLineupItemSchema = z.object({
   personId: z.string().trim().min(1).optional(),
@@ -80,7 +71,7 @@ const adminCreateEventBodySchema = z.object({
   capacity: z.number().int().positive().optional(),
   status: adminEventStatusSchema.optional(),
   lifecycle: adminEventLifecycleSchema.optional(),
-  heroImage: z.string().trim().url().optional(),
+  heroImage: mediaUrlOrPathSchema.optional(),
   heroImageMeta: eventMediaMetaSchema.optional(),
   highlights: z.array(z.string().trim().min(1).max(255)).max(32).optional(),
   lineup: z.array(eventLineupItemSchema).max(64).optional(),

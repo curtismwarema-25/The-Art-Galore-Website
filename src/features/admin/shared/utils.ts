@@ -1,7 +1,20 @@
-export const adminInputClassName =
-  "w-full border border-border bg-background text-foreground text-sm rounded-md px-3 py-2.5 font-body outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors";
+import {
+  formCheckboxClassName,
+  formCheckboxFieldClassName,
+  formFileInputClassName,
+  formHelperTextClassName,
+  formInputClassName,
+  formLabelClassName,
+  formTextareaClassName,
+} from "@/lib/formStyles";
 
-export const adminTextareaClassName = `${adminInputClassName} min-h-[96px] resize-y`;
+export const adminInputClassName = formInputClassName;
+export const adminTextareaClassName = formTextareaClassName;
+export const adminFileInputClassName = formFileInputClassName;
+export const adminLabelClassName = formLabelClassName;
+export const adminHelperTextClassName = formHelperTextClassName;
+export const adminCheckboxClassName = formCheckboxClassName;
+export const adminCheckboxFieldClassName = formCheckboxFieldClassName;
 
 export function formatMoney(currency: string, amount: number) {
   return `${currency} ${amount.toLocaleString()}`;

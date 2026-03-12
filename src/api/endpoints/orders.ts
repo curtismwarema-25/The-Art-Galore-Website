@@ -8,31 +8,67 @@ type ApiData<T> = {
   };
 };
 
-export type OrderLifecycleStatus = "pending" | "paid" | "failed" | "expired" | "refunded";
-export type OrderPaymentStatus = "pending" | "paid" | "failed" | "refunded";
+export type OrderLifecycleStatus =
+  | "pending_payment"
+  | "payment_submitted"
+  | "payment_verified"
+  | "payment_rejected"
+  | "paid"
+  | "expired";
+export type VerificationStatus = "not_submitted" | "pending_review" | "approved" | "rejected";
+export type OrderPaymentStatus = "pending" | "paid" | "failed";
 export type OrderPaymentProvider = "mpesa" | "card" | "bank" | "manual";
+
+export type OrderPaymentProof = {
+  id: string;
+  paymentMethod: "bank" | "mpesa" | "manual";
+  payerName: string;
+  phoneNumber: string;
+  amountPaid: number;
+  transactionReference: string;
+  screenshotUrl?: string;
+  notes?: string;
+  verificationStatus: VerificationStatus;
+  verificationNote?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+};
+
+export type IssuedOrderTicket = {
+  ticketNumber: string;
+  publicTicketToken: string;
+  qrCodeValue: string;
+  ticketStatus: "active" | "checked_in" | "revoked" | "cancelled";
+  issuedAt: string;
+  checkedInAt?: string;
+};
 
 export type OrderDetailsRecord = {
   id: string;
   orderNumber: string;
+  publicToken: string;
   status: OrderLifecycleStatus;
+  verificationStatus: VerificationStatus;
   currency: string;
   subtotalAmount: number;
   totalAmount: number;
   reservationExpiresAt: string;
+  verificationSubmittedAt?: string;
   placedAt: string;
   paidAt?: string;
   expiredAt?: string;
-  refundedAt?: string;
   event: {
     id: string;
     slug: string;
     title: string;
+    startAt: string;
+    endAt: string;
+    venueName: string;
   };
   buyer: {
-    fullName: string;
-    phone: string;
-    email?: string;
+    buyerName: string;
+    buyerPhone: string;
+    buyerEmail?: string;
   };
   items: Array<{
     id: string;
@@ -54,16 +90,47 @@ export type OrderDetailsRecord = {
     initiatedAt: string;
     completedAt?: string;
   } | null;
+  latestPaymentProof: OrderPaymentProof | null;
+  tickets: IssuedOrderTicket[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type PublicTrackedOrderRecord = {
+  orderNumber: string;
+  status: OrderLifecycleStatus;
+  paymentStatus: OrderPaymentStatus;
+  verificationStatus: VerificationStatus;
+  currency: string;
+  amountDue: number;
+  reservationExpiresAt: string;
+  verificationSubmittedAt?: string;
+  event: {
+    slug: string;
+    title: string;
+    startAt: string;
+    endAt: string;
+    venueName: string;
+  };
+  ticketQuantities: Array<{
+    tierName: string;
+    quantity: number;
+  }>;
+  canSubmitPaymentProof: boolean;
+  tickets: Array<{
+    ticketNumber: string;
+    publicTicketToken: string;
+    ticketStatus: "active" | "checked_in" | "revoked" | "cancelled";
+    issuedAt: string;
+  }>;
 };
 
 export type CreateOrderInput = {
   eventId: string;
   buyer: {
-    fullName: string;
-    phone: string;
-    email?: string;
+    buyerName: string;
+    buyerPhone: string;
+    buyerEmail?: string;
   };
   items: Array<{
     ticketTierId: string;
@@ -98,7 +165,6 @@ function buildAdminOrdersPath(filters?: AdminOrdersFilters) {
 function mapOrderPaymentStatusForLegacy(status: OrderPaymentStatus | undefined): PaymentStatus {
   if (status === "paid") return "paid";
   if (status === "failed") return "failed";
-  if (status === "refunded") return "refunded";
   return "pending";
 }
 
@@ -114,15 +180,15 @@ function mapOrderToLegacyRecord(order: OrderDetailsRecord): OrderRecord {
     updatedAt: order.updatedAt,
     status: order.status,
     eventId: order.event.id,
-    buyerId: order.buyer.phone,
+    buyerId: order.buyer.buyerPhone,
     tierId: firstItem?.ticketTierId ?? "unknown-tier",
     quantity,
     amount: order.totalAmount,
     currency: order.currency as "KES",
     paymentReference: order.payment?.providerReference ?? order.orderNumber,
     paymentStatus: mapOrderPaymentStatusForLegacy(order.payment?.status),
-    ticketDeliveryStatus: "pending",
-    checkedInStatus: "not-checked-in",
+    ticketDeliveryStatus: order.tickets.length > 0 ? "sent" : "pending",
+    checkedInStatus: order.tickets.some((ticket) => ticket.ticketStatus === "checked_in") ? "checked-in" : "not-checked-in",
     payment: {
       provider: order.payment?.provider ?? "manual",
       providerReference: order.payment?.providerReference,
@@ -149,9 +215,9 @@ export async function createOrder(input: CreateOrderInput, idempotencyKey?: stri
   };
 }
 
-export async function getOrderByNumber(orderNumber: string) {
+export async function trackOrder(publicToken: string) {
   try {
-    const response = await apiRequest<ApiData<OrderDetailsRecord>>(`/orders/${orderNumber}`, {
+    const response = await apiRequest<ApiData<PublicTrackedOrderRecord>>(`/orders/track/${publicToken}`, {
       method: "GET",
     });
     return response.data;
@@ -188,13 +254,11 @@ export async function getAdminOrderById(id: string) {
   }
 }
 
-// Legacy compatibility for still-unmigrated admin check-in scaffold.
 export async function getOrders() {
   const orders = await getAdminOrders();
   return orders.map(mapOrderToLegacyRecord);
 }
 
-// Legacy compatibility for still-unmigrated admin check-in scaffold.
 export async function getOrderById(id: string) {
   const order = await getAdminOrderById(id);
   return order ? mapOrderToLegacyRecord(order) : null;

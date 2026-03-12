@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mediaUrlOrPathSchema } from "@/lib/validation/media";
 
 const phoneRegex = /^\+?\d{9,15}$/;
 
@@ -48,17 +49,26 @@ export const siteSettingsFormSchema = z.object({
   featuredEventId: z.string().trim(),
   defaultMetaTitle: z.string().trim().min(5),
   defaultMetaDescription: z.string().trim().min(10),
-  defaultSocialPreviewImage: z.string().trim().min(1),
+  defaultSocialPreviewImage: mediaUrlOrPathSchema,
   privacyPolicyLink: z.string().trim().min(1),
   termsLink: z.string().trim().min(1),
   refundPolicyLink: z.string().trim().min(1),
+  manualPaymentEnabled: z.boolean(),
+  bankAccountName: z.string().trim().optional(),
+  bankAccountNumber: z.string().trim().optional(),
+  bankName: z.string().trim().optional(),
+  bankBranch: z.string().trim().optional(),
+  mpesaPaybill: z.string().trim().optional(),
+  mpesaAccountInstructions: z.string().trim().optional(),
+  supportContactText: z.string().trim().optional(),
+  mpesaComingSoonMessage: z.string().trim().min(3),
 });
 
 export const ticketPurchaseFormSchema = z.object({
   eventId: z.string().trim().min(1),
-  fullName: z.string().trim().min(2, "Enter your name"),
-  phone: z.string().trim().regex(phoneRegex, "Enter a valid phone number"),
-  email: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
+  buyerName: z.string().trim().min(2, "Enter your name"),
+  buyerPhone: z.string().trim().regex(phoneRegex, "Enter a valid phone number"),
+  buyerEmail: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
   quantities: z.record(z.string(), z.number().int().min(0)),
 });
 

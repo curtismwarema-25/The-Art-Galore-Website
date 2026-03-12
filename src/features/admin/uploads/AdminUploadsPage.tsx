@@ -7,7 +7,7 @@ import FilterBar from "@/components/common/FilterBar";
 import SectionHeader from "@/components/common/SectionHeader";
 import StatusBadge from "@/components/common/StatusBadge";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { formatDateTime } from "@/features/admin/shared/utils";
+import { adminInputClassName, formatDateTime } from "@/features/admin/shared/utils";
 import { useAuth } from "@/features/auth/AuthContext";
 import { useDeleteUploadMutation, useModerateUploadMutation } from "@/hooks/mutations/useUploadMutations";
 import { useAdminEventsQuery } from "@/hooks/queries/useAdminEventsQuery";
@@ -205,7 +205,7 @@ export default function AdminUploadsPage() {
                   }))
                 }
                 placeholder="Optional moderation note/reason"
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:ring-2 focus:ring-accent"
+                className={adminInputClassName}
               />
             </article>
           ))}
@@ -243,7 +243,7 @@ export default function AdminUploadsPage() {
                     {uploadDetailQuery.data.reviewHistory.map((review) => (
                       <div key={review.id} className="rounded-md border border-border bg-secondary/20 p-3">
                         <p className="text-xs text-foreground-secondary">
-                          {review.reviewerName} · {review.decision} · {formatDateTime(review.reviewedAt)}
+                          {review.reviewerName} | {review.decision} | {formatDateTime(review.reviewedAt)}
                         </p>
                         {review.notes && <p className="text-sm text-foreground-secondary mt-1">{review.notes}</p>}
                       </div>

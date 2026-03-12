@@ -30,6 +30,7 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Partners from "./pages/Partners";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import OrderTracking from "./pages/OrderTracking";
 import ShareMoment from "./pages/ShareMoment";
 import TermsOfUse from "./pages/TermsOfUse";
 import TicketConfirmation from "./pages/TicketConfirmation";
@@ -57,7 +58,8 @@ const App = () => (
               <Route path="/about" element={<About />} />
               <Route path="/contact" element={<Contact />} />
               <Route path="/share" element={<ShareMoment />} />
-              <Route path="/tickets/:ticketId" element={<TicketConfirmation />} />
+              <Route path="/orders/track/:publicToken" element={<OrderTracking />} />
+              <Route path="/tickets/:publicTicketToken" element={<TicketConfirmation />} />
               <Route path="/privacy-policy" element={<PrivacyPolicy />} />
               <Route path="/terms-of-use" element={<TermsOfUse />} />
               <Route path="/ticket-refund-policy" element={<TicketRefundPolicy />} />

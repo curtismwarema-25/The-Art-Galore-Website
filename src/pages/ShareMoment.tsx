@@ -12,6 +12,13 @@ import { useApprovedUploadsQuery } from "@/hooks/queries/useApprovedUploadsQuery
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
 import type { UploadState } from "@/types/models";
 import { toast } from "@/components/ui/sonner";
+import {
+  formFileInputClassName,
+  formHelperTextClassName,
+  formInputClassName,
+  formLabelClassName,
+  formSelectClassName,
+} from "@/lib/formStyles";
 
 export default function ShareMoment() {
   const { data: events = [] } = useEventsQuery();
@@ -133,29 +140,33 @@ export default function ShareMoment() {
                     setPreview(createPreviewUrl(selected));
                     setUploadState("idle");
                   }}
-                  className="mt-4 w-full text-xs font-body text-foreground-secondary file:mr-3 file:border-0 file:bg-accent/15 file:px-3 file:py-1.5 file:text-xs file:font-display file:tracking-wide file:text-foreground"
+                  className={`mt-4 ${formFileInputClassName}`}
                 />
+                {file && <p className={formHelperTextClassName}>Selected: {file.name}</p>}
               </div>
 
               <div>
-                <label className="font-display text-xs tracking-widest uppercase text-foreground-secondary block mb-2">Alias</label>
-                <div className="flex items-center border border-border rounded-md">
-                  <span className="pl-3 text-foreground-secondary"><User size={16} /></span>
+                <label className={formLabelClassName}>Alias *</label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-foreground-secondary"><User size={16} /></span>
                   <input
                     value={alias}
                     onChange={(event) => setAlias(event.target.value)}
                     placeholder="How should we credit you?"
-                    className="flex-1 px-3 py-3 bg-transparent text-foreground font-body text-sm focus:outline-none"
+                    className={`${formInputClassName} pl-10`}
+                    required
                   />
                 </div>
+                <p className={formHelperTextClassName}>This name appears if your upload is approved.</p>
               </div>
 
               <div>
-                <label className="font-display text-xs tracking-widest uppercase text-foreground-secondary block mb-2">Event</label>
+                <label className={formLabelClassName}>Event *</label>
                 <select
                   value={eventId}
                   onChange={(event) => setEventId(event.target.value)}
-                  className="w-full border border-border bg-transparent px-3 py-3 font-body text-sm text-foreground focus:outline-none rounded-md"
+                  className={formSelectClassName}
+                  required
                 >
                   <option value="">Select an event</option>
                   {events.map((event) => (
@@ -164,7 +175,7 @@ export default function ShareMoment() {
                 </select>
               </div>
 
-              <p className="text-xs text-foreground-secondary">
+              <p className={formHelperTextClassName}>
                 Upload policy notice: offensive, unrelated, or copyrighted content may be rejected.
               </p>
 

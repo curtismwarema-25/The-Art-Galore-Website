@@ -34,4 +34,8 @@ export const mediaValidationByTarget: Record<MediaTarget, MediaValidationRule> =
     acceptedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
     maxSizeBytes: TEN_MB,
   },
+  "payment-proof": {
+    acceptedMimeTypes: ["image/jpeg", "image/png", "image/webp"],
+    maxSizeBytes: FIVE_MB,
+  },
 };

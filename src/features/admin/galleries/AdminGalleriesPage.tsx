@@ -8,7 +8,12 @@ import EmptyState from "@/components/common/EmptyState";
 import FilterBar from "@/components/common/FilterBar";
 import SectionHeader from "@/components/common/SectionHeader";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { adminInputClassName } from "@/features/admin/shared/utils";
+import {
+  adminCheckboxClassName,
+  adminCheckboxFieldClassName,
+  adminFileInputClassName,
+  adminInputClassName,
+} from "@/features/admin/shared/utils";
 import { useAuth } from "@/features/auth/AuthContext";
 import { validateFile } from "@/features/uploads/uploadService";
 import {
@@ -20,31 +25,38 @@ import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation
 import { useAdminEventsQuery } from "@/hooks/queries/useAdminEventsQuery";
 import { useAdminGalleryImageQuery, useAdminGalleryQuery } from "@/hooks/queries/useAdminGalleryQuery";
 import type { GalleryImage, RecordStatus } from "@/types/models";
+import { mediaUrlOrPathSchema } from "@/lib/validation/media";
 
 type GalleryFormState = {
   eventId: string;
   caption: string;
-  imageUrl: string;
-  storageKey: string;
-  mimeType: string;
-  sizeBytes: string;
-  width: string;
-  height: string;
   alt: string;
   featured: boolean;
   status: "published" | "archived";
   sortOrder: string;
 };
 
+type GalleryMediaState = {
+  storageKey: string;
+  mimeType: string;
+  sizeBytes?: number;
+  width?: number;
+  height?: number;
+  url: string;
+};
+
+const galleryMediaSchema = z.object({
+  storageKey: z.string().trim().min(1).max(255),
+  mimeType: z.string().trim().min(3).max(100),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  url: mediaUrlOrPathSchema,
+});
+
 const galleryFormSchema = z.object({
   eventId: z.string().trim().min(1),
   caption: z.string().trim().min(2).max(255),
-  imageUrl: z.string().trim().url(),
-  storageKey: z.string().trim().min(2).max(255),
-  mimeType: z.string().trim().min(3).max(100),
-  sizeBytes: z.string().optional(),
-  width: z.string().optional(),
-  height: z.string().optional(),
   alt: z.string().trim().max(255).optional(),
   featured: z.boolean(),
   status: z.enum(["published", "archived"]),
@@ -54,12 +66,6 @@ const galleryFormSchema = z.object({
 const defaultGalleryForm: GalleryFormState = {
   eventId: "",
   caption: "",
-  imageUrl: "",
-  storageKey: "",
-  mimeType: "image/jpeg",
-  sizeBytes: "",
-  width: "",
-  height: "",
   alt: "",
   featured: false,
   status: "published",
@@ -81,16 +87,25 @@ function mapGalleryToForm(image: GalleryImage): GalleryFormState {
   return {
     eventId: image.eventId,
     caption: image.caption,
-    imageUrl: image.image,
-    storageKey: image.media.storageKey ?? "",
-    mimeType: image.media.mimeType ?? "image/jpeg",
-    sizeBytes: image.media.sizeBytes ? String(image.media.sizeBytes) : "",
-    width: image.media.width ? String(image.media.width) : "",
-    height: image.media.height ? String(image.media.height) : "",
     alt: image.media.alt ?? "",
     featured: image.featured,
     status: image.status === "archived" ? "archived" : "published",
     sortOrder: String(image.sortOrder),
+  };
+}
+
+function mapGalleryToMedia(image: GalleryImage): GalleryMediaState | null {
+  if (!image.media.storageKey || !image.media.mimeType || !image.image) {
+    return null;
+  }
+
+  return {
+    storageKey: image.media.storageKey,
+    mimeType: image.media.mimeType,
+    sizeBytes: image.media.sizeBytes,
+    width: image.media.width,
+    height: image.media.height,
+    url: image.image,
   };
 }
 
@@ -105,6 +120,8 @@ export default function AdminGalleriesPage() {
   const [selectedImageId, setSelectedImageId] = useState("");
   const [createForm, setCreateForm] = useState<GalleryFormState>(defaultGalleryForm);
   const [editForm, setEditForm] = useState<GalleryFormState>(defaultGalleryForm);
+  const [createMedia, setCreateMedia] = useState<GalleryMediaState | null>(null);
+  const [editMedia, setEditMedia] = useState<GalleryMediaState | null>(null);
 
   const adminEventsQuery = useAdminEventsQuery();
   const events = adminEventsQuery.data ?? [];
@@ -142,6 +159,7 @@ export default function AdminGalleriesPage() {
   useEffect(() => {
     if (!selectedImage) return;
     setEditForm(mapGalleryToForm(selectedImage));
+    setEditMedia(mapGalleryToMedia(selectedImage));
   }, [selectedImage]);
 
   async function handleImageUpload(file: File, mode: "create" | "edit") {
@@ -153,19 +171,19 @@ export default function AdminGalleriesPage() {
 
     try {
       const uploaded = await uploadMediaMutation.mutateAsync({ file, target: "gallery" });
-      const next = {
-        imageUrl: uploaded.url,
+      const nextMedia = {
         storageKey: uploaded.storageKey,
         mimeType: uploaded.mimeType,
-        sizeBytes: String(uploaded.sizeBytes),
-        width: uploaded.width ? String(uploaded.width) : "",
-        height: uploaded.height ? String(uploaded.height) : "",
+        sizeBytes: uploaded.sizeBytes,
+        width: uploaded.width,
+        height: uploaded.height,
+        url: uploaded.url,
       };
 
       if (mode === "create") {
-        setCreateForm((current) => ({ ...current, ...next }));
+        setCreateMedia(nextMedia);
       } else {
-        setEditForm((current) => ({ ...current, ...next }));
+        setEditMedia(nextMedia);
       }
 
       toast.success("Image uploaded.");
@@ -187,6 +205,12 @@ export default function AdminGalleriesPage() {
       return;
     }
 
+    const parsedMedia = galleryMediaSchema.safeParse(createMedia);
+    if (!parsedMedia.success) {
+      toast.error(parsedMedia.error.issues[0]?.message ?? "Upload an image before creating gallery record.");
+      return;
+    }
+
     try {
       await createImageMutation.mutateAsync({
         eventId: parsed.data.eventId,
@@ -195,12 +219,12 @@ export default function AdminGalleriesPage() {
         status: parsed.data.status,
         sortOrder: toOptionalNumber(parsed.data.sortOrder),
         media: {
-          storageKey: parsed.data.storageKey.trim(),
-          mimeType: parsed.data.mimeType.trim(),
-          sizeBytes: toOptionalNumber(parsed.data.sizeBytes),
-          width: toOptionalNumber(parsed.data.width),
-          height: toOptionalNumber(parsed.data.height),
-          url: parsed.data.imageUrl.trim(),
+          storageKey: parsedMedia.data.storageKey,
+          mimeType: parsedMedia.data.mimeType,
+          sizeBytes: parsedMedia.data.sizeBytes,
+          width: parsedMedia.data.width,
+          height: parsedMedia.data.height,
+          url: parsedMedia.data.url,
           alt: parsed.data.alt?.trim() || undefined,
         },
       });
@@ -209,6 +233,7 @@ export default function AdminGalleriesPage() {
         ...defaultGalleryForm,
         eventId: current.eventId,
       }));
+      setCreateMedia(null);
       toast.success("Gallery image created.");
     } catch (error) {
       toast.error(formatError(error));
@@ -230,6 +255,12 @@ export default function AdminGalleriesPage() {
       return;
     }
 
+    const parsedMedia = editMedia ? galleryMediaSchema.safeParse(editMedia) : null;
+    if (parsedMedia && !parsedMedia.success) {
+      toast.error(parsedMedia.error.issues[0]?.message ?? "Upload a valid replacement image.");
+      return;
+    }
+
     try {
       await updateImageMutation.mutateAsync({
         id: selectedImageId,
@@ -239,15 +270,17 @@ export default function AdminGalleriesPage() {
           featured: parsed.data.featured,
           status: parsed.data.status,
           sortOrder: toOptionalNumber(parsed.data.sortOrder),
-          media: {
-            storageKey: parsed.data.storageKey.trim(),
-            mimeType: parsed.data.mimeType.trim(),
-            sizeBytes: toOptionalNumber(parsed.data.sizeBytes),
-            width: toOptionalNumber(parsed.data.width),
-            height: toOptionalNumber(parsed.data.height),
-            url: parsed.data.imageUrl.trim(),
-            alt: parsed.data.alt?.trim() || undefined,
-          },
+          media: parsedMedia
+            ? {
+                storageKey: parsedMedia.data.storageKey,
+                mimeType: parsedMedia.data.mimeType,
+                sizeBytes: parsedMedia.data.sizeBytes,
+                width: parsedMedia.data.width,
+                height: parsedMedia.data.height,
+                url: parsedMedia.data.url,
+                alt: parsed.data.alt?.trim() || undefined,
+              }
+            : undefined,
         },
       });
 
@@ -272,6 +305,7 @@ export default function AdminGalleriesPage() {
       if (selectedImageId === id) {
         setSelectedImageId("");
         setEditForm(defaultGalleryForm);
+        setEditMedia(null);
       }
     } catch (error) {
       toast.error(formatError(error));
@@ -329,7 +363,7 @@ export default function AdminGalleriesPage() {
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              className={adminInputClassName}
+              className={adminFileInputClassName}
               disabled={!canWrite || uploadMediaMutation.isPending}
               onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -340,25 +374,25 @@ export default function AdminGalleriesPage() {
             <p className="mt-1 text-xs text-foreground-secondary">
               {uploadMediaMutation.isPending
                 ? "Uploading image..."
-                : createForm.storageKey
+                : createMedia?.storageKey
                   ? "Image upload ready."
                   : "Upload image before creating gallery record."}
             </p>
           </div>
-          <input value={createForm.imageUrl} readOnly className={adminInputClassName} placeholder="Image URL (auto)" />
-          <input value={createForm.storageKey} readOnly className={adminInputClassName} placeholder="Storage key (auto)" />
-          <input value={createForm.mimeType} readOnly className={adminInputClassName} placeholder="Mime type (auto)" />
+          <input value={createMedia?.url ?? ""} readOnly className={adminInputClassName} placeholder="Image URL (auto)" />
+          <input value={createMedia?.storageKey ?? ""} readOnly className={adminInputClassName} placeholder="Storage key (auto)" />
+          <input value={createMedia?.mimeType ?? ""} readOnly className={adminInputClassName} placeholder="Mime type (auto)" />
           <input value={createForm.alt} onChange={(event) => setCreateForm((current) => ({ ...current, alt: event.target.value }))} className={adminInputClassName} placeholder="Alt text (optional)" />
           <input value={createForm.sortOrder} onChange={(event) => setCreateForm((current) => ({ ...current, sortOrder: event.target.value }))} className={adminInputClassName} placeholder="Sort order" />
           <select value={createForm.status} onChange={(event) => setCreateForm((current) => ({ ...current, status: event.target.value as GalleryFormState["status"] }))} className={adminInputClassName}>
             <option value="published">Published</option>
             <option value="archived">Archived</option>
           </select>
-          <input value={createForm.sizeBytes} readOnly className={adminInputClassName} placeholder="Size bytes (auto)" />
-          <input value={createForm.width} readOnly className={adminInputClassName} placeholder="Width (auto)" />
-          <input value={createForm.height} readOnly className={adminInputClassName} placeholder="Height (auto)" />
-          <label className="rounded-md border border-border bg-background px-4 py-3 flex items-center gap-2 text-sm text-foreground">
-            <input type="checkbox" checked={createForm.featured} onChange={(event) => setCreateForm((current) => ({ ...current, featured: event.target.checked }))} className="h-4 w-4 accent-[hsl(var(--accent))]" />
+          <input value={createMedia?.sizeBytes ? String(createMedia.sizeBytes) : ""} readOnly className={adminInputClassName} placeholder="Size bytes (auto)" />
+          <input value={createMedia?.width ? String(createMedia.width) : ""} readOnly className={adminInputClassName} placeholder="Width (auto)" />
+          <input value={createMedia?.height ? String(createMedia.height) : ""} readOnly className={adminInputClassName} placeholder="Height (auto)" />
+          <label className={adminCheckboxFieldClassName}>
+            <input type="checkbox" checked={createForm.featured} onChange={(event) => setCreateForm((current) => ({ ...current, featured: event.target.checked }))} className={adminCheckboxClassName} />
             Featured image
           </label>
           <div className="md:col-span-2 flex justify-end">
@@ -413,7 +447,7 @@ export default function AdminGalleriesPage() {
           {images.length === 0 ? (
             <EmptyState title="No gallery images" description="Create gallery image records to populate this section." />
           ) : (
-            <DataTable headers={["Preview", "Event", "Caption", "Sort", "Featured", "Actions"]} minWidthClassName="min-w-[980px]">
+            <DataTable headers={["Preview", "Event", "Caption", "Sort", "Featured", "Actions"]} minWidthClassName="min-w-[760px] md:min-w-[980px]">
               {images.map((image) => (
                 <tr key={image.id} className="bg-background border border-border">
                   <td className="px-3 py-3">
@@ -470,7 +504,7 @@ export default function AdminGalleriesPage() {
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  className={adminInputClassName}
+                  className={adminFileInputClassName}
                   disabled={!canWrite || uploadMediaMutation.isPending}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
@@ -481,29 +515,29 @@ export default function AdminGalleriesPage() {
                 <p className="mt-1 text-xs text-foreground-secondary">
                   {uploadMediaMutation.isPending
                     ? "Uploading image..."
-                    : editForm.storageKey
+                    : editMedia?.storageKey
                       ? "Image upload ready."
                       : "Upload image to replace existing asset."}
                 </p>
               </div>
-              <input value={editForm.imageUrl} readOnly className={adminInputClassName} placeholder="Image URL (auto)" />
-              <input value={editForm.storageKey} readOnly className={adminInputClassName} placeholder="Storage key (auto)" />
-              <input value={editForm.mimeType} readOnly className={adminInputClassName} placeholder="Mime type (auto)" />
+              <input value={editMedia?.url ?? ""} readOnly className={adminInputClassName} placeholder="Image URL (auto)" />
+              <input value={editMedia?.storageKey ?? ""} readOnly className={adminInputClassName} placeholder="Storage key (auto)" />
+              <input value={editMedia?.mimeType ?? ""} readOnly className={adminInputClassName} placeholder="Mime type (auto)" />
               <input value={editForm.alt} onChange={(event) => setEditForm((current) => ({ ...current, alt: event.target.value }))} className={adminInputClassName} placeholder="Alt text" />
               <input value={editForm.sortOrder} onChange={(event) => setEditForm((current) => ({ ...current, sortOrder: event.target.value }))} className={adminInputClassName} placeholder="Sort order" />
               <select value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as GalleryFormState["status"] }))} className={adminInputClassName}>
                 <option value="published">Published</option>
                 <option value="archived">Archived</option>
               </select>
-              <input value={editForm.sizeBytes} readOnly className={adminInputClassName} placeholder="Size bytes (auto)" />
-              <input value={editForm.width} readOnly className={adminInputClassName} placeholder="Width (auto)" />
-              <input value={editForm.height} readOnly className={adminInputClassName} placeholder="Height (auto)" />
-              <label className="rounded-md border border-border bg-background px-4 py-3 flex items-center gap-2 text-sm text-foreground">
-                <input type="checkbox" checked={editForm.featured} onChange={(event) => setEditForm((current) => ({ ...current, featured: event.target.checked }))} className="h-4 w-4 accent-[hsl(var(--accent))]" />
+              <input value={editMedia?.sizeBytes ? String(editMedia.sizeBytes) : ""} readOnly className={adminInputClassName} placeholder="Size bytes (auto)" />
+              <input value={editMedia?.width ? String(editMedia.width) : ""} readOnly className={adminInputClassName} placeholder="Width (auto)" />
+              <input value={editMedia?.height ? String(editMedia.height) : ""} readOnly className={adminInputClassName} placeholder="Height (auto)" />
+              <label className={adminCheckboxFieldClassName}>
+                <input type="checkbox" checked={editForm.featured} onChange={(event) => setEditForm((current) => ({ ...current, featured: event.target.checked }))} className={adminCheckboxClassName} />
                 Featured image
               </label>
               <div className="md:col-span-2 flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => { setSelectedImageId(""); setEditForm(defaultGalleryForm); }}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => { setSelectedImageId(""); setEditForm(defaultGalleryForm); setEditMedia(null); }}>Cancel</Button>
                 <Button type="submit" variant="accent" disabled={!canWrite || updateImageMutation.isPending}>
                   {updateImageMutation.isPending ? "Saving..." : "Save Changes"}
                 </Button>

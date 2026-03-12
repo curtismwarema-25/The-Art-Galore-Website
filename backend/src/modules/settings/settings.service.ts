@@ -24,6 +24,15 @@ function mapSettingsRecord(settings: {
   privacyPolicyLink: string;
   termsLink: string;
   refundPolicyLink: string;
+  manualPaymentEnabled: boolean;
+  bankAccountName: string | null;
+  bankAccountNumber: string | null;
+  bankName: string | null;
+  bankBranch: string | null;
+  mpesaPaybill: string | null;
+  mpesaAccountInstructions: string | null;
+  supportContactText: string | null;
+  mpesaComingSoonMessage: string;
   createdAt: Date;
   updatedAt: Date;
 }): PublicSiteSettingsRecord {
@@ -51,6 +60,15 @@ function mapSettingsRecord(settings: {
     privacyPolicyLink: settings.privacyPolicyLink,
     termsLink: settings.termsLink,
     refundPolicyLink: settings.refundPolicyLink,
+    manualPaymentEnabled: settings.manualPaymentEnabled,
+    bankAccountName: settings.bankAccountName ?? undefined,
+    bankAccountNumber: settings.bankAccountNumber ?? undefined,
+    bankName: settings.bankName ?? undefined,
+    bankBranch: settings.bankBranch ?? undefined,
+    mpesaPaybill: settings.mpesaPaybill ?? undefined,
+    mpesaAccountInstructions: settings.mpesaAccountInstructions ?? undefined,
+    supportContactText: settings.supportContactText ?? undefined,
+    mpesaComingSoonMessage: settings.mpesaComingSoonMessage,
     createdAt: settings.createdAt.toISOString(),
     updatedAt: settings.updatedAt.toISOString(),
   };
@@ -106,6 +124,19 @@ export class SettingsService {
       privacyPolicyLink: input.privacyPolicyLink?.trim(),
       termsLink: input.termsLink?.trim(),
       refundPolicyLink: input.refundPolicyLink?.trim(),
+      manualPaymentEnabled: input.manualPaymentEnabled,
+      bankAccountName:
+        input.bankAccountName === undefined ? undefined : input.bankAccountName.trim() || null,
+      bankAccountNumber:
+        input.bankAccountNumber === undefined ? undefined : input.bankAccountNumber.trim() || null,
+      bankName: input.bankName === undefined ? undefined : input.bankName.trim() || null,
+      bankBranch: input.bankBranch === undefined ? undefined : input.bankBranch.trim() || null,
+      mpesaPaybill: input.mpesaPaybill === undefined ? undefined : input.mpesaPaybill.trim() || null,
+      mpesaAccountInstructions:
+        input.mpesaAccountInstructions === undefined ? undefined : input.mpesaAccountInstructions.trim() || null,
+      supportContactText:
+        input.supportContactText === undefined ? undefined : input.supportContactText.trim() || null,
+      mpesaComingSoonMessage: input.mpesaComingSoonMessage?.trim(),
     } satisfies SiteSettingsWriteInput);
 
     return mapSettingsRecord(updated);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mediaMetadataSchema, mediaUrlOrPathSchema } from "../../common/validation/mediaUrl.js";
 
 const adminPeopleScopeSchema = z.enum(["all", "artists", "team"]);
 const adminPersonStatusSchema = z.enum(["draft", "published", "archived"]);
@@ -31,17 +32,7 @@ export const listAdminPeopleQuerySchema = z.object({
   }),
 });
 
-const personMediaMetaSchema = z
-  .object({
-    storageKey: z.string().trim().min(1).max(255).optional(),
-    mimeType: z.string().trim().min(1).max(100).optional(),
-    sizeBytes: z.number().int().nonnegative().optional(),
-    width: z.number().int().positive().optional(),
-    height: z.number().int().positive().optional(),
-    url: z.string().trim().url().optional(),
-    alt: z.string().trim().min(1).max(255).optional(),
-  })
-  .partial();
+const personMediaMetaSchema = mediaMetadataSchema;
 
 const eventParticipationSchema = z.object({
   eventId: z.string().trim().min(1),
@@ -56,9 +47,9 @@ const createPersonBodySchema = z.object({
   isArtist: z.boolean(),
   bio: z.string().trim().min(10).max(20_000),
   medium: z.string().trim().min(1).max(191).optional(),
-  image: z.string().trim().url().optional(),
+  image: mediaUrlOrPathSchema.optional(),
   imageMeta: personMediaMetaSchema.optional(),
-  coverImage: z.string().trim().url().optional(),
+  coverImage: mediaUrlOrPathSchema.optional(),
   coverImageMeta: personMediaMetaSchema.optional(),
   status: adminPersonStatusSchema.optional(),
   displayOrder: z.number().int().nonnegative().optional(),

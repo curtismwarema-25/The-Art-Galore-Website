@@ -7,6 +7,7 @@ export const mediaTargets = [
   "person-cover",
   "event-hero",
   "community",
+  "payment-proof",
 ] as const;
 
 export type MediaTarget = (typeof mediaTargets)[number];

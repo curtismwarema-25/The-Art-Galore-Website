@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { mediaMetadataSchema } from "../../common/validation/mediaUrl.js";
 
 const booleanQueryParam = z
   .union([z.boolean(), z.literal("true"), z.literal("false")])
@@ -28,17 +29,7 @@ export const listAdminPartnersQuerySchema = z.object({
   }),
 });
 
-const partnerMediaMetaSchema = z
-  .object({
-    storageKey: z.string().trim().min(1).max(255).optional(),
-    mimeType: z.string().trim().min(1).max(100).optional(),
-    sizeBytes: z.number().int().nonnegative().optional(),
-    width: z.number().int().positive().optional(),
-    height: z.number().int().positive().optional(),
-    url: z.string().trim().url().optional(),
-    alt: z.string().trim().min(1).max(255).optional(),
-  })
-  .partial();
+const partnerMediaMetaSchema = mediaMetadataSchema;
 
 const createPartnerBodySchema = z.object({
   name: z.string().trim().min(2).max(191),

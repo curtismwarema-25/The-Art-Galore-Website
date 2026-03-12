@@ -3,7 +3,8 @@ import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/AuthContext";
-import { adminInputClassName } from "@/features/admin/shared/utils";
+import { adminInputClassName, adminLabelClassName } from "@/features/admin/shared/utils";
+import { formErrorTextClassName, formHelperTextClassName } from "@/lib/formStyles";
 
 const loginSchema = z.object({
   email: z.string().email("Enter a valid email address."),
@@ -58,7 +59,7 @@ export default function AdminLogin() {
 
         <form className="space-y-4" onSubmit={onSubmit}>
           <div className="space-y-2">
-            <label htmlFor="admin-email" className="text-xs tracking-[0.12em] uppercase text-foreground-secondary">Email</label>
+            <label htmlFor="admin-email" className={adminLabelClassName}>Email</label>
             <input
               id="admin-email"
               type="email"
@@ -72,10 +73,11 @@ export default function AdminLogin() {
               className={adminInputClassName}
               placeholder="admin@local.test"
             />
+            <p className={formHelperTextClassName}>Use the email assigned to your staff account.</p>
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="admin-password" className="text-xs tracking-[0.12em] uppercase text-foreground-secondary">Password</label>
+            <label htmlFor="admin-password" className={adminLabelClassName}>Password</label>
             <input
               id="admin-password"
               type="password"
@@ -87,11 +89,11 @@ export default function AdminLogin() {
                 if (loginError) clearLoginError();
               }}
               className={adminInputClassName}
-              placeholder="••••••••"
+              placeholder="Enter your password"
             />
           </div>
 
-          {(validationError || loginError) && <p className="text-sm text-destructive">{validationError ?? loginError}</p>}
+          {(validationError || loginError) && <p className={formErrorTextClassName}>{validationError ?? loginError}</p>}
 
           <Button type="submit" variant="accent" size="default" className="w-full" disabled={isLoggingIn}>
             {isLoggingIn ? "Signing in..." : "Sign in"}

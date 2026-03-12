@@ -4,9 +4,16 @@ import ConfirmationBanner from "@/components/common/ConfirmationBanner";
 import EmptyState from "@/components/common/EmptyState";
 import SectionHeader from "@/components/common/SectionHeader";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { adminInputClassName, adminTextareaClassName } from "@/features/admin/shared/utils";
+import {
+  adminCheckboxClassName,
+  adminFileInputClassName,
+  adminInputClassName,
+  adminTextareaClassName,
+} from "@/features/admin/shared/utils";
 import { siteSettingsFormSchema } from "@/features/forms/schemas";
 import { useAuth } from "@/features/auth/AuthContext";
+import { validateFile } from "@/features/uploads/uploadService";
+import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
 import { useUpdateSiteSettingsMutation } from "@/hooks/mutations/useUpdateSiteSettingsMutation";
 import { useAdminEventsQuery } from "@/hooks/queries/useAdminEventsQuery";
 import { useAdminSiteSettingsQuery } from "@/hooks/queries/useAdminSiteSettingsQuery";
@@ -20,6 +27,7 @@ export default function AdminSettingsPage() {
   const { data, isLoading, isError } = useAdminSiteSettingsQuery();
   const { data: events = [] } = useAdminEventsQuery();
   const mutation = useUpdateSiteSettingsMutation();
+  const uploadMediaMutation = useUploadMediaMutation();
 
   const [settings, setSettings] = useState<SiteSettings | null>(null);
   const [saved, setSaved] = useState(false);
@@ -32,7 +40,11 @@ export default function AdminSettingsPage() {
   const updateField =
     (field: keyof SiteSettings) =>
     (eventInput: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-      const value = eventInput.target.value;
+      const rawTarget = eventInput.target;
+      const value =
+        rawTarget instanceof HTMLInputElement && rawTarget.type === "checkbox"
+          ? rawTarget.checked
+          : rawTarget.value;
       setSaved(false);
       setSettings((current) => (current ? { ...current, [field]: value } : current));
     };
@@ -73,6 +85,15 @@ export default function AdminSettingsPage() {
         privacyPolicyLink: settings.privacyPolicyLink,
         termsLink: settings.termsLink,
         refundPolicyLink: settings.refundPolicyLink,
+        manualPaymentEnabled: settings.manualPaymentEnabled,
+        bankAccountName: settings.bankAccountName,
+        bankAccountNumber: settings.bankAccountNumber,
+        bankName: settings.bankName,
+        bankBranch: settings.bankBranch,
+        mpesaPaybill: settings.mpesaPaybill,
+        mpesaAccountInstructions: settings.mpesaAccountInstructions,
+        supportContactText: settings.supportContactText,
+        mpesaComingSoonMessage: settings.mpesaComingSoonMessage,
       });
       setSaved(true);
       toast.success("Settings saved.");
@@ -80,6 +101,34 @@ export default function AdminSettingsPage() {
       toast.error(error instanceof Error ? error.message : "Failed to save settings.");
     }
   };
+
+  async function handleDefaultPreviewUpload(file: File) {
+    const validation = validateFile(file, "event-hero");
+    if (!validation.valid) {
+      toast.error(validation.error ?? "Invalid image file.");
+      return;
+    }
+
+    try {
+      const uploaded = await uploadMediaMutation.mutateAsync({
+        file,
+        target: "event-hero",
+      });
+
+      setSaved(false);
+      setSettings((current) =>
+        current
+          ? {
+              ...current,
+              defaultSocialPreviewImage: uploaded.url,
+            }
+          : current,
+      );
+      toast.success("Default social preview image uploaded.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Image upload failed.");
+    }
+  }
 
   if (isLoading || !settings) {
     return <p className="text-sm text-foreground-secondary">Loading settings...</p>;
@@ -133,12 +182,68 @@ export default function AdminSettingsPage() {
 
           <input className={adminInputClassName} value={settings.defaultMetaTitle} onChange={updateField("defaultMetaTitle")} placeholder="Default meta title" disabled={!canWrite} />
           <textarea className={adminTextareaClassName} value={settings.defaultMetaDescription} onChange={updateField("defaultMetaDescription")} placeholder="Default description" disabled={!canWrite} />
-          <input className={adminInputClassName} value={settings.defaultSocialPreviewImage} onChange={updateField("defaultSocialPreviewImage")} placeholder="Default social preview image" disabled={!canWrite} />
+          <div className="space-y-2">
+            <input
+              className={adminInputClassName}
+              value={settings.defaultSocialPreviewImage}
+              readOnly
+              placeholder="Default social preview image path"
+              disabled
+            />
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className={adminFileInputClassName}
+              disabled={!canWrite || uploadMediaMutation.isPending}
+              onChange={(eventInput) => {
+                const file = eventInput.target.files?.[0];
+                if (!file) return;
+                void handleDefaultPreviewUpload(file);
+              }}
+            />
+            <p className="text-xs text-foreground-secondary">
+              {uploadMediaMutation.isPending
+                ? "Uploading preview image..."
+                : settings.defaultSocialPreviewImage
+                  ? "Preview image ready."
+                  : "Upload an image to set social preview metadata."}
+            </p>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <input className={adminInputClassName} value={settings.privacyPolicyLink} onChange={updateField("privacyPolicyLink")} placeholder="Privacy policy link" disabled={!canWrite} />
             <input className={adminInputClassName} value={settings.termsLink} onChange={updateField("termsLink")} placeholder="Terms link" disabled={!canWrite} />
             <input className={adminInputClassName} value={settings.refundPolicyLink} onChange={updateField("refundPolicyLink")} placeholder="Refund policy link" disabled={!canWrite} />
+          </div>
+
+          <div className="border border-border rounded-md p-4 space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-foreground">Manual payment fallback</p>
+              <label className="text-xs text-foreground-secondary flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={settings.manualPaymentEnabled}
+                  onChange={updateField("manualPaymentEnabled")}
+                  disabled={!canWrite}
+                  className={adminCheckboxClassName}
+                />
+                Enabled
+              </label>
+            </div>
+            <input className={adminInputClassName} value={settings.mpesaComingSoonMessage} onChange={updateField("mpesaComingSoonMessage")} placeholder="M-Pesa coming soon message" disabled={!canWrite} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input className={adminInputClassName} value={settings.mpesaPaybill ?? ""} onChange={updateField("mpesaPaybill")} placeholder="M-Pesa paybill" disabled={!canWrite} />
+              <input className={adminInputClassName} value={settings.supportContactText ?? ""} onChange={updateField("supportContactText")} placeholder="Support contact text" disabled={!canWrite} />
+            </div>
+            <textarea className={adminTextareaClassName} value={settings.mpesaAccountInstructions ?? ""} onChange={updateField("mpesaAccountInstructions")} placeholder="M-Pesa account instructions" disabled={!canWrite} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input className={adminInputClassName} value={settings.bankName ?? ""} onChange={updateField("bankName")} placeholder="Bank name" disabled={!canWrite} />
+              <input className={adminInputClassName} value={settings.bankBranch ?? ""} onChange={updateField("bankBranch")} placeholder="Bank branch" disabled={!canWrite} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <input className={adminInputClassName} value={settings.bankAccountName ?? ""} onChange={updateField("bankAccountName")} placeholder="Bank account name" disabled={!canWrite} />
+              <input className={adminInputClassName} value={settings.bankAccountNumber ?? ""} onChange={updateField("bankAccountNumber")} placeholder="Bank account number" disabled={!canWrite} />
+            </div>
           </div>
 
           <div className="flex justify-end">

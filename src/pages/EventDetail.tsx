@@ -1,8 +1,7 @@
 import { ChangeEvent, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Handshake, Share2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import ConfirmationBanner from "@/components/common/ConfirmationBanner";
 import EmptyState from "@/components/common/EmptyState";
 import PageHeader from "@/components/common/PageHeader";
 import StatusBadge from "@/components/common/StatusBadge";
@@ -16,12 +15,18 @@ import { useCreateOrderMutation } from "@/hooks/mutations/useCreateOrderMutation
 import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
 import { useSubmitCommunityUploadMutation } from "@/hooks/mutations/useUploadMutations";
 import { useEventQuery } from "@/hooks/queries/useEventQuery";
-import type { OrderDetailsRecord } from "@/api/endpoints/orders";
 import type { PaymentStatus } from "@/types/models";
 import { toast } from "@/components/ui/sonner";
+import {
+  formFileInputClassName,
+  formHelperTextClassName,
+  formInputClassName,
+  formLabelClassName,
+} from "@/lib/formStyles";
 
 export default function EventDetail() {
   const { slug = "" } = useParams();
+  const navigate = useNavigate();
   const { data: event, isLoading, isError } = useEventQuery(slug);
   const createOrderMutation = useCreateOrderMutation();
   const submitUploadMutation = useSubmitCommunityUploadMutation();
@@ -32,7 +37,6 @@ export default function EventDetail() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("idle");
-  const [createdOrder, setCreatedOrder] = useState<OrderDetailsRecord | null>(null);
 
   const [alias, setAlias] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -79,9 +83,9 @@ export default function EventDetail() {
   const initiatePayment = async () => {
     const parsed = ticketPurchaseFormSchema.safeParse({
       eventId: event.id,
-      fullName,
-      phone,
-      email,
+      buyerName: fullName,
+      buyerPhone: phone,
+      buyerEmail: email,
       quantities,
     });
 
@@ -114,23 +118,24 @@ export default function EventDetail() {
         input: {
           eventId: event.id,
           buyer: {
-            fullName: parsed.data.fullName.trim(),
-            phone: parsed.data.phone.trim(),
-            email: parsed.data.email?.trim() || undefined,
+            buyerName: parsed.data.buyerName.trim(),
+            buyerPhone: parsed.data.buyerPhone.trim(),
+            buyerEmail: parsed.data.buyerEmail?.trim() || undefined,
           },
           items: selectedItems,
         },
         idempotencyKey,
       });
 
-      setCreatedOrder(result.order);
-      setPaymentStatus(result.order.status === "paid" ? "paid" : result.order.status === "failed" ? "failed" : "pending");
+      setPaymentStatus(result.order.status === "paid" ? "paid" : result.order.status === "expired" ? "failed" : "pending");
 
       if (result.idempotentReplay) {
-        toast.success(`Loaded existing order ${result.order.orderNumber}.`);
+        toast.success(`Loaded existing order ${result.order.orderNumber}. Redirecting to tracking page.`);
       } else {
-        toast.success(`Order ${result.order.orderNumber} created. Payment is pending.`);
+        toast.success(`Order ${result.order.orderNumber} created. Redirecting to payment tracking.`);
       }
+
+      navigate(`/orders/track/${result.order.publicToken}`);
     } catch (error) {
       setPaymentStatus("failed");
       const message = error instanceof ApiError || error instanceof Error ? error.message : "Could not create order.";
@@ -263,19 +268,20 @@ export default function EventDetail() {
               <h3 className="font-display text-xl text-foreground mb-4">Community Upload</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-3">
+                  <label className={formLabelClassName}>Alias</label>
                   <input
                     value={alias}
                     onChange={(eventInput) => setAlias(eventInput.target.value)}
-                    placeholder="Alias"
-                    className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                    placeholder="How should we credit you?"
+                    className={formInputClassName}
                   />
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleUploadFile}
-                    className="w-full text-xs font-body text-foreground-secondary file:mr-3 file:border-0 file:bg-accent/15 file:px-3 file:py-1.5 file:text-xs file:font-display file:tracking-wide file:text-foreground"
+                    className={formFileInputClassName}
                   />
-                  <p className="text-xs text-foreground-secondary">
+                  <p className={formHelperTextClassName}>
                     Upload policy notice: only event-relevant content will be approved for the public archive.
                   </p>
                   <Button variant="accent" size="sm" onClick={submitCommunityUpload} disabled={submitUploadMutation.isPending}>
@@ -335,41 +341,49 @@ export default function EventDetail() {
           <aside className="space-y-4 lg:sticky lg:top-20 self-start">
             <div className="border border-border bg-card p-5 md:p-6">
               <h3 className="font-display text-lg text-foreground mb-4">Select Tickets</h3>
-              <TicketTierSelector tiers={tiers} quantities={quantities} onIncrease={increaseTier} onDecrease={decreaseTier} />
+              {tiers.length === 0 ? (
+                <p className="text-xs text-foreground-secondary mb-4">
+                  Ticket tiers are not available for this event yet. Check back soon or contact support.
+                </p>
+              ) : (
+                <TicketTierSelector tiers={tiers} quantities={quantities} onIncrease={increaseTier} onDecrease={decreaseTier} />
+              )}
 
               <div className="mt-4">
-                <label className="block mb-1.5 text-[11px] font-display tracking-[0.18em] uppercase text-foreground-secondary">
-                  Full Name
+                <label className={formLabelClassName}>
+                  Full Name *
                 </label>
                 <input
                   value={fullName}
                   onChange={(eventInput) => setFullName(eventInput.target.value)}
                   placeholder="Your full name"
-                  className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                  className={formInputClassName}
+                  required
                 />
               </div>
 
               <div className="mt-3">
-                <label className="block mb-1.5 text-[11px] font-display tracking-[0.18em] uppercase text-foreground-secondary">
-                  M-Pesa Phone Number
+                <label className={formLabelClassName}>
+                  M-Pesa Phone Number *
                 </label>
                 <input
                   value={phone}
                   onChange={(eventInput) => setPhone(eventInput.target.value)}
                   placeholder="07XXXXXXXX"
-                  className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                  className={formInputClassName}
+                  required
                 />
               </div>
 
               <div className="mt-3">
-                <label className="block mb-1.5 text-[11px] font-display tracking-[0.18em] uppercase text-foreground-secondary">
+                <label className={formLabelClassName}>
                   Email (Optional)
                 </label>
                 <input
                   value={email}
                   onChange={(eventInput) => setEmail(eventInput.target.value)}
                   placeholder="you@example.com"
-                  className="w-full border border-border bg-background text-sm px-3 py-2.5 outline-none focus:ring-2 focus:ring-accent"
+                  className={formInputClassName}
                 />
               </div>
 
@@ -383,24 +397,10 @@ export default function EventDetail() {
                 size="lg"
                 className="w-full mt-4"
                 onClick={() => void initiatePayment()}
-                disabled={createOrderMutation.isPending}
+                disabled={createOrderMutation.isPending || tiers.length === 0}
               >
                 {createOrderMutation.isPending ? "Creating Order..." : "Initiate Payment"}
               </Button>
-
-              {createdOrder && (
-                <div className="mt-4">
-                  <ConfirmationBanner
-                    title={`Order ${createdOrder.orderNumber}`}
-                    message={
-                      paymentStatus === "paid"
-                        ? "Payment succeeded. Ticket issuance will run in the next pass."
-                        : `Payment is pending. Reservation expires at ${new Date(createdOrder.reservationExpiresAt).toLocaleString()}.`
-                    }
-                    tone={paymentStatus === "paid" ? "approved" : paymentStatus === "failed" ? "rejected" : "pending"}
-                  />
-                </div>
-              )}
             </div>
 
             <div className="border border-border bg-secondary/15 p-4">

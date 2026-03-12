@@ -7,10 +7,10 @@ type PaymentStatusPanelProps = {
 
 const statusCopy: Record<PaymentStatus, string> = {
   idle: "Ready for payment initiation.",
-  initiating: "Starting payment request...",
-  pending: "Payment request sent. Confirm on M-Pesa.",
-  paid: "Payment confirmed. Ticket is ready.",
-  failed: "Payment failed. Try again or use a different number.",
+  initiating: "Creating your guest order...",
+  pending: "Order created. You will submit manual payment proof on the tracking page.",
+  paid: "Payment verified. Ticket is ready.",
+  failed: "Payment flow failed. Try again.",
   refunded: "Payment refunded.",
 };
 

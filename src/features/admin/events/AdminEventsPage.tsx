@@ -21,7 +21,7 @@ import { validateFile } from "@/features/uploads/uploadService";
 import { useAuth } from "@/features/auth/AuthContext";
 import type { EventLifecycle, EventRecord, RecordStatus, TicketTier } from "@/types/models";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { adminInputClassName } from "@/features/admin/shared/utils";
+import { adminFileInputClassName, adminInputClassName, adminTextareaClassName } from "@/features/admin/shared/utils";
 
 type EventFormState = {
   title: string;
@@ -32,7 +32,6 @@ type EventFormState = {
   lifecycle: EventLifecycle;
   summary: string;
   timezone: string;
-  heroImage: string;
 };
 
 type TicketTierFormState = {
@@ -58,7 +57,6 @@ const eventFormSchema = z
     lifecycle: z.enum(["draft", "upcoming", "past", "cancelled"]),
     summary: z.string().trim().max(500).optional(),
     timezone: z.string().trim().min(1).max(64),
-    heroImage: z.string().trim().url().optional().or(z.literal("")),
   })
   .refine((value) => new Date(value.endAt).getTime() > new Date(value.startAt).getTime(), {
     message: "End date/time must be after start date/time.",
@@ -101,7 +99,6 @@ const defaultEventForm: EventFormState = {
   lifecycle: "draft",
   summary: "",
   timezone: "Africa/Nairobi",
-  heroImage: "",
 };
 
 const defaultTicketTierForm: TicketTierFormState = {
@@ -113,7 +110,7 @@ const defaultTicketTierForm: TicketTierFormState = {
   maxPerOrder: "",
   saleStartAt: "",
   saleEndAt: "",
-  status: "draft",
+  status: "published",
   perks: "",
 };
 
@@ -157,7 +154,6 @@ function mapEventToForm(record: EventRecord): EventFormState {
     lifecycle: record.lifecycle,
     summary: record.summary,
     timezone: record.timezone,
-    heroImage: record.heroImage ?? "",
   };
 }
 
@@ -242,10 +238,8 @@ export default function AdminEventsPage() {
       };
 
       if (mode === "create") {
-        setCreateForm((current) => ({ ...current, heroImage: uploaded.url }));
         setCreateHeroMeta(meta);
       } else {
-        setEditForm((current) => ({ ...current, heroImage: uploaded.url }));
         setEditHeroMeta(meta);
       }
 
@@ -278,7 +272,7 @@ export default function AdminEventsPage() {
         status: lifecycleToStatus(parsed.data.lifecycle),
         summary: parsed.data.summary?.trim() || undefined,
         timezone: parsed.data.timezone.trim(),
-        heroImage: parsed.data.heroImage.trim() || undefined,
+        heroImage: createHeroMeta?.url ?? undefined,
         heroImageMeta: createHeroMeta,
       });
 
@@ -329,7 +323,7 @@ export default function AdminEventsPage() {
           status: lifecycleToStatus(parsed.data.lifecycle),
           summary: parsed.data.summary?.trim() || undefined,
           timezone: parsed.data.timezone.trim(),
-          heroImage: parsed.data.heroImage.trim() || undefined,
+          heroImage: editHeroMeta?.url ?? undefined,
           heroImageMeta: editHeroMeta,
         },
       });
@@ -490,7 +484,7 @@ export default function AdminEventsPage() {
             <Textarea
               value={createForm.summary}
               onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))}
-              className={adminInputClassName}
+              className={adminTextareaClassName}
               placeholder="Summary (optional)"
             />
           </div>
@@ -498,7 +492,7 @@ export default function AdminEventsPage() {
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              className={adminInputClassName}
+              className={adminFileInputClassName}
               disabled={!canManageMedia || uploadMediaMutation.isPending}
               onChange={(event) => {
                 const file = event.target.files?.[0];
@@ -509,7 +503,7 @@ export default function AdminEventsPage() {
             <p className="mt-1 text-xs text-foreground-secondary">
               {uploadMediaMutation.isPending
                 ? "Uploading hero image..."
-                : createForm.heroImage
+                : createHeroMeta?.storageKey
                   ? "Hero image upload ready."
                   : "Optional hero image (JPG/PNG/WEBP)."}
             </p>
@@ -548,7 +542,7 @@ export default function AdminEventsPage() {
         ) : (
           <DataTable
             headers={["Title", "Date", "Venue", "Lifecycle", "Status", "Actions"]}
-            minWidthClassName="min-w-[980px]"
+            minWidthClassName="min-w-[760px] md:min-w-[980px]"
           >
             {records.map((record) => (
               <tr key={record.id} className="bg-background border border-border">
@@ -590,7 +584,7 @@ export default function AdminEventsPage() {
                 <td className="px-3 py-3">
                   <div className="flex items-center gap-2">
                     <Button size="sm" variant="outline" asChild>
-                      <Link to={`/admin/events/${record.id}`}>View</Link>
+                      <Link to={`/admin/events/${record.id}`}>Manage</Link>
                     </Button>
                     <Button size="sm" variant="outline" asChild>
                       <Link to={`/events/${record.slug}`}>
@@ -612,6 +606,15 @@ export default function AdminEventsPage() {
           </DataTable>
         )}
       </AdminSectionCard>
+
+      {!selectedEvent && (
+        <AdminSectionCard title="Ticket Tiers">
+          <p className="text-sm text-foreground-secondary">
+            Select an event using the <span className="font-medium text-foreground">Manage</span> action to create or update
+            ticket tiers.
+          </p>
+        </AdminSectionCard>
+      )}
 
       {selectedEvent && (
         <>
@@ -661,7 +664,7 @@ export default function AdminEventsPage() {
                 <Textarea
                   value={editForm.summary}
                   onChange={(event) => setEditForm((current) => ({ ...current, summary: event.target.value }))}
-                  className={adminInputClassName}
+                  className={adminTextareaClassName}
                   placeholder="Summary"
                 />
               </div>
@@ -669,7 +672,7 @@ export default function AdminEventsPage() {
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
-                  className={adminInputClassName}
+                  className={adminFileInputClassName}
                   disabled={!canManageMedia || uploadMediaMutation.isPending}
                   onChange={(event) => {
                     const file = event.target.files?.[0];
@@ -680,7 +683,7 @@ export default function AdminEventsPage() {
                 <p className="mt-1 text-xs text-foreground-secondary">
                   {uploadMediaMutation.isPending
                     ? "Uploading hero image..."
-                    : editForm.heroImage
+                    : editHeroMeta?.storageKey
                       ? "Hero image upload ready."
                       : "Upload hero image to attach/replace."}
                 </p>
@@ -694,6 +697,9 @@ export default function AdminEventsPage() {
           </AdminSectionCard>
 
           <AdminSectionCard title="Ticket Tiers">
+            <p className="mb-3 text-xs text-foreground-secondary">
+              Public checkout only shows tiers with status <span className="text-foreground font-medium">Published</span>.
+            </p>
             <form onSubmit={handleSubmitTier} className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <input
                 value={tierForm.name}
@@ -766,7 +772,7 @@ export default function AdminEventsPage() {
                 <Textarea
                   value={tierForm.perks}
                   onChange={(event) => setTierForm((current) => ({ ...current, perks: event.target.value }))}
-                  className={adminInputClassName}
+                  className={adminTextareaClassName}
                   placeholder="Perks (comma or newline separated)"
                 />
               </div>
@@ -796,7 +802,7 @@ export default function AdminEventsPage() {
             ) : tiers.length === 0 ? (
               <EmptyState title="No ticket tiers yet" description="Add a tier for this event." />
             ) : (
-              <DataTable headers={["Name", "Price", "Available", "Status", "Actions"]} minWidthClassName="min-w-[860px]">
+              <DataTable headers={["Name", "Price", "Available", "Status", "Actions"]} minWidthClassName="min-w-[720px] md:min-w-[860px]">
                 {tiers.map((tier) => (
                   <tr key={tier.id} className="bg-background border border-border">
                     <td className="px-3 py-3">
@@ -808,7 +814,7 @@ export default function AdminEventsPage() {
                     </td>
                     <td className="px-3 py-3 text-sm text-foreground-secondary">
                       {tier.available}
-                      {tier.maxPerOrder ? ` · Max ${tier.maxPerOrder}/order` : ""}
+                      {tier.maxPerOrder ? ` | Max ${tier.maxPerOrder}/order` : ""}
                     </td>
                     <td className="px-3 py-3">
                       <StatusBadge
