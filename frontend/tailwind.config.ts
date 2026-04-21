@@ -72,6 +72,14 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        /* Lavender & Midnight Brand Colors - Light Mode */
+        brand: {
+          bg: "hsl(0, 0%, 100%)",          /* #FFFFFF - Pure white primary background */
+          surface: "hsl(255, 45%, 93%)",   /* #E8E4F5 - Soft lavender for cards & sections */
+          text: "hsl(246, 47%, 15%)",      /* #141738 - Deep midnight for typography */
+          muted: "hsl(232, 39%, 40%)",     /* #3E458D - Mid-tone indigo for secondary text */
+          accent: "hsl(265, 28%, 55%)",    /* #7B6AB5 - Royal purple for buttons & interactions */
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
