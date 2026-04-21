@@ -42,9 +42,16 @@ export function createApp() {
     cors({
       origin(origin, callback) {
         const originValue = origin ?? "";
+        const allowAllOriginsInDev = env.NODE_ENV !== "production" && env.CORS_ALLOW_ALL_IN_DEV;
         const allowInDev = Boolean(origin) && env.NODE_ENV !== "production" && isLoopbackOrigin(originValue);
 
-        if (!origin || allowInDev || allowedOrigins.length === 0 || normalizedAllowedOrigins.has(normalizeOrigin(origin))) {
+        if (
+          !origin ||
+          allowAllOriginsInDev ||
+          allowInDev ||
+          allowedOrigins.length === 0 ||
+          normalizedAllowedOrigins.has(normalizeOrigin(origin))
+        ) {
           callback(null, true);
           return;
         }
