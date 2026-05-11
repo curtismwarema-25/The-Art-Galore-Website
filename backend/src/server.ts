@@ -3,11 +3,25 @@ import { createApp } from "./app.js";
 import { env } from "./config/index.js";
 import { logger } from "./common/utils/logger.js";
 import { prisma } from "./lib/prisma.js";
+import { OrdersRepository } from "./modules/orders/orders.repository.js";
+import { PaymentsRepository } from "./modules/payments/payments.repository.js";
 
 async function start() {
   try {
     await prisma.$connect();
     logger.info("Prisma connected.");
+
+    const ordersRepository = new OrdersRepository();
+    const paymentsRepository = new PaymentsRepository();
+    const sweepHandle = setInterval(() => {
+      const now = new Date();
+      Promise.all([
+        ordersRepository.expirePendingOrders(now),
+        paymentsRepository.markPendingMpesaTransactionsFailedForExpiredOrders(now),
+      ]).catch((error) => {
+        logger.error("Background payment/order sweep failed", error);
+      });
+    }, env.ORDER_EXPIRY_SWEEP_INTERVAL_SECONDS * 1000);
 
     const app = createApp();
     const server = app.listen(env.PORT, () => {
@@ -16,6 +30,7 @@ async function start() {
 
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}. Shutting down...`);
+      clearInterval(sweepHandle);
       server.close(async () => {
         await prisma.$disconnect();
         process.exit(0);

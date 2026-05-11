@@ -289,7 +289,7 @@ export const mockSiteSettings: SiteSettings = {
   featuredEventId: "event-1",
   defaultMetaTitle: "Art Galore International | Immersive Art Experiences",
   defaultMetaDescription: "Discover events, artists, galleries, and collaborations with Art Galore International.",
-  defaultSocialPreviewImage: "/og-image.jpg",
+  defaultSocialPreviewImage: "/bg.jpg",
   privacyPolicyLink: "/privacy-policy",
   termsLink: "/terms-of-use",
   refundPolicyLink: "/ticket-refund-policy",

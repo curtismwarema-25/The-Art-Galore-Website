@@ -15,7 +15,6 @@ import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSetting
 import type { EventRecord, PartnerRecord, PersonRecord } from "@/types/models";
 import { formInputClassName, formLabelClassName } from "@/lib/formStyles";
 
-import heroImg from "@/assets/hero-art-event.jpg";
 import paintingShot from "@/assets/painting-shot.heic";
 import paintingShot2 from "@/assets/painting-shot-2.heic";
 import paintingShot3 from "@/assets/painting-shot-3.heic";
@@ -52,7 +51,7 @@ function HeroSection({ heroTitle, heroSubtitle }: { heroTitle: string; heroSubti
   return (
     <section ref={ref} className="relative h-screen min-h-[600px] overflow-hidden">
       <motion.div style={{ y: heroY }} className="absolute inset-0 -top-12">
-        <img src={heroImg} alt="Immersive art event" className="w-full h-[120%] object-cover" />
+        <img src="/bg.jpg" alt="Immersive art event" className="w-full h-[120%] object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/40 to-transparent" />
       </motion.div>
 

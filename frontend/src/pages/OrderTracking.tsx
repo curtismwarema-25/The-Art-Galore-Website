@@ -1,11 +1,11 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Upload } from "lucide-react";
 import EmptyState from "@/components/common/EmptyState";
 import PageHeader from "@/components/common/PageHeader";
 import StatusBadge from "@/components/common/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { useSubmitManualPaymentProofMutation } from "@/hooks/mutations/usePaymentMutations";
+import { useInitiateMpesaStkPushMutation, useSubmitManualPaymentProofMutation } from "@/hooks/mutations/usePaymentMutations";
 import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
 import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSettingsQuery";
 import { useTrackOrderQuery } from "@/hooks/queries/useTrackOrderQuery";
@@ -39,10 +39,12 @@ function verificationTone(status: string) {
 
 export default function OrderTracking() {
   const { publicToken = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const { data: order, isLoading, isError } = useTrackOrderQuery(publicToken);
   const { data: settings } = usePublicSiteSettingsQuery();
   const uploadMediaMutation = useUploadMediaMutation();
   const submitProofMutation = useSubmitManualPaymentProofMutation(publicToken);
+  const initiateStkMutation = useInitiateMpesaStkPushMutation(publicToken);
 
   const [paymentMethod, setPaymentMethod] = useState<"bank" | "mpesa" | "manual">("mpesa");
   const [payerName, setPayerName] = useState("");
@@ -52,17 +54,48 @@ export default function OrderTracking() {
   const [notes, setNotes] = useState("");
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
   const [screenshotPreview, setScreenshotPreview] = useState("");
+  const [stkRequested, setStkRequested] = useState(false);
 
   useEffect(() => {
     if (!order) return;
     setAmountPaid(order.amountDue.toString());
-  }, [order]);
+    if (!phoneNumber.trim()) {
+      const candidate = searchParams.get("phone")?.trim();
+      if (candidate) setPhoneNumber(candidate);
+    }
+  }, [order, phoneNumber, searchParams]);
 
   useEffect(() => {
     return () => {
       revokePreviewUrl(screenshotPreview);
     };
   }, [screenshotPreview]);
+
+  useEffect(() => {
+    if (!order || stkRequested || !order.canSubmitPaymentProof) return;
+    if (searchParams.get("autostk") !== "1") return;
+
+    const phone = searchParams.get("phone")?.trim() || "";
+    if (!phone) return;
+
+    const idempotencyKey =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `stk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    setStkRequested(true);
+    initiateStkMutation
+      .mutateAsync({
+        input: { phoneNumber: phone },
+        idempotencyKey,
+      })
+      .then((result) => {
+        toast.success(result.customerMessage || "M-Pesa prompt sent.");
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "Could not send STK push.");
+      });
+  }, [order, searchParams, stkRequested, initiateStkMutation]);
 
   if (isLoading) {
     return (
@@ -153,6 +186,29 @@ export default function OrderTracking() {
     }
   };
 
+  const triggerStkPush = async () => {
+    const phone = phoneNumber.trim() || searchParams.get("phone")?.trim() || "";
+    if (!phone) {
+      toast.error("Enter a valid phone number in the proof form first.");
+      return;
+    }
+
+    const idempotencyKey =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `stk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    try {
+      const result = await initiateStkMutation.mutateAsync({
+        input: { phoneNumber: phone },
+        idempotencyKey,
+      });
+      toast.success(result.customerMessage || "M-Pesa prompt sent.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not send STK push.");
+    }
+  };
+
   return (
     <section className="section-padding">
       <div className="container-narrow space-y-6">
@@ -210,6 +266,13 @@ export default function OrderTracking() {
             </p>
           )}
           {settings?.supportContactText && <p className="text-sm text-foreground-secondary">{settings.supportContactText}</p>}
+          {order.canSubmitPaymentProof && (
+            <div className="pt-2">
+              <Button type="button" variant="accent" onClick={() => void triggerStkPush()} disabled={initiateStkMutation.isPending}>
+                {initiateStkMutation.isPending ? "Sending STK Prompt..." : "Pay via M-Pesa STK Push"}
+              </Button>
+            </div>
+          )}
         </article>
 
         {order.canSubmitPaymentProof && (settings?.manualPaymentEnabled ?? true) && (

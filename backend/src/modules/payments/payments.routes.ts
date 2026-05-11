@@ -1,12 +1,16 @@
 import { UserRole } from "@prisma/client";
 import { Router } from "express";
+import { z } from "zod";
 import { authenticate } from "../../common/middleware/authenticate.js";
 import { authorize } from "../../common/middleware/authorize.js";
 import { validateRequest } from "../../common/validation/validateRequest.js";
 import { PaymentsService } from "./payments.service.js";
 import {
+  mpesaStkCallbackSchema,
+  listAdminMpesaTransactionsQuerySchema,
   listAdminManualPaymentsQuerySchema,
   reviewManualPaymentActionSchema,
+  stkPushInitiateSchema,
   submitManualPaymentSchema,
 } from "./payments.schema.js";
 
@@ -31,7 +35,49 @@ paymentsRouter.post("/manual/:publicToken/proof", validateRequest(submitManualPa
   }
 });
 
+paymentsRouter.post("/mpesa/stk/:publicToken/initiate", validateRequest(stkPushInitiateSchema), async (req, res, next) => {
+  try {
+    const { publicToken } = stkPushInitiateSchema.shape.params.parse(req.params);
+    const body = stkPushInitiateSchema.shape.body.parse(req.body);
+    const idempotencyKeyHeader = req.header("Idempotency-Key");
+    const result = await paymentsService.initiateStkPush(publicToken, body, idempotencyKeyHeader);
+    res.status(200).json({ data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+paymentsRouter.post("/mpesa/stk/callback", validateRequest(z.object({ body: mpesaStkCallbackSchema })), async (req, res, next) => {
+  try {
+    const payload = mpesaStkCallbackSchema.parse(req.body);
+    await paymentsService.ingestMpesaStkCallback(payload);
+    res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
+  } catch (error) {
+    next(error);
+  }
+});
+
 adminPaymentsRouter.use(authenticate);
+
+adminPaymentsRouter.get(
+  "/mpesa-transactions",
+  authorize(PAYMENT_REVIEW_READ_ROLES),
+  validateRequest(listAdminMpesaTransactionsQuerySchema),
+  async (req, res, next) => {
+    try {
+      const query = listAdminMpesaTransactionsQuerySchema.shape.query.parse(req.query);
+      const rows = await paymentsService.listAdminMpesaTransactions({
+        orderId: query.orderId,
+        search: query.search,
+        status: query.status,
+        limit: query.limit,
+      });
+      res.status(200).json({ data: rows });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 adminPaymentsRouter.get(
   "/manual-submissions",

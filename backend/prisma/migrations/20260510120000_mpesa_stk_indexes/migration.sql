@@ -1,0 +1,2 @@
+CREATE INDEX PaymentTransaction_externalRequestId_idx ON PaymentTransaction(externalRequestId);
+CREATE INDEX PaymentTransaction_externalTransactionId_idx ON PaymentTransaction(externalTransactionId);

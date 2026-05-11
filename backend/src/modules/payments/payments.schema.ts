@@ -10,6 +10,38 @@ export const submitManualPaymentParamsSchema = z.object({
   }),
 });
 
+export const stkPushInitiateParamsSchema = submitManualPaymentParamsSchema;
+
+export const stkPushInitiateBodySchema = z.object({
+  phoneNumber: z.string().trim().regex(phoneRegex, "Enter a valid phone number"),
+});
+
+export const stkPushInitiateSchema = z.object({
+  params: stkPushInitiateParamsSchema.shape.params,
+  body: stkPushInitiateBodySchema,
+});
+
+export const mpesaStkCallbackSchema = z.object({
+  Body: z.object({
+    stkCallback: z.object({
+      MerchantRequestID: z.string(),
+      CheckoutRequestID: z.string(),
+      ResultCode: z.number(),
+      ResultDesc: z.string(),
+      CallbackMetadata: z
+        .object({
+          Item: z.array(
+            z.object({
+              Name: z.string(),
+              Value: z.union([z.string(), z.number()]).optional(),
+            }),
+          ),
+        })
+        .optional(),
+    }),
+  }),
+});
+
 export const submitManualPaymentBodySchema = z.object({
   paymentMethod: z.enum(["bank", "mpesa", "manual"]),
   payerName: z.string().trim().min(2).max(191),
@@ -57,8 +89,20 @@ export const reviewManualPaymentActionSchema = z.object({
   body: reviewManualPaymentSchema.shape.body,
 });
 
+export const listAdminMpesaTransactionsQuerySchema = z.object({
+  query: z.object({
+    orderId: z.string().trim().min(1).optional(),
+    search: z.string().trim().min(1).max(100).optional(),
+    status: z.enum(["initiated", "pending", "paid", "failed", "cancelled", "refunded"]).optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
+  }),
+});
+
 export type SubmitManualPaymentParams = z.infer<typeof submitManualPaymentParamsSchema>["params"];
 export type SubmitManualPaymentBody = z.infer<typeof submitManualPaymentBodySchema>;
 export type ListAdminManualPaymentsQuery = z.infer<typeof listAdminManualPaymentsQuerySchema>["query"];
 export type AdminManualPaymentIdParams = z.infer<typeof adminManualPaymentIdParamsSchema>["params"];
 export type ReviewManualPaymentBody = z.infer<typeof reviewManualPaymentSchema>["body"];
+export type StkPushInitiateBody = z.infer<typeof stkPushInitiateBodySchema>;
+export type MpesaStkCallbackBody = z.infer<typeof mpesaStkCallbackSchema>;
+export type ListAdminMpesaTransactionsQuery = z.infer<typeof listAdminMpesaTransactionsQuerySchema>["query"];

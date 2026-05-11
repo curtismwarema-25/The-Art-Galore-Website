@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import { slugify } from "../common/utils/slug.js";
 import { curatedPeoplePayload, type CuratedPersonInput } from "./curatedPeoplePayload.js";
+import { loadSpreadsheetCuratedPeople } from "./curatedPeopleSpreadsheet.js";
 
 const IMPORT_SOURCE = "google_form_curated_import";
 const METADATA_ONLY_FIELDS = [
@@ -69,6 +70,11 @@ type UpsertResult = {
   manualReviewNotes: string[];
 };
 
+type ImportCliOptions = {
+  dryRun: boolean;
+  filePath?: string;
+};
+
 const prisma = new PrismaClient();
 
 function normalizeText(value: unknown): string | null {
@@ -112,6 +118,32 @@ function normalizeSocials(value: Record<string, string>): Record<string, string>
 
 function normalizeStringArray(values: string[]): string[] {
   return values.map((entry) => entry.trim()).filter((entry) => entry.length > 0);
+}
+
+function parseCliOptions(argv: string[]): ImportCliOptions {
+  let dryRun = true;
+  let filePath: string | undefined;
+
+  for (const arg of argv) {
+    if (arg === "--apply") {
+      dryRun = false;
+      continue;
+    }
+
+    if (arg === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+
+    if (arg.startsWith("--file=")) {
+      const value = arg.slice("--file=".length).trim();
+      if (value.length > 0) {
+        filePath = value;
+      }
+    }
+  }
+
+  return { dryRun, filePath };
 }
 
 function composeMedium(primaryArtForm: string | null, secondaryArtForm: string | null): string | null {
@@ -224,7 +256,7 @@ function chooseLongTextUpdate(existing: string | null, curated: string | null, m
 
 function chooseMediaUpdate(existing: string | null, curated: string | null): string | undefined {
   if (!curated) return undefined;
-  if (!existing || existing.trim().length === 0 || existing === "/og-image.jpg") return curated;
+  if (!existing || existing.trim().length === 0 || existing === "/bg.jpg") return curated;
   return undefined;
 }
 
@@ -239,7 +271,6 @@ function buildImportMetadata(
     ...previous,
     curatedImport: {
       importedFrom: IMPORT_SOURCE,
-      importedAt: new Date().toISOString(),
       socials: normalized.socials,
       eventsParticipatedRaw: normalized.eventsParticipatedRaw,
       eventRolesRaw: normalized.eventRolesRaw,
@@ -253,6 +284,10 @@ function buildImportMetadata(
       rawSource: rawRecord,
     },
   };
+}
+
+function shouldUpdateImportMetadata(existingMetadata: Prisma.JsonValue | null, nextMetadata: Prisma.InputJsonValue) {
+  return JSON.stringify(existingMetadata ?? null) !== JSON.stringify(nextMetadata);
 }
 
 function buildCreateRoles(normalized: NormalizedPerson): Prisma.PersonRoleCreateWithoutPersonInput[] {
@@ -488,7 +523,10 @@ async function updatePerson(
     setField("consentGiven", true);
   }
 
-  setField("importMetadata", buildImportMetadata(normalized, rawRecord, existing.importMetadata));
+  const nextImportMetadata = buildImportMetadata(normalized, rawRecord, existing.importMetadata);
+  if (shouldUpdateImportMetadata(existing.importMetadata, nextImportMetadata)) {
+    setField("importMetadata", nextImportMetadata);
+  }
 
   const roleActions = await prisma.$transaction(async (tx) => {
     if (changedFields.length > 0) {
@@ -516,11 +554,95 @@ async function updatePerson(
   };
 }
 
-async function runImport() {
+function getPreviewChangedFields(existing: PersonWithRoles, normalized: NormalizedPerson) {
+  const changedFields: string[] = [];
+  const setField = (field: string, value: unknown) => {
+    if (value === undefined) return;
+    changedFields.push(field);
+  };
+
+  setField("preferredName", chooseStringUpdate(existing.preferredName, normalized.preferredName));
+  setField("pronunciation", chooseStringUpdate(existing.pronunciation, normalized.pronunciation));
+  setField("email", chooseStringUpdate(existing.email, normalized.email));
+  setField("phone", chooseStringUpdate(existing.phone, normalized.phone));
+  setField("city", chooseStringUpdate(existing.city, normalized.city));
+  setField(
+    "preferredContactMethod",
+    chooseStringUpdate(existing.preferredContactMethod, normalized.preferredContactMethod),
+  );
+  setField("headline", chooseStringUpdate(existing.headline, normalized.organizationRole));
+  setField("shortBio", chooseLongTextUpdate(existing.shortBio, normalized.shortBio, 60));
+  setField("bio", chooseLongTextUpdate(existing.bio, normalized.longBio));
+  setField("quote", chooseStringUpdate(existing.quote, normalized.quote));
+  setField("artistStatement", chooseLongTextUpdate(existing.artistStatement, normalized.artistStatement, 80));
+  setField("medium", chooseStringUpdate(existing.medium, normalized.medium));
+  setField("primaryArtForm", chooseStringUpdate(existing.primaryArtForm, normalized.primaryArtForm));
+  setField("secondaryArtForm", chooseStringUpdate(existing.secondaryArtForm, normalized.secondaryArtForm));
+  setField("yearsPracticing", chooseStringUpdate(existing.yearsPracticing, normalized.yearsPracticing));
+  setField("profileImageUrl", chooseMediaUpdate(existing.profileImageUrl, normalized.profilePhotoUrl));
+  setField("coverImageUrl", chooseMediaUpdate(existing.coverImageUrl, normalized.portfolioImagesUrl));
+
+  if ((existing.displayOrder ?? 0) <= 0 && normalized.displayOrder > 0) {
+    changedFields.push("displayOrder");
+  } else if (existing.importedFrom === IMPORT_SOURCE && existing.displayOrder !== normalized.displayOrder) {
+    changedFields.push("displayOrder");
+  }
+
+  if (!existing.importedFrom) {
+    changedFields.push("importedFrom");
+  }
+
+  if (existing.consentGiven !== true) {
+    changedFields.push("consentGiven");
+  }
+
+  const desiredTeamRole = normalized.category === "leadership" ? PersonRoleType.LEADERSHIP : PersonRoleType.MEMBER;
+  const hasTeamRole = existing.roles.some((role) => role.role === PersonRoleType.LEADERSHIP || role.role === PersonRoleType.MEMBER);
+  if (!hasTeamRole) {
+    changedFields.push(`role:${desiredTeamRole.toLowerCase()}(created)`);
+  } else {
+    const desiredRole = existing.roles.find((role) => role.role === desiredTeamRole);
+    if (desiredRole && !normalizeText(desiredRole.title) && normalizeText(normalized.organizationRole)) {
+      changedFields.push(`role:${desiredTeamRole.toLowerCase()}(title-updated)`);
+    }
+  }
+
+  if (normalized.isArtist && !existing.roles.some((role) => role.role === PersonRoleType.ARTIST)) {
+    changedFields.push("role:artist(created)");
+  }
+
+  return changedFields;
+}
+
+function previewUpdatePerson(
+  existing: PersonWithRoles,
+  normalized: NormalizedPerson,
+  matchedBy: MatchBy,
+): UpsertResult {
+  const changedFields = getPreviewChangedFields(existing, normalized);
+  const manualReviewNotes = normalized.importNotes ? [normalized.importNotes] : [];
+
+  return {
+    action: changedFields.length > 0 ? "updated" : "unchanged",
+    personId: existing.id,
+    fullName: normalized.fullName,
+    matchedBy,
+    changedFields,
+    metadataFieldsStored: normalized.metadataOnlyFieldsUsed,
+    manualReviewNotes,
+  };
+}
+
+function getInputRecords(filePath?: string) {
+  return loadSpreadsheetCuratedPeople(curatedPeoplePayload, { filePath });
+}
+
+async function runImport(options: ImportCliOptions) {
+  const sourceRecords = getInputRecords(options.filePath);
   const results: UpsertResult[] = [];
   const metadataFieldsLogged = new Set<string>();
 
-  for (const rawRecord of curatedPeoplePayload) {
+  for (const rawRecord of sourceRecords) {
     const normalized = normalizePersonRecord(rawRecord);
     normalized.metadataOnlyFieldsUsed.forEach((field) => metadataFieldsLogged.add(field));
 
@@ -534,20 +656,31 @@ async function runImport() {
     }
 
     if (!lookup.person) {
-      const created = await createPerson(normalized, rawRecord);
+      const created = options.dryRun
+        ? {
+            action: "created" as const,
+            personId: "(new)",
+            fullName: normalized.fullName,
+            changedFields: ["create"],
+            metadataFieldsStored: normalized.metadataOnlyFieldsUsed,
+            manualReviewNotes: normalized.importNotes ? [normalized.importNotes] : [],
+          }
+        : await createPerson(normalized, rawRecord);
       results.push(created);
-      console.log(`[CREATE] ${created.fullName} (${created.personId})`);
+      console.log(`${options.dryRun ? "[DRY-RUN CREATE]" : "[CREATE]"} ${created.fullName} (${created.personId})`);
       continue;
     }
 
-    const updated = await updatePerson(lookup.person, normalized, rawRecord, lookup.matchedBy ?? "slug");
+    const updated = options.dryRun
+      ? previewUpdatePerson(lookup.person, normalized, lookup.matchedBy ?? "slug")
+      : await updatePerson(lookup.person, normalized, rawRecord, lookup.matchedBy ?? "slug");
     results.push(updated);
 
     if (updated.action === "unchanged") {
-      console.log(`[SKIP] ${updated.fullName} (${updated.personId}) already had stronger/equivalent data.`);
+      console.log(`${options.dryRun ? "[DRY-RUN SKIP]" : "[SKIP]"} ${updated.fullName} (${updated.personId}) already had stronger/equivalent data.`);
     } else {
       console.log(
-        `[UPDATE] ${updated.fullName} (${updated.personId}) via ${updated.matchedBy}; changed: ${updated.changedFields.join(", ")}`,
+        `${options.dryRun ? "[DRY-RUN UPDATE]" : "[UPDATE]"} ${updated.fullName} (${updated.personId}) via ${updated.matchedBy}; changed: ${updated.changedFields.join(", ")}`,
       );
     }
   }
@@ -559,7 +692,7 @@ async function runImport() {
     .filter((entry) => entry.manualReviewNotes.length > 0)
     .map((entry) => ({ fullName: entry.fullName, notes: entry.manualReviewNotes }));
 
-  console.log("\n=== Curated People Import Summary ===");
+  console.log(`\n=== Curated People Import Summary (${options.dryRun ? "DRY-RUN" : "APPLY"}) ===`);
   console.log(`Total records processed: ${results.length}`);
   console.log(`Created: ${created.length}`);
   console.log(`Updated: ${updated.length}`);
@@ -595,8 +728,15 @@ async function runImport() {
 }
 
 async function main() {
+  const options = parseCliOptions(process.argv.slice(2));
+
+  console.log(`[INFO] Curated people import mode: ${options.dryRun ? "dry-run" : "apply"}`);
+  if (options.filePath) {
+    console.log(`[INFO] Spreadsheet override: ${options.filePath}`);
+  }
+
   try {
-    await runImport();
+    await runImport(options);
   } finally {
     await prisma.$disconnect();
   }

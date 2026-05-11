@@ -7,7 +7,7 @@ import {
   type PrismaClient,
 } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import type { AdminManualPaymentQueueFilters, ManualPaymentMethod } from "./payments.types.js";
+import type { AdminManualPaymentQueueFilters, ManualPaymentMethod, MpesaTransactionAuditFilters } from "./payments.types.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -123,6 +123,70 @@ export class PaymentsRepository {
         rawRequest: input.rawRequest,
       },
     });
+  }
+
+  async createMpesaStkTransaction(
+    input: {
+      orderId: string;
+      amount: number;
+      currency: string;
+      idempotencyKey?: string;
+      externalRequestId: string;
+      providerReference: string;
+      rawRequest?: Prisma.InputJsonValue;
+      rawResponse?: Prisma.InputJsonValue;
+    },
+    tx: Prisma.TransactionClient,
+  ) {
+    return tx.paymentTransaction.create({
+      data: {
+        orderId: input.orderId,
+        provider: PaymentProvider.MPESA,
+        status: PaymentStatus.INITIATED,
+        amount: input.amount,
+        currency: input.currency,
+        idempotencyKey: input.idempotencyKey,
+        externalRequestId: input.externalRequestId,
+        providerReference: input.providerReference,
+        rawRequest: input.rawRequest,
+        rawResponse: input.rawResponse,
+      },
+    });
+  }
+
+  async findPaymentTransactionByExternalRequestId(externalRequestId: string, tx?: Prisma.TransactionClient) {
+    const client = getClient(tx);
+    return client.paymentTransaction.findFirst({
+      where: { externalRequestId },
+      include: {
+        order: true,
+      },
+      orderBy: [{ createdAt: "desc" }],
+    });
+  }
+
+  async findLatestMpesaTransactionForOrder(orderId: string, tx?: Prisma.TransactionClient) {
+    const client = getClient(tx);
+    return client.paymentTransaction.findFirst({
+      where: {
+        orderId,
+        provider: PaymentProvider.MPESA,
+      },
+      orderBy: [{ createdAt: "desc" }],
+    });
+  }
+
+  async hasRecentActiveMpesaTransaction(orderId: string, since: Date, tx?: Prisma.TransactionClient) {
+    const client = getClient(tx);
+    const count = await client.paymentTransaction.count({
+      where: {
+        orderId,
+        provider: PaymentProvider.MPESA,
+        createdAt: { gte: since },
+        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING] },
+      },
+    });
+    return count > 0;
   }
 
   async setOrderPaymentSubmitted(orderId: string, at: Date, tx: Prisma.TransactionClient) {
@@ -277,6 +341,33 @@ export class PaymentsRepository {
     });
   }
 
+  async transitionOrderStatus(
+    orderId: string,
+    expectedCurrentStatuses: OrderStatus[],
+    nextStatus: OrderStatus,
+    tx: Prisma.TransactionClient,
+    options?: {
+      paidAt?: Date;
+      ticketDeliveryStatus?: "PENDING" | "SENT" | "FAILED";
+      verificationSubmittedAt?: Date;
+    },
+  ) {
+    const updated = await tx.order.updateMany({
+      where: {
+        id: orderId,
+        status: { in: expectedCurrentStatuses },
+      },
+      data: {
+        status: nextStatus,
+        paidAt: options?.paidAt,
+        ticketDeliveryStatus: options?.ticketDeliveryStatus,
+        verificationSubmittedAt: options?.verificationSubmittedAt,
+      },
+    });
+
+    return updated.count > 0;
+  }
+
   async updateManualPaymentTransactionResult(
     input: {
       orderId: string;
@@ -299,6 +390,123 @@ export class PaymentsRepository {
         resultCode: input.resultCode,
         resultMessage: input.resultMessage,
       },
+    });
+  }
+
+  async completePaymentTransactionById(
+    input: {
+      id: string;
+      status: PaymentStatus;
+      completedAt: Date;
+      resultCode: string;
+      resultMessage: string;
+      externalTransactionId?: string;
+      rawCallback?: Prisma.InputJsonValue;
+    },
+    tx: Prisma.TransactionClient,
+  ) {
+    return tx.paymentTransaction.update({
+      where: { id: input.id },
+      data: {
+        status: input.status,
+        completedAt: input.completedAt,
+        resultCode: input.resultCode,
+        resultMessage: input.resultMessage,
+        externalTransactionId: input.externalTransactionId,
+        rawCallback: input.rawCallback,
+      },
+    });
+  }
+
+  async completePaymentTransactionByIdIfNonTerminal(
+    input: {
+      id: string;
+      completedAt: Date;
+      nextStatus: PaymentStatus;
+      resultCode: string;
+      resultMessage: string;
+      externalTransactionId?: string;
+      rawCallback?: Prisma.InputJsonValue;
+    },
+    tx: Prisma.TransactionClient,
+  ) {
+    const updated = await tx.paymentTransaction.updateMany({
+      where: {
+        id: input.id,
+        status: {
+          in: [PaymentStatus.INITIATED, PaymentStatus.PENDING],
+        },
+      },
+      data: {
+        status: input.nextStatus,
+        completedAt: input.completedAt,
+        resultCode: input.resultCode,
+        resultMessage: input.resultMessage,
+        externalTransactionId: input.externalTransactionId,
+        rawCallback: input.rawCallback,
+      },
+    });
+    return updated.count > 0;
+  }
+
+  async markPendingMpesaTransactionsFailedForExpiredOrders(now: Date) {
+    return prisma.paymentTransaction.updateMany({
+      where: {
+        provider: PaymentProvider.MPESA,
+        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING] },
+        order: { status: OrderStatus.EXPIRED },
+      },
+      data: {
+        status: PaymentStatus.FAILED,
+        completedAt: now,
+        resultCode: "ORDER_EXPIRED",
+        resultMessage: "Order expired before MPESA confirmation",
+      },
+    });
+  }
+
+  async listAdminMpesaTransactions(filters: MpesaTransactionAuditFilters) {
+    const mappedStatus =
+      filters.status === "initiated"
+        ? PaymentStatus.INITIATED
+        : filters.status === "pending"
+          ? PaymentStatus.PENDING
+          : filters.status === "paid"
+            ? PaymentStatus.SUCCEEDED
+            : filters.status === "failed"
+              ? PaymentStatus.FAILED
+              : filters.status === "cancelled"
+                ? PaymentStatus.CANCELLED
+                : filters.status === "refunded"
+                  ? PaymentStatus.REFUNDED
+                  : undefined;
+
+    return prisma.paymentTransaction.findMany({
+      where: {
+        provider: PaymentProvider.MPESA,
+        orderId: filters.orderId,
+        status: mappedStatus,
+        OR: filters.search
+          ? [
+              { providerReference: { contains: filters.search } },
+              { externalRequestId: { contains: filters.search } },
+              { externalTransactionId: { contains: filters.search } },
+              { order: { orderNumber: { contains: filters.search } } },
+              { order: { buyerPhone: { contains: filters.search } } },
+            ]
+          : undefined,
+      },
+      include: {
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            buyerPhone: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: "desc" }],
+      take: filters.limit ?? 100,
     });
   }
 }

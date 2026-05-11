@@ -102,7 +102,7 @@ export const localSeedData: SeedBundle = {
     featuredEventSlug: "sip-paint-sunset-edition",
     defaultMetaTitle: "Art Galore International | Immersive Art Experiences",
     defaultMetaDescription: "Discover events, artists, galleries, and collaborations.",
-    defaultSocialPreviewImageUrl: "/og-image.jpg",
+    defaultSocialPreviewImageUrl: "/bg.jpg",
     privacyPolicyLink: "/privacy-policy",
     termsLink: "/terms-of-use",
     refundPolicyLink: "/ticket-refund-policy",

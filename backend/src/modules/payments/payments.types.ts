@@ -49,3 +49,41 @@ export type AdminManualPaymentQueueFilters = {
 export type ReviewManualPaymentInput = {
   verificationNote?: string;
 };
+
+export type InitiateStkPushInput = {
+  phoneNumber: string;
+};
+
+export type InitiateStkPushResult = {
+  orderNumber: string;
+  checkoutRequestId: string;
+  merchantRequestId: string;
+  customerMessage: string;
+  responseCode: string;
+};
+
+export type MpesaTransactionAuditFilters = {
+  orderId?: string;
+  search?: string;
+  status?: "initiated" | "pending" | "paid" | "failed" | "cancelled" | "refunded";
+  limit?: number;
+};
+
+export type MpesaTransactionAuditRecord = {
+  id: string;
+  orderId: string;
+  orderNumber: string;
+  buyerPhone: string;
+  amount: number;
+  currency: string;
+  checkoutRequestId?: string;
+  merchantRequestId?: string;
+  externalTransactionId?: string;
+  resultCode?: string;
+  resultDesc?: string;
+  status: "initiated" | "pending" | "paid" | "failed" | "cancelled" | "refunded";
+  initiatedAt: string;
+  completedAt?: string;
+  callbackReceived: boolean;
+  rawCallback?: unknown;
+};

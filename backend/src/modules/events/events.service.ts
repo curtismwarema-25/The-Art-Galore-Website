@@ -179,7 +179,7 @@ function mapEventRecord(event: EventWithPublicRelations): SerializedEventRecord 
     timezone: event.timezone,
     venue: event.venueName,
     capacity: event.capacity ?? 0,
-    heroImage: event.heroImageUrl ?? "/og-image.jpg",
+    heroImage: event.heroImageUrl ?? "/bg.jpg",
     heroImageMeta: event.heroStorageKey
       ? {
           storageKey: event.heroStorageKey,

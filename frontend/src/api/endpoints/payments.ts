@@ -54,6 +54,18 @@ export type AdminManualPaymentQueueFilters = {
   search?: string;
 };
 
+export type InitiateStkPushInput = {
+  phoneNumber: string;
+};
+
+export type InitiateStkPushResult = {
+  orderNumber: string;
+  checkoutRequestId: string;
+  merchantRequestId: string;
+  customerMessage: string;
+  responseCode: string;
+};
+
 function buildAdminManualPaymentsPath(filters?: AdminManualPaymentQueueFilters) {
   if (!filters) {
     return "/admin/payments/manual-submissions";
@@ -101,6 +113,17 @@ export async function rejectAdminManualPaymentSubmission(id: string, verificatio
   const response = await apiRequest<ApiData<{ orderNumber: string }>>(`/admin/payments/manual-submissions/${id}/reject`, {
     method: "POST",
     body: { verificationNote },
+  });
+
+  return response.data;
+}
+
+export async function initiateMpesaStkPush(publicToken: string, input: InitiateStkPushInput, idempotencyKey?: string) {
+  const headers: HeadersInit | undefined = idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined;
+  const response = await apiRequest<ApiData<InitiateStkPushResult>>(`/payments/mpesa/stk/${publicToken}/initiate`, {
+    method: "POST",
+    headers,
+    body: input,
   });
 
   return response.data;

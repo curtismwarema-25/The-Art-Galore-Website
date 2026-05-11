@@ -135,7 +135,8 @@ export default function EventDetail() {
         toast.success(`Order ${result.order.orderNumber} created. Redirecting to payment tracking.`);
       }
 
-      navigate(`/orders/track/${result.order.publicToken}`);
+      const phoneForStk = parsed.data.buyerPhone.trim();
+      navigate(`/orders/track/${result.order.publicToken}?autostk=1&phone=${encodeURIComponent(phoneForStk)}`);
     } catch (error) {
       setPaymentStatus("failed");
       const message = error instanceof ApiError || error instanceof Error ? error.message : "Could not create order.";

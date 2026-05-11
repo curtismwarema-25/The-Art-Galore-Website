@@ -59,7 +59,7 @@ function mapPersonRecord(person: PersonWithPublicRelations): PublicPersonRecord 
     role: toInitialRole(person),
     category: hasLeadershipRole ? "leadership" : "member",
     isArtist,
-    image: person.profileImageUrl ?? "/og-image.jpg",
+    image: person.profileImageUrl ?? "/bg.jpg",
     imageMeta: person.profileStorageKey
       ? {
           storageKey: person.profileStorageKey,
