@@ -5,7 +5,7 @@ import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSetting
 
 export default function Contact() {
   const { data: settings } = usePublicSiteSettingsQuery();
-  const fallbackEmail = "hello@artgaloreinternational.org";
+  const fallbackEmail = "theartgaloreintl@gmail.com";
   const fallbackPhone = "+254 700 000 000";
   const fallbackWhatsapp = "https://wa.me/254711000000";
 
@@ -13,7 +13,7 @@ export default function Contact() {
   const contactPhone = settings?.contactPhone?.trim() || fallbackPhone;
   const whatsappLink = settings?.whatsappLink?.trim() || fallbackWhatsapp;
   const whatsappText = settings?.supportContactText?.trim() || "+254 711 000 000";
-  const partnershipEmail = contactEmail || "partnerships@artgaloreinternational.org";
+  const partnershipEmail = contactEmail || "theartgaloreintl@gmail.com";
 
   const contactMethods = [
     {
