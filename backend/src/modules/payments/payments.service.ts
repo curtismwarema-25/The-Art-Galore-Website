@@ -256,6 +256,8 @@ export class PaymentsService {
   private async processMpesaStkCallbackByCheckoutRequestId(checkoutRequestId: string, payload: unknown) {
     const now = new Date();
     const extracted = this.extractCallbackMetadata(payload);
+    let paidOrderId: string | undefined;
+
     await this.repository.withTransaction(async (tx) => {
       const transaction = await this.repository.findPaymentTransactionByExternalRequestId(checkoutRequestId, tx);
       if (!transaction) {
@@ -347,9 +349,10 @@ export class PaymentsService {
           tx,
           {
             paidAt: now,
-            ticketDeliveryStatus: issuedTickets.length > 0 ? "SENT" : "PENDING",
+            ticketDeliveryStatus: "PENDING",
           },
         );
+        paidOrderId = transaction.orderId;
         logger.info("MPESA callback processed successfully", { orderId: transaction.orderId, checkoutRequestId });
       } else if (transaction.order.status === OrderStatus.PENDING_PAYMENT) {
         await this.repository.transitionOrderStatus(
@@ -360,6 +363,10 @@ export class PaymentsService {
         );
       }
     });
+
+    if (paidOrderId) {
+      await this.ticketsService.deliverIssuedTicketsForOrder(paidOrderId);
+    }
   }
 
   async ingestMpesaStkCallback(payload: unknown) {
@@ -539,16 +546,23 @@ export class PaymentsService {
 
       await this.repository.transitionOrderStatus(submission.orderId, [OrderStatus.PAYMENT_VERIFIED], OrderStatus.PAID, tx, {
         paidAt: now,
-        ticketDeliveryStatus: "SENT",
+        ticketDeliveryStatus: "PENDING",
       });
 
       return {
+        orderId: submission.orderId,
         orderNumber: submission.order.orderNumber,
         ticketsIssued: issuedTickets.length,
       };
     });
 
-    return result;
+    const ticketDeliveryStatus = await this.ticketsService.deliverIssuedTicketsForOrder(result.orderId);
+
+    return {
+      orderNumber: result.orderNumber,
+      ticketsIssued: result.ticketsIssued,
+      ticketDeliveryStatus,
+    };
   }
 
   async rejectManualPaymentSubmission(id: string, reviewerId: string, input: ReviewManualPaymentInput) {

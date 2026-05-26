@@ -18,6 +18,7 @@ export type OrderLifecycleStatus =
 export type VerificationStatus = "not_submitted" | "pending_review" | "approved" | "rejected";
 export type OrderPaymentStatus = "pending" | "paid" | "failed";
 export type OrderPaymentProvider = "mpesa" | "card" | "bank" | "manual";
+export type TicketDeliveryStatus = "pending" | "sent" | "failed";
 
 export type OrderPaymentProof = {
   id: string;
@@ -91,6 +92,7 @@ export type OrderDetailsRecord = {
     completedAt?: string;
   } | null;
   latestPaymentProof: OrderPaymentProof | null;
+  ticketDeliveryStatus: TicketDeliveryStatus;
   tickets: IssuedOrderTicket[];
   createdAt: string;
   updatedAt: string;
@@ -117,6 +119,7 @@ export type PublicTrackedOrderRecord = {
     quantity: number;
   }>;
   canSubmitPaymentProof: boolean;
+  ticketDeliveryStatus: TicketDeliveryStatus;
   tickets: Array<{
     ticketNumber: string;
     publicTicketToken: string;
@@ -187,7 +190,7 @@ function mapOrderToLegacyRecord(order: OrderDetailsRecord): OrderRecord {
     currency: order.currency as "KES",
     paymentReference: order.payment?.providerReference ?? order.orderNumber,
     paymentStatus: mapOrderPaymentStatusForLegacy(order.payment?.status),
-    ticketDeliveryStatus: order.tickets.length > 0 ? "sent" : "pending",
+    ticketDeliveryStatus: order.ticketDeliveryStatus,
     checkedInStatus: order.tickets.some((ticket) => ticket.ticketStatus === "checked_in") ? "checked-in" : "not-checked-in",
     payment: {
       provider: order.payment?.provider ?? "manual",

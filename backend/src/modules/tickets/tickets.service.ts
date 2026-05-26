@@ -1,12 +1,23 @@
-import { CheckInMethod, OrderStatus, Prisma, TicketStatus, type Prisma as PrismaTypes } from "@prisma/client";
+import {
+  CheckInMethod,
+  OrderStatus,
+  Prisma,
+  TicketStatus,
+  type Prisma as PrismaTypes,
+  type TicketDeliveryStatus as PrismaTicketDeliveryStatus,
+  type TicketEmailDeliveryTrigger,
+} from "@prisma/client";
 import { randomBytes, randomInt } from "node:crypto";
 import { NotFoundError, ValidationError } from "../../common/errors/httpErrors.js";
+import { logger } from "../../common/utils/logger.js";
 import { env } from "../../config/env.js";
+import { TicketEmailService } from "../email/ticketEmail.service.js";
 import {
   mapTicketStatus,
   TicketsRepository,
   type IssuanceOrderWithRelations,
   type PublicTicketWithRelations,
+  type TicketEmailDeliverySummaryWithAttempts,
 } from "./tickets.repository.js";
 import { renderTicketPdf } from "./ticketPdf.js";
 import {
@@ -21,10 +32,80 @@ import type {
   AdminTicketVerificationResult,
   AdminTicketSearchFilters,
   AdminTicketSearchRecord,
+  SerializedTicketDeliveryStatus,
   PublicTicketDownloadRecord,
   PublicTicketRecord,
   SerializedIssuedTicketRecord,
+  TicketEmailDeliverySummaryRecord,
 } from "./tickets.types.js";
+
+const ticketEmailDeliveryInFlight = new Set<string>();
+const retryBackoffMinutes = [5, 15, 60, 360];
+
+function mapTicketDeliveryStatus(status: PrismaTicketDeliveryStatus): SerializedTicketDeliveryStatus {
+  if (status === "SENT") return "sent";
+  if (status === "FAILED") return "failed";
+  return "pending";
+}
+
+function mapTicketEmailDeliveryTrigger(trigger: TicketEmailDeliveryTrigger) {
+  if (trigger === "AUTOMATIC") return "automatic" as const;
+  if (trigger === "MANUAL") return "manual" as const;
+  return "initial" as const;
+}
+
+function mapTicketEmailDeliveryAttemptStatus(status: "SENT" | "FAILED" | "SKIPPED") {
+  if (status === "SENT") return "sent" as const;
+  if (status === "SKIPPED") return "skipped" as const;
+  return "failed" as const;
+}
+
+function summarizeDeliveryError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/\s+/g, " ").trim().slice(0, 500) || "Ticket email delivery failed";
+}
+
+function getNextRetryAt(attemptNumber: number, now: Date) {
+  if (attemptNumber >= env.EMAIL_DELIVERY_RETRY_MAX_ATTEMPTS) {
+    return null;
+  }
+
+  const backoffIndex = Math.min(attemptNumber - 1, retryBackoffMinutes.length - 1);
+  const backoffMinutes = retryBackoffMinutes[backoffIndex] ?? retryBackoffMinutes[retryBackoffMinutes.length - 1];
+
+  return new Date(now.getTime() + backoffMinutes * 60 * 1000);
+}
+
+function mapTicketEmailDeliverySummary(order: TicketEmailDeliverySummaryWithAttempts): TicketEmailDeliverySummaryRecord {
+  const ticketDeliveryStatus = mapTicketDeliveryStatus(order.ticketDeliveryStatus);
+  const hasBuyerEmail = Boolean(order.buyerEmail);
+  const hasIssuedTickets = order.tickets.length > 0;
+
+  return {
+    orderId: order.id,
+    orderNumber: order.orderNumber,
+    ticketDeliveryStatus,
+    attemptCount: order.ticketDeliveryAttemptCount,
+    maxAttempts: env.EMAIL_DELIVERY_RETRY_MAX_ATTEMPTS,
+    lastAttemptAt: order.ticketDeliveryLastAttemptAt?.toISOString(),
+    nextRetryAt: order.ticketDeliveryNextRetryAt?.toISOString(),
+    lastError: order.ticketDeliveryLastError ?? undefined,
+    hasBuyerEmail,
+    hasIssuedTickets,
+    canResend: env.EMAIL_DELIVERY_ENABLED && ticketDeliveryStatus !== "sent" && hasBuyerEmail && hasIssuedTickets,
+    attempts: order.ticketEmailDeliveryAttempts.map((attempt) => ({
+      id: attempt.id,
+      trigger: mapTicketEmailDeliveryTrigger(attempt.trigger),
+      status: mapTicketEmailDeliveryAttemptStatus(attempt.status),
+      recipient: attempt.recipient ?? undefined,
+      attemptNumber: attempt.attemptNumber,
+      messageId: attempt.messageId ?? undefined,
+      errorSummary: attempt.errorSummary ?? undefined,
+      createdAt: attempt.createdAt.toISOString(),
+      completedAt: attempt.completedAt?.toISOString(),
+    })),
+  };
+}
 
 function mapTicketRecord(ticket: PublicTicketWithRelations): SerializedIssuedTicketRecord {
   return {
@@ -84,7 +165,10 @@ function mapAdminTicketRecord(ticket: PublicTicketWithRelations): AdminTicketSea
 }
 
 export class TicketsService {
-  constructor(private readonly repository: TicketsRepository = new TicketsRepository()) {}
+  constructor(
+    private readonly repository: TicketsRepository = new TicketsRepository(),
+    private readonly ticketEmailService: TicketEmailService = new TicketEmailService(),
+  ) {}
 
   private createTicketNumber(now: Date) {
     const stamp = now.toISOString().slice(0, 10).replace(/-/g, "");
@@ -217,13 +301,203 @@ export class TicketsService {
       return this.issueTicketsInTransaction(orderId, tx);
     }
 
-    return this.repository.withTransaction((innerTx) => this.issueTicketsInTransaction(orderId, innerTx));
+    const tickets = await this.repository.withTransaction((innerTx) => this.issueTicketsInTransaction(orderId, innerTx));
+    await this.deliverIssuedTicketsForOrder(orderId);
+    return tickets;
+  }
+
+  async getTicketEmailDeliverySummary(orderId: string): Promise<TicketEmailDeliverySummaryRecord> {
+    const order = await this.repository.getTicketEmailDeliverySummary(orderId);
+    if (!order) {
+      throw new NotFoundError("Order not found");
+    }
+
+    return mapTicketEmailDeliverySummary(order);
+  }
+
+  async listDueTicketEmailDeliveryOrderIds(now = new Date()) {
+    if (!env.EMAIL_DELIVERY_ENABLED || !env.EMAIL_DELIVERY_RETRY_ENABLED) {
+      return [];
+    }
+
+    return this.repository.listDueTicketEmailDeliveryOrderIds(
+      now,
+      env.EMAIL_DELIVERY_RETRY_BATCH_SIZE,
+      env.EMAIL_DELIVERY_RETRY_MAX_ATTEMPTS,
+    );
+  }
+
+  async attemptTicketEmailDelivery(
+    orderId: string,
+    trigger: TicketEmailDeliveryTrigger,
+  ): Promise<TicketEmailDeliverySummaryRecord> {
+    if (ticketEmailDeliveryInFlight.has(orderId)) {
+      return this.getTicketEmailDeliverySummary(orderId);
+    }
+
+    ticketEmailDeliveryInFlight.add(orderId);
+
+    try {
+      const order = await this.repository.getOrderForTicketDelivery(orderId);
+      if (!order) {
+        throw new NotFoundError("Order not found");
+      }
+
+      if (order.ticketDeliveryStatus === "SENT" || order.tickets.length === 0) {
+        return this.getTicketEmailDeliverySummary(orderId);
+      }
+
+      if (trigger === "AUTOMATIC" && order.ticketDeliveryAttemptCount >= env.EMAIL_DELIVERY_RETRY_MAX_ATTEMPTS) {
+        return this.getTicketEmailDeliverySummary(orderId);
+      }
+
+      if (!env.EMAIL_DELIVERY_ENABLED) {
+        if (trigger === "MANUAL") {
+          throw new ValidationError("Ticket email delivery is disabled. Set EMAIL_DELIVERY_ENABLED=true and configure SMTP before resending tickets.");
+        }
+
+        logger.info("Ticket email delivery skipped because email delivery is disabled", {
+          orderId,
+          orderNumber: order.orderNumber,
+        });
+        return this.getTicketEmailDeliverySummary(orderId);
+      }
+
+      const attemptNumber = order.ticketDeliveryAttemptCount + 1;
+
+      if (!order.buyerEmail) {
+        const completedAt = new Date();
+        const errorSummary = "Buyer email is missing; tickets cannot be emailed.";
+        const updated = await this.repository.recordTicketEmailDeliveryAttempt({
+          orderId,
+          trigger,
+          status: "SKIPPED",
+          ticketDeliveryStatus: "FAILED",
+          recipient: null,
+          attemptNumber,
+          errorSummary,
+          completedAt,
+          nextRetryAt: null,
+        });
+
+        logger.warn("Ticket email delivery failed: buyer email is missing", {
+          orderId,
+          orderNumber: order.orderNumber,
+        });
+        return mapTicketEmailDeliverySummary(updated);
+      }
+
+      try {
+        const delivery = await this.ticketEmailService.sendTicketDeliveryEmail(order);
+
+        if (delivery.status === "sent") {
+          const completedAt = new Date();
+          const updated = await this.repository.recordTicketEmailDeliveryAttempt({
+            orderId,
+            trigger,
+            status: "SENT",
+            ticketDeliveryStatus: "SENT",
+            recipient: order.buyerEmail,
+            attemptNumber,
+            messageId: delivery.messageId,
+            completedAt,
+            nextRetryAt: null,
+          });
+
+          logger.info("Ticket email delivered", {
+            orderId,
+            orderNumber: order.orderNumber,
+            recipient: order.buyerEmail,
+            messageId: delivery.messageId,
+            trigger: mapTicketEmailDeliveryTrigger(trigger),
+          });
+          return mapTicketEmailDeliverySummary(updated);
+        }
+
+        const errorSummary =
+          delivery.reason === "missing_recipient"
+            ? "Buyer email is missing; tickets cannot be emailed."
+            : "Email delivery is disabled.";
+        const completedAt = new Date();
+        const updated = await this.repository.recordTicketEmailDeliveryAttempt({
+          orderId,
+          trigger,
+          status: "SKIPPED",
+          ticketDeliveryStatus: delivery.reason === "missing_recipient" ? "FAILED" : order.ticketDeliveryStatus,
+          recipient: order.buyerEmail,
+          attemptNumber,
+          errorSummary,
+          completedAt,
+          nextRetryAt: null,
+        });
+
+        logger.info("Ticket email delivery skipped", {
+          orderId,
+          orderNumber: order.orderNumber,
+          reason: delivery.reason,
+        });
+        return mapTicketEmailDeliverySummary(updated);
+      } catch (error) {
+        const completedAt = new Date();
+        const errorSummary = summarizeDeliveryError(error);
+        const nextRetryAt = getNextRetryAt(attemptNumber, completedAt);
+        const updated = await this.repository.recordTicketEmailDeliveryAttempt({
+          orderId,
+          trigger,
+          status: "FAILED",
+          ticketDeliveryStatus: "FAILED",
+          recipient: order.buyerEmail,
+          attemptNumber,
+          errorSummary,
+          completedAt,
+          nextRetryAt,
+        });
+
+        logger.error("Ticket email delivery failed", {
+          orderId,
+          orderNumber: order.orderNumber,
+          nextRetryAt: nextRetryAt?.toISOString(),
+          error: errorSummary,
+          trigger: mapTicketEmailDeliveryTrigger(trigger),
+        });
+        return mapTicketEmailDeliverySummary(updated);
+      }
+    } finally {
+      ticketEmailDeliveryInFlight.delete(orderId);
+    }
+  }
+
+  async deliverIssuedTicketsForOrder(orderId: string): Promise<SerializedTicketDeliveryStatus> {
+    const result = await this.attemptTicketEmailDelivery(orderId, "INITIAL");
+    return result.ticketDeliveryStatus;
+  }
+
+  async resendTicketEmailDeliveryForOrder(orderId: string): Promise<TicketEmailDeliverySummaryRecord> {
+    const summary = await this.getTicketEmailDeliverySummary(orderId);
+
+    if (summary.ticketDeliveryStatus === "sent") {
+      throw new ValidationError("Ticket email has already been sent for this order");
+    }
+
+    if (!summary.hasIssuedTickets) {
+      throw new ValidationError("Tickets have not been issued for this order");
+    }
+
+    if (!summary.hasBuyerEmail) {
+      throw new ValidationError("Buyer email is missing for this order");
+    }
+
+    if (!env.EMAIL_DELIVERY_ENABLED) {
+      throw new ValidationError("Ticket email delivery is disabled. Set EMAIL_DELIVERY_ENABLED=true and configure SMTP before resending tickets.");
+    }
+
+    return this.attemptTicketEmailDelivery(orderId, "MANUAL");
   }
 
   async issueTicketsForOrderByAdmin(orderId: string) {
-    return this.repository.withTransaction(async (tx) => {
+    const result = await this.repository.withTransaction(async (tx) => {
       const tickets = await this.issueTicketsInTransaction(orderId, tx);
-      const order = await this.repository.updateOrderTicketDeliverySent(orderId, tx);
+      const order = await this.repository.updateOrderTicketDeliveryStatus(orderId, "PENDING", tx);
 
       return {
         orderId: order.id,
@@ -231,6 +505,13 @@ export class TicketsService {
         ticketsIssued: tickets.length,
       };
     });
+
+    const ticketDeliveryStatus = await this.deliverIssuedTicketsForOrder(orderId);
+
+    return {
+      ...result,
+      ticketDeliveryStatus,
+    };
   }
 
   async getPublicTicketByToken(publicTicketToken: string): Promise<PublicTicketRecord> {

@@ -30,6 +30,12 @@ export const adminIssueOrderTicketsParamsSchema = z.object({
   }),
 });
 
+export const adminTicketDeliveryOrderParamsSchema = z.object({
+  params: z.object({
+    orderId: z.string().trim().min(1).max(191),
+  }),
+});
+
 export const adminTicketVerifyParamsSchema = z.object({
   params: z.object({
     publicTicketToken: z.string().trim().min(20).max(191),
@@ -40,4 +46,5 @@ export type PublicTicketTokenParams = z.infer<typeof publicTicketTokenParamsSche
 export type AdminTicketSearchQuery = z.infer<typeof adminTicketSearchQuerySchema>["query"];
 export type AdminTicketCheckInBody = z.infer<typeof adminTicketCheckInSchema>["body"];
 export type AdminIssueOrderTicketsParams = z.infer<typeof adminIssueOrderTicketsParamsSchema>["params"];
+export type AdminTicketDeliveryOrderParams = z.infer<typeof adminTicketDeliveryOrderParamsSchema>["params"];
 export type AdminTicketVerifyParams = z.infer<typeof adminTicketVerifyParamsSchema>["params"];

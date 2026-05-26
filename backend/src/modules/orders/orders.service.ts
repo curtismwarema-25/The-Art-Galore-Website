@@ -21,6 +21,7 @@ import type {
   PublicTrackedOrderRecord,
   SerializedOrderPaymentProof,
   SerializedOrderRecord,
+  TicketDeliveryLifecycleStatus,
   VerificationStatus,
 } from "./orders.types.js";
 
@@ -55,6 +56,12 @@ function mapPaymentProvider(provider: PaymentProvider): PaymentProviderCode {
   if (provider === PaymentProvider.BANK) return "bank";
   if (provider === PaymentProvider.MANUAL) return "manual";
   return "mpesa";
+}
+
+function mapTicketDeliveryStatus(status: OrderWithRelations["ticketDeliveryStatus"]): TicketDeliveryLifecycleStatus {
+  if (status === "SENT") return "sent";
+  if (status === "FAILED") return "failed";
+  return "pending";
 }
 
 function mapProofPaymentMethod(provider: PaymentProvider): SerializedOrderPaymentProof["paymentMethod"] {
@@ -144,6 +151,7 @@ function mapOrderRecord(order: OrderWithRelations): SerializedOrderRecord {
           reviewedAt: latestProof.reviewedAt?.toISOString(),
         }
       : null,
+    ticketDeliveryStatus: mapTicketDeliveryStatus(order.ticketDeliveryStatus),
     tickets: order.tickets.map((ticket) => ({
       ticketNumber: ticket.ticketNumber,
       publicTicketToken: ticket.publicTicketToken,
@@ -183,6 +191,7 @@ function mapPublicTrackedOrderRecord(order: OrderWithRelations): PublicTrackedOr
       quantity: item.quantity,
     })),
     canSubmitPaymentProof: mappedStatus === "pending_payment" || mappedStatus === "payment_rejected",
+    ticketDeliveryStatus: mapTicketDeliveryStatus(order.ticketDeliveryStatus),
     tickets: order.tickets.map((ticket) => ({
       ticketNumber: ticket.ticketNumber,
       publicTicketToken: ticket.publicTicketToken,

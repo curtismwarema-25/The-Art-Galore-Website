@@ -57,6 +57,7 @@ export function useInitiateMpesaStkPushMutation(publicToken: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.trackedOrder(publicToken) });
       queryClient.invalidateQueries({ queryKey: queryKeys.adminOrders });
+      queryClient.invalidateQueries({ queryKey: queryKeys.adminMpesaTransactions });
     },
   });
 }

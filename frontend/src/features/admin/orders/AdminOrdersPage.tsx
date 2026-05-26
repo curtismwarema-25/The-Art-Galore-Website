@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ChevronDown, ChevronUp, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import DataTable from "@/components/common/DataTable";
 import EmptyState from "@/components/common/EmptyState";
@@ -10,10 +11,14 @@ import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
 import { formatDateTime, formatMoney } from "@/features/admin/shared/utils";
 import { useIssueTicketsMutation } from "@/hooks/mutations/useIssueTicketsMutation";
 import { useApproveManualPaymentMutation, useRejectManualPaymentMutation } from "@/hooks/mutations/usePaymentMutations";
+import { useResendTicketEmailDeliveryMutation } from "@/hooks/mutations/useTicketEmailDeliveryMutation";
 import { useAdminManualPaymentsQuery } from "@/hooks/queries/useAdminManualPaymentsQuery";
+import { useAdminMpesaTransactionsQuery } from "@/hooks/queries/useAdminMpesaTransactionsQuery";
 import { useAdminOrderQuery, useAdminOrdersQuery } from "@/hooks/queries/useAdminOrdersQuery";
+import { useAdminTicketEmailDeliveryQuery } from "@/hooks/queries/useAdminTicketEmailDeliveryQuery";
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
-import type { OrderLifecycleStatus } from "@/api/endpoints/orders";
+import type { AdminMpesaTransactionStatus } from "@/api/endpoints/payments";
+import type { OrderLifecycleStatus, TicketDeliveryStatus } from "@/api/endpoints/orders";
 import { toast } from "@/components/ui/sonner";
 
 const ORDER_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | OrderLifecycleStatus }> = [
@@ -24,6 +29,16 @@ const ORDER_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | OrderLi
   { label: "Payment Rejected", value: "payment_rejected" },
   { label: "Paid", value: "paid" },
   { label: "Expired", value: "expired" },
+];
+
+const MPESA_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | AdminMpesaTransactionStatus }> = [
+  { label: "All", value: "all" },
+  { label: "Initiated", value: "initiated" },
+  { label: "Pending", value: "pending" },
+  { label: "Paid", value: "paid" },
+  { label: "Failed", value: "failed" },
+  { label: "Cancelled", value: "cancelled" },
+  { label: "Refunded", value: "refunded" },
 ];
 
 function orderStatusTone(status: OrderLifecycleStatus) {
@@ -38,14 +53,45 @@ function verificationTone(status: "pending_review" | "approved" | "rejected") {
   return "pending";
 }
 
+function mpesaStatusTone(status: AdminMpesaTransactionStatus) {
+  if (status === "paid") return "paid" as const;
+  if (status === "initiated") return "initiating" as const;
+  if (status === "pending") return "pending" as const;
+  return "failed" as const;
+}
+
+function ticketDeliveryTone(status: TicketDeliveryStatus) {
+  if (status === "sent") return "paid" as const;
+  if (status === "failed") return "failed" as const;
+  return "pending" as const;
+}
+
+function compactReference(value?: string) {
+  if (!value) return "-";
+  if (value.length <= 18) return value;
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
+function formatCallback(value: unknown) {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return "Raw callback could not be displayed.";
+  }
+}
+
 export default function AdminOrdersPage() {
   const { id: routeOrderId } = useParams();
   const [search, setSearch] = useState("");
   const [statusFilterValue, setStatusFilterValue] = useState<"all" | OrderLifecycleStatus>("all");
   const [eventFilter, setEventFilter] = useState("all");
+  const [mpesaSearch, setMpesaSearch] = useState("");
+  const [mpesaStatusFilterValue, setMpesaStatusFilterValue] = useState<"all" | AdminMpesaTransactionStatus>("all");
+  const [expandedMpesaTransactionId, setExpandedMpesaTransactionId] = useState<string | null>(null);
 
   const statusFilter = statusFilterValue === "all" ? undefined : statusFilterValue;
   const scopedEventId = eventFilter === "all" ? undefined : eventFilter;
+  const mpesaStatusFilter = mpesaStatusFilterValue === "all" ? undefined : mpesaStatusFilterValue;
 
   const { data: orders = [], isLoading, isError } = useAdminOrdersQuery({
     search: search.trim() || undefined,
@@ -53,15 +99,31 @@ export default function AdminOrdersPage() {
     eventId: scopedEventId,
   });
   const { data: selectedOrder, isLoading: isSelectedLoading } = useAdminOrderQuery(routeOrderId ?? "");
+  const {
+    data: ticketDelivery,
+    isLoading: isTicketDeliveryLoading,
+    isError: isTicketDeliveryError,
+  } = useAdminTicketEmailDeliveryQuery(routeOrderId ?? "");
   const { data: manualPayments = [], isLoading: isManualPaymentsLoading } = useAdminManualPaymentsQuery({
     verificationStatus: "pending_review",
     search: search.trim() || undefined,
     orderId: routeOrderId,
   });
+  const {
+    data: mpesaTransactions = [],
+    isLoading: isMpesaTransactionsLoading,
+    isError: isMpesaTransactionsError,
+  } = useAdminMpesaTransactionsQuery({
+    search: mpesaSearch.trim() || undefined,
+    status: mpesaStatusFilter,
+    orderId: routeOrderId,
+    limit: 100,
+  });
   const { data: events = [] } = useEventsQuery();
   const approveMutation = useApproveManualPaymentMutation();
   const rejectMutation = useRejectManualPaymentMutation();
   const issueTicketsMutation = useIssueTicketsMutation();
+  const resendTicketEmailMutation = useResendTicketEmailDeliveryMutation();
 
   const eventOptions = useMemo(
     () => [{ label: "All Events", value: "all" }].concat(events.map((event) => ({ label: event.title, value: event.id }))),
@@ -104,6 +166,22 @@ export default function AdminOrdersPage() {
       toast.success(`Issued ${result.ticketsIssued} ticket(s) for ${result.orderNumber}.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not issue tickets.");
+    }
+  };
+
+  const resendTicketEmail = async () => {
+    if (!selectedOrder) return;
+
+    try {
+      const result = await resendTicketEmailMutation.mutateAsync(selectedOrder.id);
+      if (result.ticketDeliveryStatus === "sent") {
+        toast.success(`Ticket email sent for ${result.orderNumber}.`);
+        return;
+      }
+
+      toast.error(result.lastError ?? "Ticket email delivery failed.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not resend ticket email.");
     }
   };
 
@@ -231,6 +309,122 @@ export default function AdminOrdersPage() {
         )}
       </AdminSectionCard>
 
+      <AdminSectionCard title="M-Pesa Transactions">
+        <FilterBar
+          searchValue={mpesaSearch}
+          onSearchChange={setMpesaSearch}
+          searchPlaceholder="Search order, phone, receipt, checkout, or merchant request"
+          filters={[
+            {
+              key: "mpesaStatus",
+              label: "Payment Status",
+              value: mpesaStatusFilterValue,
+              onChange: (value) => setMpesaStatusFilterValue(value as "all" | AdminMpesaTransactionStatus),
+              options: MPESA_STATUS_FILTER_OPTIONS,
+            },
+          ]}
+        />
+
+        {routeOrderId && (
+          <p className="mt-3 text-xs text-foreground-secondary">
+            Showing M-Pesa transactions for the selected order detail.
+          </p>
+        )}
+
+        <div className="mt-4">
+          {isMpesaTransactionsLoading ? (
+            <p className="text-sm text-foreground-secondary">Loading M-Pesa transactions...</p>
+          ) : isMpesaTransactionsError ? (
+            <EmptyState title="Could not load M-Pesa transactions" description="Check the admin payment audit endpoint and auth session." />
+          ) : mpesaTransactions.length === 0 ? (
+            <EmptyState title="No M-Pesa transactions match filters" description="New STK payment attempts will appear here." />
+          ) : (
+            <DataTable
+              headers={["Order", "Buyer Phone", "Amount", "Status", "Checkout Request", "M-Pesa Receipt", "Result", "Timeline", "Details"]}
+              minWidthClassName="min-w-[980px] md:min-w-[1240px]"
+            >
+              {mpesaTransactions.map((transaction) => {
+                const isExpanded = expandedMpesaTransactionId === transaction.id;
+                return (
+                  <Fragment key={transaction.id}>
+                    <tr className="bg-background border border-border">
+                      <td className="px-3 py-3 text-sm text-foreground">{transaction.orderNumber}</td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary">{transaction.buyerPhone}</td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary">
+                        {formatMoney(transaction.currency, transaction.amount)}
+                      </td>
+                      <td className="px-3 py-3">
+                        <StatusBadge tone={mpesaStatusTone(transaction.status)} label={transaction.status} />
+                      </td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary" title={transaction.checkoutRequestId}>
+                        {compactReference(transaction.checkoutRequestId)}
+                      </td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary" title={transaction.externalTransactionId}>
+                        {transaction.externalTransactionId ?? "-"}
+                      </td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary max-w-[210px]">
+                        <p className="text-foreground">{transaction.resultCode ?? "-"}</p>
+                        <p className="truncate text-xs" title={transaction.resultDesc}>
+                          {transaction.resultDesc ?? "No result message"}
+                        </p>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-foreground-secondary">
+                        <p>Started {formatDateTime(transaction.initiatedAt)}</p>
+                        <p>{transaction.completedAt ? `Completed ${formatDateTime(transaction.completedAt)}` : "Awaiting callback"}</p>
+                        <p>{transaction.callbackReceived ? "Callback received" : "No callback yet"}</p>
+                      </td>
+                      <td className="px-3 py-3">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setExpandedMpesaTransactionId(isExpanded ? null : transaction.id)}
+                          aria-expanded={isExpanded}
+                        >
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          {isExpanded ? "Hide" : "View"}
+                        </Button>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="bg-background border border-border">
+                        <td colSpan={9} className="px-3 pb-4 text-sm text-foreground-secondary">
+                          <div className="rounded-md border border-border bg-secondary/15 p-4">
+                            <div className="grid gap-3 md:grid-cols-3">
+                              <p>
+                                <span className="text-foreground">Merchant Request:</span>{" "}
+                                {transaction.merchantRequestId ?? "-"}
+                              </p>
+                              <p>
+                                <span className="text-foreground">Checkout Request:</span>{" "}
+                                {transaction.checkoutRequestId ?? "-"}
+                              </p>
+                              <p>
+                                <span className="text-foreground">Callback:</span>{" "}
+                                {transaction.callbackReceived ? "received" : "not received"}
+                              </p>
+                            </div>
+                            {transaction.resultDesc && (
+                              <p className="mt-3">
+                                <span className="text-foreground">Result Message:</span> {transaction.resultDesc}
+                              </p>
+                            )}
+                            {transaction.rawCallback !== undefined && (
+                              <pre className="mt-3 max-h-72 overflow-auto rounded-md border border-border bg-background p-3 text-xs text-foreground-secondary">
+                                {formatCallback(transaction.rawCallback)}
+                              </pre>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </DataTable>
+          )}
+        </div>
+      </AdminSectionCard>
+
       {routeOrderId && (
         <AdminSectionCard title="Order Detail">
           {isSelectedLoading ? (
@@ -288,6 +482,105 @@ export default function AdminOrdersPage() {
                 <p className="text-foreground-secondary">
                   <span className="text-foreground">Reservation Expires:</span> {formatDateTime(selectedOrder.reservationExpiresAt)}
                 </p>
+              </div>
+
+              <div className="border border-border rounded-md p-4 bg-secondary/15 text-sm text-foreground-secondary space-y-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="text-foreground mb-2 flex items-center gap-2">
+                      <Mail size={15} />
+                      Ticket Email Delivery
+                    </p>
+                    {ticketDelivery && (
+                      <StatusBadge
+                        tone={ticketDeliveryTone(ticketDelivery.ticketDeliveryStatus)}
+                        label={ticketDelivery.ticketDeliveryStatus}
+                      />
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void resendTicketEmail()}
+                    disabled={
+                      resendTicketEmailMutation.isPending ||
+                      isTicketDeliveryLoading ||
+                      !ticketDelivery?.canResend
+                    }
+                  >
+                    <RefreshCw size={14} />
+                    {resendTicketEmailMutation.isPending ? "Resending..." : "Resend Email"}
+                  </Button>
+                </div>
+
+                {isTicketDeliveryLoading ? (
+                  <p>Loading ticket email delivery...</p>
+                ) : isTicketDeliveryError ? (
+                  <p>Could not load ticket email delivery.</p>
+                ) : ticketDelivery ? (
+                  <>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <p>
+                        <span className="text-foreground">Attempts:</span>{" "}
+                        {ticketDelivery.attemptCount}/{ticketDelivery.maxAttempts}
+                      </p>
+                      <p>
+                        <span className="text-foreground">Last Attempt:</span>{" "}
+                        {ticketDelivery.lastAttemptAt ? formatDateTime(ticketDelivery.lastAttemptAt) : "-"}
+                      </p>
+                      <p>
+                        <span className="text-foreground">Next Retry:</span>{" "}
+                        {ticketDelivery.nextRetryAt ? formatDateTime(ticketDelivery.nextRetryAt) : "-"}
+                      </p>
+                      <p>
+                        <span className="text-foreground">Recipient:</span>{" "}
+                        {selectedOrder.buyer.buyerEmail ?? "-"}
+                      </p>
+                    </div>
+
+                    {ticketDelivery.lastError && (
+                      <p>
+                        <span className="text-foreground">Last Error:</span> {ticketDelivery.lastError}
+                      </p>
+                    )}
+
+                    {ticketDelivery.attempts.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-[680px] w-full border-collapse text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-border text-foreground">
+                              <th className="py-2 pr-3 font-medium">When</th>
+                              <th className="py-2 pr-3 font-medium">Trigger</th>
+                              <th className="py-2 pr-3 font-medium">Status</th>
+                              <th className="py-2 pr-3 font-medium">Recipient</th>
+                              <th className="py-2 pr-3 font-medium">Message</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ticketDelivery.attempts.map((attempt) => (
+                              <tr key={attempt.id} className="border-b border-border/70">
+                                <td className="py-2 pr-3">{formatDateTime(attempt.completedAt ?? attempt.createdAt)}</td>
+                                <td className="py-2 pr-3">{attempt.trigger}</td>
+                                <td className="py-2 pr-3">
+                                  <StatusBadge
+                                    tone={attempt.status === "sent" ? "paid" : attempt.status === "failed" ? "failed" : "pending"}
+                                    label={attempt.status}
+                                  />
+                                </td>
+                                <td className="py-2 pr-3">{attempt.recipient ?? "-"}</td>
+                                <td className="py-2 pr-3">
+                                  {attempt.messageId ?? attempt.errorSummary ?? "-"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p>No ticket email attempts yet.</p>
+                    )}
+                  </>
+                ) : null}
               </div>
 
               {selectedOrder.latestPaymentProof && (

@@ -1,6 +1,6 @@
 import { ApiError, apiRequest } from "@/api/client";
 import { apiUrl } from "@/config/env";
-import type { CheckInStatus, TicketRecord } from "@/types/models";
+import type { CheckInStatus, TicketDeliveryStatus, TicketRecord } from "@/types/models";
 
 type ApiData<T> = {
   data: T;
@@ -74,6 +74,34 @@ export type AdminIssueOrderTicketsResult = {
   orderId: string;
   orderNumber: string;
   ticketsIssued: number;
+  ticketDeliveryStatus: TicketDeliveryStatus;
+};
+
+export type TicketEmailDeliveryAttemptRecord = {
+  id: string;
+  trigger: "initial" | "automatic" | "manual";
+  status: "sent" | "failed" | "skipped";
+  recipient?: string;
+  attemptNumber: number;
+  messageId?: string;
+  errorSummary?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type TicketEmailDeliverySummaryRecord = {
+  orderId: string;
+  orderNumber: string;
+  ticketDeliveryStatus: TicketDeliveryStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  lastAttemptAt?: string;
+  nextRetryAt?: string;
+  lastError?: string;
+  hasBuyerEmail: boolean;
+  hasIssuedTickets: boolean;
+  canResend: boolean;
+  attempts: TicketEmailDeliveryAttemptRecord[];
 };
 
 export type AdminTicketSearchFilters = {
@@ -133,6 +161,20 @@ export async function checkInTicket(input: AdminTicketCheckInInput) {
 
 export async function issueTicketsForOrder(orderId: string) {
   const response = await apiRequest<ApiData<AdminIssueOrderTicketsResult>>(`/admin/tickets/issue/order/${orderId}`, {
+    method: "POST",
+  });
+  return response.data;
+}
+
+export async function getTicketEmailDeliverySummary(orderId: string) {
+  const response = await apiRequest<ApiData<TicketEmailDeliverySummaryRecord>>(`/admin/tickets/delivery/order/${orderId}`, {
+    method: "GET",
+  });
+  return response.data;
+}
+
+export async function resendTicketEmailDelivery(orderId: string) {
+  const response = await apiRequest<ApiData<TicketEmailDeliverySummaryRecord>>(`/admin/tickets/delivery/order/${orderId}/resend`, {
     method: "POST",
   });
   return response.data;

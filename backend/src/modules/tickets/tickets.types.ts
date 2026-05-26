@@ -1,4 +1,7 @@
 export type SerializedTicketStatus = "active" | "checked_in" | "revoked" | "cancelled";
+export type SerializedTicketDeliveryStatus = "pending" | "sent" | "failed";
+export type SerializedTicketEmailDeliveryTrigger = "initial" | "automatic" | "manual";
+export type SerializedTicketEmailDeliveryAttemptStatus = "sent" | "failed" | "skipped";
 
 export type SerializedIssuedTicketRecord = {
   id: string;
@@ -86,4 +89,31 @@ export type AdminTicketVerificationResult = {
   valid: boolean;
   reason: "active" | "already_checked_in" | "revoked" | "cancelled" | "not_found";
   ticket?: AdminTicketSearchRecord;
+};
+
+export type TicketEmailDeliveryAttemptRecord = {
+  id: string;
+  trigger: SerializedTicketEmailDeliveryTrigger;
+  status: SerializedTicketEmailDeliveryAttemptStatus;
+  recipient?: string;
+  attemptNumber: number;
+  messageId?: string;
+  errorSummary?: string;
+  createdAt: string;
+  completedAt?: string;
+};
+
+export type TicketEmailDeliverySummaryRecord = {
+  orderId: string;
+  orderNumber: string;
+  ticketDeliveryStatus: SerializedTicketDeliveryStatus;
+  attemptCount: number;
+  maxAttempts: number;
+  lastAttemptAt?: string;
+  nextRetryAt?: string;
+  lastError?: string;
+  hasBuyerEmail: boolean;
+  hasIssuedTickets: boolean;
+  canResend: boolean;
+  attempts: TicketEmailDeliveryAttemptRecord[];
 };

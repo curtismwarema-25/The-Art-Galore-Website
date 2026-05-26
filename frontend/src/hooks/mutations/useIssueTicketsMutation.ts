@@ -10,6 +10,7 @@ export function useIssueTicketsMutation() {
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.adminOrders });
       queryClient.invalidateQueries({ queryKey: queryKeys.adminOrder(result.orderId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.adminTicketEmailDelivery(result.orderId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.adminManualPayments });
     },
   });

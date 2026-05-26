@@ -30,7 +30,7 @@ Not implemented yet:
 - MySQL server running locally
 
 ## Canonical files
-- Schema (source): `../prisma/schema.prisma`
+- Schema (tracked source): `../frontend/prisma/schema.prisma`
 - Schema (runtime copy): `./prisma/schema.prisma`
 - API contracts: `../docs/backend-contracts.md`
 
@@ -205,6 +205,110 @@ Lifecycle behavior:
 - replacing media in events/people/partners/gallery attempts old-file cleanup
 - deleting a community upload deletes its stored media file
 
+## Ticket email delivery
+
+Ticket issuing can email buyers their ticket links and optional PDF attachments after payment verification.
+
+Delivery is opt-in. Configure these env vars:
+- `EMAIL_DELIVERY_ENABLED=true`
+- `SMTP_HOST`
+- `SMTP_PORT` (usually `587` for STARTTLS or `465` with `SMTP_SECURE=true`)
+- `SMTP_SECURE`
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `EMAIL_FROM`
+- `EMAIL_REPLY_TO` (optional)
+- `PUBLIC_APP_URL` (frontend origin for `/tickets/:publicTicketToken` links)
+- `PUBLIC_API_URL` (optional API base URL ending in `/api`; local fallback derives from `PORT` + `API_PREFIX`)
+- `EMAIL_ATTACH_TICKET_PDFS=true` to attach generated PDFs
+- `EMAIL_DELIVERY_RETRY_ENABLED=true`
+- `EMAIL_DELIVERY_RETRY_MAX_ATTEMPTS=5`
+- `EMAIL_DELIVERY_RETRY_SWEEP_INTERVAL_SECONDS=60`
+- `EMAIL_DELIVERY_RETRY_BATCH_SIZE=20`
+
+Delivery behavior:
+- successful SMTP send marks the order `ticketDeliveryStatus` as `SENT`
+- missing buyer email marks it `FAILED` with no automatic retry
+- SMTP/config failure marks it `FAILED`, records the error summary, and schedules retry backoff
+- disabled email delivery leaves the current status unchanged
+- retry backoff is 5 minutes, 15 minutes, 1 hour, then 6 hours until the max attempt cap
+
+The backend starts an in-process retry worker with the API server. It only runs when both `EMAIL_DELIVERY_ENABLED` and `EMAIL_DELIVERY_RETRY_ENABLED` are true.
+
+Admin delivery endpoints:
+- `GET /api/admin/tickets/delivery/order/:orderId`
+- `POST /api/admin/tickets/delivery/order/:orderId/resend`
+
+Admins can manually resend only while delivery is `PENDING` or `FAILED`. Successfully sent ticket emails are not resent automatically.
+
+Troubleshooting:
+- if attempts fail with SMTP config errors, confirm `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, credentials, and `EMAIL_FROM`
+- if retries do not run, confirm the backend process is running and `EMAIL_DELIVERY_ENABLED=true`
+- if a buyer has no email, update the order data manually before attempting resend
+
+## Daily backups
+
+The Windows backup script writes a timestamped folder with:
+- `database.sql`
+- `media.zip`
+- `manifest.json`
+
+Configure the output destination in `.env`. Point it at a synced cloud folder or an external drive:
+```env
+BACKUP_OUTPUT_DIR="C:\Users\Curtis\OneDrive\Kisii Art Backups"
+BACKUP_RETENTION_DAYS=30
+```
+
+The script reads `DATABASE_URL`, uses `mysqldump` for `the_art_galore_international`, archives `MEDIA_LOCAL_ROOT`, and deletes matching backup folders older than the retention window. It passes the database password through `MYSQL_PWD` for the `mysqldump` process and does not print it.
+
+Check prerequisites without creating a backup:
+```bash
+npm run backup:check
+```
+
+Run a manual backup:
+```bash
+npm run backup
+```
+
+The check verifies `.env`, `DATABASE_URL`, `mysqldump`, the media folder, and that `BACKUP_OUTPUT_DIR` is writable.
+
+### Windows Task Scheduler
+
+Create a daily scheduled task from PowerShell:
+```powershell
+schtasks /Create /TN "Kisii Art Collective Daily Backup" /SC DAILY /ST 20:00 /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File F:\Github\kisii-art-collective\backend\scripts\backup.ps1" /F
+```
+
+Run it once on demand:
+```powershell
+schtasks /Run /TN "Kisii Art Collective Daily Backup"
+```
+
+GUI setup:
+- Open Task Scheduler
+- Choose "Create Basic Task..."
+- Name it `Kisii Art Collective Daily Backup`
+- Trigger: Daily
+- Action: Start a program
+- Program/script: `powershell.exe`
+- Arguments: `-NoProfile -ExecutionPolicy Bypass -File F:\Github\kisii-art-collective\backend\scripts\backup.ps1`
+- Start in: `F:\Github\kisii-art-collective\backend`
+
+### Restore
+
+Stop the backend before restoring. From a backup folder, restore the database:
+```powershell
+cmd /c "mysql -u root -p the_art_galore_international < database.sql"
+```
+
+Restore uploaded media:
+```powershell
+Expand-Archive .\media.zip -DestinationPath F:\Github\kisii-art-collective\backend\storage\media -Force
+```
+
+The restore commands are documented for manual use only; the backup script never restores data automatically.
+
 ## Seeded admin user (local)
 By default, `npm run prisma:seed` upserts one admin user for local login.
 
@@ -230,6 +334,8 @@ Content-Type: application/json
 - `npm run dev`
 - `npm run build`
 - `npm run start`
+- `npm run backup`
+- `npm run backup:check`
 - `npm run prisma:sync-schema`
 - `npm run prisma:validate`
 - `npm run prisma:generate`

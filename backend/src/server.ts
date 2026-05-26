@@ -5,6 +5,7 @@ import { logger } from "./common/utils/logger.js";
 import { prisma } from "./lib/prisma.js";
 import { OrdersRepository } from "./modules/orders/orders.repository.js";
 import { PaymentsRepository } from "./modules/payments/payments.repository.js";
+import { TicketEmailRetryWorker } from "./modules/tickets/ticketEmailRetryWorker.js";
 
 async function start() {
   try {
@@ -13,6 +14,7 @@ async function start() {
 
     const ordersRepository = new OrdersRepository();
     const paymentsRepository = new PaymentsRepository();
+    const ticketEmailRetryWorker = new TicketEmailRetryWorker();
     const sweepHandle = setInterval(() => {
       const now = new Date();
       Promise.all([
@@ -22,6 +24,7 @@ async function start() {
         logger.error("Background payment/order sweep failed", error);
       });
     }, env.ORDER_EXPIRY_SWEEP_INTERVAL_SECONDS * 1000);
+    ticketEmailRetryWorker.start();
 
     const app = createApp();
     const server = app.listen(env.PORT, () => {
@@ -31,6 +34,7 @@ async function start() {
     const shutdown = async (signal: string) => {
       logger.info(`Received ${signal}. Shutting down...`);
       clearInterval(sweepHandle);
+      ticketEmailRetryWorker.stop();
       server.close(async () => {
         await prisma.$disconnect();
         process.exit(0);

@@ -19,5 +19,7 @@ export * from "@/hooks/queries/useTicketQuery";
 export * from "@/hooks/queries/useTicketsQuery";
 export * from "@/hooks/queries/useTrackOrderQuery";
 export * from "@/hooks/queries/useAdminManualPaymentsQuery";
+export * from "@/hooks/queries/useAdminMpesaTransactionsQuery";
 export * from "@/hooks/queries/useAdminTicketSearchQuery";
+export * from "@/hooks/queries/useAdminTicketEmailDeliveryQuery";
 export * from "@/hooks/queries/useAdminStatsQuery";

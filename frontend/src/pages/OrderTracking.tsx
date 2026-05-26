@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Upload } from "lucide-react";
+import { Clock3, ReceiptText, Smartphone, Upload } from "lucide-react";
 import EmptyState from "@/components/common/EmptyState";
 import PageHeader from "@/components/common/PageHeader";
 import StatusBadge from "@/components/common/StatusBadge";
@@ -35,6 +35,12 @@ function verificationTone(status: string) {
   if (status === "rejected") return "rejected";
   if (status === "pending_review") return "pending";
   return "draft";
+}
+
+function createStkIdempotencyKey() {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `stk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 export default function OrderTracking() {
@@ -78,16 +84,11 @@ export default function OrderTracking() {
     const phone = searchParams.get("phone")?.trim() || "";
     if (!phone) return;
 
-    const idempotencyKey =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `stk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
     setStkRequested(true);
     initiateStkMutation
       .mutateAsync({
         input: { phoneNumber: phone },
-        idempotencyKey,
+        idempotencyKey: createStkIdempotencyKey(),
       })
       .then((result) => {
         toast.success(result.customerMessage || "M-Pesa prompt sent.");
@@ -189,25 +190,26 @@ export default function OrderTracking() {
   const triggerStkPush = async () => {
     const phone = phoneNumber.trim() || searchParams.get("phone")?.trim() || "";
     if (!phone) {
-      toast.error("Enter a valid phone number in the proof form first.");
+      toast.error("Enter a valid phone number for the M-Pesa prompt.");
       return;
     }
-
-    const idempotencyKey =
-      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-        ? crypto.randomUUID()
-        : `stk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     try {
       const result = await initiateStkMutation.mutateAsync({
         input: { phoneNumber: phone },
-        idempotencyKey,
+        idempotencyKey: createStkIdempotencyKey(),
       });
       toast.success(result.customerMessage || "M-Pesa prompt sent.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not send STK push.");
     }
   };
+
+  const formattedAmountDue = toMoney(order.currency, order.amountDue);
+  const reservationExpiry = new Date(order.reservationExpiresAt).toLocaleString();
+  const stkErrorMessage =
+    initiateStkMutation.error instanceof Error ? initiateStkMutation.error.message : "Could not send STK push.";
+  const manualPaymentEnabled = settings?.manualPaymentEnabled ?? true;
 
   return (
     <section className="section-padding">
@@ -218,66 +220,131 @@ export default function OrderTracking() {
           description="Track your payment verification and access tickets from this secure link."
         />
 
-        <article className="border border-border bg-card p-5 md:p-6 space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <StatusBadge tone={orderStatusTone(order.status)} label={`order: ${order.status}`} />
-            <StatusBadge tone={verificationTone(order.verificationStatus)} label={`verification: ${order.verificationStatus}`} />
+        <article className="border border-border bg-card p-5 md:p-6 space-y-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="font-display text-sm uppercase tracking-[0.16em] text-foreground-secondary">{order.event.title}</p>
+              <p className="mt-1 text-sm text-foreground-secondary">
+                {new Date(order.event.startAt).toLocaleString()} at {order.event.venueName}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StatusBadge tone={orderStatusTone(order.status)} label={`order: ${order.status}`} />
+              <StatusBadge tone={verificationTone(order.verificationStatus)} label={`verification: ${order.verificationStatus}`} />
+            </div>
           </div>
-          <p className="text-sm text-foreground-secondary">
-            Amount Due: <span className="text-foreground">{toMoney(order.currency, order.amountDue)}</span>
-          </p>
-          <p className="text-sm text-foreground-secondary">
-            Reservation Expires: <span className="text-foreground">{new Date(order.reservationExpiresAt).toLocaleString()}</span>
-          </p>
 
-          <div className="text-sm text-foreground-secondary">
-            <p className="text-foreground mb-2">Tickets</p>
-            <ul className="space-y-1">
-              {order.ticketQuantities.map((item) => (
-                <li key={`${item.tierName}-${item.quantity}`}>{item.tierName} x {item.quantity}</li>
-              ))}
-            </ul>
+          <div className="grid grid-cols-1 gap-4 border-y border-border py-4 md:grid-cols-3 md:divide-x md:divide-border">
+            <div className="md:pr-4">
+              <p className="text-xs font-display uppercase tracking-[0.16em] text-foreground-secondary">Amount Due</p>
+              <p className="mt-1 text-lg font-display text-foreground">{formattedAmountDue}</p>
+            </div>
+            <div className="md:px-4">
+              <p className="text-xs font-display uppercase tracking-[0.16em] text-foreground-secondary">Reservation</p>
+              <p className="mt-1 text-sm text-foreground">{reservationExpiry}</p>
+            </div>
+            <div className="md:pl-4">
+              <p className="text-xs font-display uppercase tracking-[0.16em] text-foreground-secondary">Tickets</p>
+              <ul className="mt-1 space-y-1 text-sm text-foreground">
+                {order.ticketQuantities.map((item) => (
+                  <li key={`${item.tierName}-${item.quantity}`}>{item.tierName} x {item.quantity}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         </article>
 
-        <article className="border border-border bg-card p-5 md:p-6 space-y-3">
-          <h2 className="font-display text-lg text-foreground">Payment Instructions</h2>
-          <p className="text-sm text-foreground-secondary">{settings?.mpesaComingSoonMessage ?? "Automated M-Pesa checkout coming soon"}</p>
-          {settings?.mpesaPaybill && (
-            <p className="text-sm text-foreground-secondary">
-              M-Pesa Paybill: <span className="text-foreground">{settings.mpesaPaybill}</span>
-            </p>
-          )}
-          {settings?.mpesaAccountInstructions && <p className="text-sm text-foreground-secondary">{settings.mpesaAccountInstructions}</p>}
-          {settings?.bankName && (
-            <p className="text-sm text-foreground-secondary">
-              Bank: <span className="text-foreground">{settings.bankName}</span>
-              {settings.bankBranch ? ` (${settings.bankBranch})` : ""}
-            </p>
-          )}
-          {settings?.bankAccountName && (
-            <p className="text-sm text-foreground-secondary">
-              Account Name: <span className="text-foreground">{settings.bankAccountName}</span>
-            </p>
-          )}
-          {settings?.bankAccountNumber && (
-            <p className="text-sm text-foreground-secondary">
-              Account Number: <span className="text-foreground">{settings.bankAccountNumber}</span>
-            </p>
-          )}
-          {settings?.supportContactText && <p className="text-sm text-foreground-secondary">{settings.supportContactText}</p>}
-          {order.canSubmitPaymentProof && (
-            <div className="pt-2">
+        {order.canSubmitPaymentProof && (
+          <article className="border border-border bg-card p-5 md:p-6 space-y-5">
+            <div className="flex items-start gap-3">
+              <span className="mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-accent/35 bg-accent/12 text-accent">
+                <Smartphone size={18} />
+              </span>
+              <div>
+                <h2 className="font-display text-lg text-foreground">M-Pesa STK Checkout</h2>
+                <p className="text-sm text-foreground-secondary">
+                  Pay {formattedAmountDue} for order {order.orderNumber}.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto] md:items-end">
+              <label className="block">
+                <span className={formLabelClassName}>M-Pesa Phone Number *</span>
+                <input
+                  value={phoneNumber}
+                  onChange={(eventInput) => setPhoneNumber(eventInput.target.value)}
+                  placeholder="07XXXXXXXX or 2547XXXXXXXX"
+                  className={formInputClassName}
+                />
+              </label>
               <Button type="button" variant="accent" onClick={() => void triggerStkPush()} disabled={initiateStkMutation.isPending}>
-                {initiateStkMutation.isPending ? "Sending STK Prompt..." : "Pay via M-Pesa STK Push"}
+                <Smartphone size={16} />
+                {initiateStkMutation.isPending ? "Sending Prompt..." : "Send STK Prompt"}
               </Button>
             </div>
-          )}
-        </article>
 
-        {order.canSubmitPaymentProof && (settings?.manualPaymentEnabled ?? true) && (
-          <article className="border border-border bg-card p-5 md:p-6">
-            <h2 className="font-display text-lg text-foreground mb-4">Submit Payment Proof</h2>
+            <div className="flex items-start gap-2 rounded-md border border-border bg-secondary/15 p-3 text-sm text-foreground-secondary">
+              <Clock3 size={16} className="mt-0.5 shrink-0 text-accent" />
+              <div>
+                {initiateStkMutation.isPending && <p>Sending a payment prompt to your phone.</p>}
+                {initiateStkMutation.isSuccess && <p className="text-foreground">M-Pesa prompt sent. Complete it on your phone.</p>}
+                {initiateStkMutation.isError && <p>{stkErrorMessage}</p>}
+                {!initiateStkMutation.isPending && !initiateStkMutation.isSuccess && !initiateStkMutation.isError && (
+                  <p>Complete the M-Pesa prompt before {reservationExpiry}.</p>
+                )}
+              </div>
+            </div>
+          </article>
+        )}
+
+        {order.canSubmitPaymentProof && manualPaymentEnabled && (
+          <article className="border border-border bg-card p-5 md:p-6 space-y-5">
+            <div className="flex items-start gap-3">
+              <span className="mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border text-foreground-secondary">
+                <ReceiptText size={18} />
+              </span>
+              <div>
+                <h2 className="font-display text-lg text-foreground">Payment Proof Fallback</h2>
+                <p className="text-sm text-foreground-secondary">
+                  Submit a receipt or bank reference if the STK prompt is unavailable.
+                </p>
+              </div>
+            </div>
+
+            {(settings?.mpesaPaybill ||
+              settings?.mpesaAccountInstructions ||
+              settings?.bankName ||
+              settings?.bankAccountName ||
+              settings?.bankAccountNumber ||
+              settings?.supportContactText) && (
+              <div className="grid grid-cols-1 gap-3 border-y border-border py-4 text-sm text-foreground-secondary md:grid-cols-2">
+                {settings?.mpesaPaybill && (
+                  <p>
+                    M-Pesa Paybill: <span className="text-foreground">{settings.mpesaPaybill}</span>
+                  </p>
+                )}
+                {settings?.mpesaAccountInstructions && <p>{settings.mpesaAccountInstructions}</p>}
+                {settings?.bankName && (
+                  <p>
+                    Bank: <span className="text-foreground">{settings.bankName}</span>
+                    {settings.bankBranch ? ` (${settings.bankBranch})` : ""}
+                  </p>
+                )}
+                {settings?.bankAccountName && (
+                  <p>
+                    Account Name: <span className="text-foreground">{settings.bankAccountName}</span>
+                  </p>
+                )}
+                {settings?.bankAccountNumber && (
+                  <p>
+                    Account Number: <span className="text-foreground">{settings.bankAccountNumber}</span>
+                  </p>
+                )}
+                {settings?.supportContactText && <p>{settings.supportContactText}</p>}
+              </div>
+            )}
+
             <form className="space-y-3" onSubmit={submitPaymentProof}>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <label className="block">
@@ -369,7 +436,7 @@ export default function OrderTracking() {
         {!order.canSubmitPaymentProof && (
           <article className="border border-border bg-card p-5 md:p-6">
             <p className="text-sm text-foreground-secondary">
-              Payment proof submission is currently unavailable for this order status.
+              Payment actions are currently unavailable for this order status.
             </p>
           </article>
         )}

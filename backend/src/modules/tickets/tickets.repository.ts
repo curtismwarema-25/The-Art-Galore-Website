@@ -1,4 +1,12 @@
-import { CheckInMethod, TicketStatus, type Prisma, type PrismaClient } from "@prisma/client";
+import {
+  CheckInMethod,
+  TicketStatus,
+  type Prisma,
+  type PrismaClient,
+  type TicketDeliveryStatus,
+  type TicketEmailDeliveryAttemptStatus,
+  type TicketEmailDeliveryTrigger,
+} from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 import type { AdminTicketSearchFilters, SerializedTicketStatus } from "./tickets.types.js";
 
@@ -77,12 +85,70 @@ const issuanceOrderInclude = {
   },
 } satisfies Prisma.OrderInclude;
 
+const ticketDeliveryOrderInclude = {
+  event: {
+    select: {
+      id: true,
+      slug: true,
+      title: true,
+      startAt: true,
+      endAt: true,
+      venueName: true,
+      timezone: true,
+    },
+  },
+  tickets: {
+    orderBy: [{ issuedAt: "asc" }] as const,
+    include: publicTicketInclude,
+  },
+} satisfies Prisma.OrderInclude;
+
+const ticketEmailDeliveryAttemptSelect = {
+  id: true,
+  trigger: true,
+  status: true,
+  recipient: true,
+  attemptNumber: true,
+  messageId: true,
+  errorSummary: true,
+  createdAt: true,
+  completedAt: true,
+} satisfies Prisma.TicketEmailDeliveryAttemptSelect;
+
+const ticketEmailDeliverySummarySelect = {
+  id: true,
+  orderNumber: true,
+  buyerEmail: true,
+  ticketDeliveryStatus: true,
+  ticketDeliveryAttemptCount: true,
+  ticketDeliveryLastAttemptAt: true,
+  ticketDeliveryNextRetryAt: true,
+  ticketDeliveryLastError: true,
+  tickets: {
+    select: {
+      id: true,
+    },
+  },
+  ticketEmailDeliveryAttempts: {
+    orderBy: [{ createdAt: "desc" }] as const,
+    select: ticketEmailDeliveryAttemptSelect,
+  },
+} satisfies Prisma.OrderSelect;
+
 export type PublicTicketWithRelations = Prisma.TicketGetPayload<{
   include: typeof publicTicketInclude;
 }>;
 
 export type IssuanceOrderWithRelations = Prisma.OrderGetPayload<{
   include: typeof issuanceOrderInclude;
+}>;
+
+export type TicketDeliveryOrderWithRelations = Prisma.OrderGetPayload<{
+  include: typeof ticketDeliveryOrderInclude;
+}>;
+
+export type TicketEmailDeliverySummaryWithAttempts = Prisma.OrderGetPayload<{
+  select: typeof ticketEmailDeliverySummarySelect;
 }>;
 
 function getClient(tx?: Prisma.TransactionClient): DbClient {
@@ -107,6 +173,57 @@ export class TicketsRepository {
       where: { id: orderId },
       include: issuanceOrderInclude,
     });
+  }
+
+  async getOrderForTicketDelivery(orderId: string) {
+    return prisma.order.findUnique({
+      where: { id: orderId },
+      include: ticketDeliveryOrderInclude,
+    });
+  }
+
+  async getTicketEmailDeliverySummary(orderId: string) {
+    return prisma.order.findUnique({
+      where: { id: orderId },
+      select: ticketEmailDeliverySummarySelect,
+    });
+  }
+
+  async listDueTicketEmailDeliveryOrderIds(now: Date, limit: number, maxAttempts: number) {
+    const orders = await prisma.order.findMany({
+      where: {
+        ticketDeliveryStatus: {
+          in: ["PENDING", "FAILED"],
+        },
+        ticketDeliveryAttemptCount: {
+          lt: maxAttempts,
+        },
+        buyerEmail: {
+          not: null,
+        },
+        tickets: {
+          some: {},
+        },
+        OR: [
+          {
+            ticketDeliveryNextRetryAt: {
+              lte: now,
+            },
+          },
+          {
+            ticketDeliveryNextRetryAt: null,
+            ticketDeliveryAttemptCount: 0,
+          },
+        ],
+      },
+      orderBy: [{ ticketDeliveryNextRetryAt: "asc" }, { updatedAt: "asc" }],
+      take: limit,
+      select: {
+        id: true,
+      },
+    });
+
+    return orders.map((order) => order.id);
   }
 
   async createTicket(
@@ -224,16 +341,58 @@ export class TicketsRepository {
     });
   }
 
-  async updateOrderTicketDeliverySent(orderId: string, tx: Prisma.TransactionClient) {
-    return tx.order.update({
+  async updateOrderTicketDeliveryStatus(orderId: string, status: TicketDeliveryStatus, tx?: Prisma.TransactionClient) {
+    const client = getClient(tx);
+
+    return client.order.update({
       where: { id: orderId },
       data: {
-        ticketDeliveryStatus: "SENT",
+        ticketDeliveryStatus: status,
       },
       select: {
         id: true,
         orderNumber: true,
       },
+    });
+  }
+
+  async recordTicketEmailDeliveryAttempt(input: {
+    orderId: string;
+    trigger: TicketEmailDeliveryTrigger;
+    status: TicketEmailDeliveryAttemptStatus;
+    ticketDeliveryStatus: TicketDeliveryStatus;
+    recipient?: string | null;
+    attemptNumber: number;
+    messageId?: string | null;
+    errorSummary?: string | null;
+    completedAt: Date;
+    nextRetryAt?: Date | null;
+  }) {
+    return prisma.$transaction(async (tx) => {
+      await tx.ticketEmailDeliveryAttempt.create({
+        data: {
+          orderId: input.orderId,
+          trigger: input.trigger,
+          status: input.status,
+          recipient: input.recipient,
+          attemptNumber: input.attemptNumber,
+          messageId: input.messageId,
+          errorSummary: input.errorSummary,
+          completedAt: input.completedAt,
+        },
+      });
+
+      return tx.order.update({
+        where: { id: input.orderId },
+        data: {
+          ticketDeliveryStatus: input.ticketDeliveryStatus,
+          ticketDeliveryAttemptCount: input.attemptNumber,
+          ticketDeliveryLastAttemptAt: input.completedAt,
+          ticketDeliveryNextRetryAt: input.nextRetryAt,
+          ticketDeliveryLastError: input.errorSummary ?? null,
+        },
+        select: ticketEmailDeliverySummarySelect,
+      });
     });
   }
 }

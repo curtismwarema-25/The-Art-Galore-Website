@@ -5,6 +5,7 @@ import { authorize } from "../../common/middleware/authorize.js";
 import { validateRequest } from "../../common/validation/validateRequest.js";
 import { TicketsService } from "./tickets.service.js";
 import {
+  adminTicketDeliveryOrderParamsSchema,
   adminTicketVerifyParamsSchema,
   adminIssueOrderTicketsParamsSchema,
   adminTicketCheckInSchema,
@@ -67,6 +68,38 @@ adminTicketsRouter.get(
       });
 
       res.status(200).json({ data: tickets });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+adminTicketsRouter.get(
+  "/delivery/order/:orderId",
+  authorize(TICKET_ADMIN_VIEW_ROLES),
+  validateRequest(adminTicketDeliveryOrderParamsSchema),
+  async (req, res, next) => {
+    try {
+      const { orderId } = adminTicketDeliveryOrderParamsSchema.shape.params.parse(req.params);
+      const result = await ticketsService.getTicketEmailDeliverySummary(orderId);
+
+      res.status(200).json({ data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+adminTicketsRouter.post(
+  "/delivery/order/:orderId/resend",
+  authorize(TICKET_ISSUE_ROLES),
+  validateRequest(adminTicketDeliveryOrderParamsSchema),
+  async (req, res, next) => {
+    try {
+      const { orderId } = adminTicketDeliveryOrderParamsSchema.shape.params.parse(req.params);
+      const result = await ticketsService.resendTicketEmailDeliveryForOrder(orderId);
+
+      res.status(200).json({ data: result });
     } catch (error) {
       next(error);
     }

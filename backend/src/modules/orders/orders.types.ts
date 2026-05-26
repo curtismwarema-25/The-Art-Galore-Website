@@ -10,6 +10,8 @@ export type VerificationStatus = "not_submitted" | "pending_review" | "approved"
 
 export type PaymentLifecycleStatus = "pending" | "paid" | "failed";
 
+export type TicketDeliveryLifecycleStatus = "pending" | "sent" | "failed";
+
 export type PaymentProviderCode = "mpesa" | "card" | "bank" | "manual";
 
 export type SerializedOrderBuyer = {
@@ -90,6 +92,7 @@ export type SerializedOrderRecord = {
   items: SerializedOrderItem[];
   payment: SerializedOrderPayment | null;
   latestPaymentProof: SerializedOrderPaymentProof | null;
+  ticketDeliveryStatus: TicketDeliveryLifecycleStatus;
   tickets: SerializedIssuedTicket[];
   createdAt: string;
   updatedAt: string;
@@ -116,6 +119,7 @@ export type PublicTrackedOrderRecord = {
     quantity: number;
   }>;
   canSubmitPaymentProof: boolean;
+  ticketDeliveryStatus: TicketDeliveryLifecycleStatus;
   tickets: Array<{
     ticketNumber: string;
     publicTicketToken: string;
