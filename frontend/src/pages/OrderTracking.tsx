@@ -46,7 +46,8 @@ function createStkIdempotencyKey() {
 export default function OrderTracking() {
   const { publicToken = "" } = useParams();
   const [searchParams] = useSearchParams();
-  const { data: order, isLoading, isError } = useTrackOrderQuery(publicToken);
+  const [stkRequested, setStkRequested] = useState(false);
+  const { data: order, isLoading, isError } = useTrackOrderQuery(publicToken, stkRequested ? 5_000 : 30_000);
   const { data: settings } = usePublicSiteSettingsQuery();
   const uploadMediaMutation = useUploadMediaMutation();
   const submitProofMutation = useSubmitManualPaymentProofMutation(publicToken);
@@ -60,7 +61,6 @@ export default function OrderTracking() {
   const [notes, setNotes] = useState("");
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
   const [screenshotPreview, setScreenshotPreview] = useState("");
-  const [stkRequested, setStkRequested] = useState(false);
 
   useEffect(() => {
     if (!order) return;
@@ -70,6 +70,13 @@ export default function OrderTracking() {
       if (candidate) setPhoneNumber(candidate);
     }
   }, [order, phoneNumber, searchParams]);
+
+  useEffect(() => {
+    if (!order || !stkRequested) return;
+    if (order.status === "paid" || order.status === "expired" || order.status === "payment_rejected") {
+      setStkRequested(false);
+    }
+  }, [order, stkRequested]);
 
   useEffect(() => {
     return () => {
@@ -210,6 +217,17 @@ export default function OrderTracking() {
   const stkErrorMessage =
     initiateStkMutation.error instanceof Error ? initiateStkMutation.error.message : "Could not send STK push.";
   const manualPaymentEnabled = settings?.manualPaymentEnabled ?? true;
+  const hasIssuedTickets = order.tickets.length > 0;
+  const ticketDeliveryMessage =
+    order.ticketDeliveryStatus === "sent"
+      ? "Ticket email sent. You can also open tickets from this page."
+      : order.ticketDeliveryStatus === "failed"
+        ? "Ticket email needs attention. Your tickets remain available below."
+        : hasIssuedTickets
+          ? "Tickets are ready. Email delivery is pending."
+          : order.paymentStatus === "paid"
+            ? "Payment is confirmed. Tickets are being prepared."
+            : "Payment is pending. Complete the STK prompt or submit proof if needed.";
 
   return (
     <section className="section-padding">
@@ -251,6 +269,14 @@ export default function OrderTracking() {
                 ))}
               </ul>
             </div>
+          </div>
+
+          <div className="rounded-md border border-border bg-secondary/15 p-3 text-sm text-foreground-secondary">
+            <p className="text-foreground">Fulfillment Status</p>
+            <p className="mt-1">{ticketDeliveryMessage}</p>
+            {stkRequested && order.paymentStatus === "pending" && (
+              <p className="mt-1 text-xs">Refreshing more often while the M-Pesa prompt is active.</p>
+            )}
           </div>
         </article>
 

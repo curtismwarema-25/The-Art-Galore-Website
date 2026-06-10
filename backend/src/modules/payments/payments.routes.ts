@@ -1,11 +1,15 @@
 import { UserRole } from "@prisma/client";
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
+import { UnauthorizedError } from "../../common/errors/httpErrors.js";
 import { authenticate } from "../../common/middleware/authenticate.js";
 import { authorize } from "../../common/middleware/authorize.js";
+import { createSimpleRateLimit } from "../../common/middleware/simpleRateLimit.js";
 import { validateRequest } from "../../common/validation/validateRequest.js";
+import { env } from "../../config/index.js";
 import { PaymentsService } from "./payments.service.js";
 import {
+  adminMpesaTransactionIdParamsSchema,
   mpesaStkCallbackSchema,
   listAdminMpesaTransactionsQuerySchema,
   listAdminManualPaymentsQuerySchema,
@@ -18,11 +22,16 @@ const PAYMENT_REVIEW_READ_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.STAFF, U
 const PAYMENT_REVIEW_WRITE_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.STAFF];
 
 const paymentsService = new PaymentsService();
+const publicPaymentRateLimit = createSimpleRateLimit({
+  keyPrefix: "public-payment",
+  windowMs: 15 * 60 * 1000,
+  maxAttempts: 30,
+});
 
 export const paymentsRouter = Router();
 export const adminPaymentsRouter = Router();
 
-paymentsRouter.post("/manual/:publicToken/proof", validateRequest(submitManualPaymentSchema), async (req, res, next) => {
+paymentsRouter.post("/manual/:publicToken/proof", publicPaymentRateLimit, validateRequest(submitManualPaymentSchema), async (req, res, next) => {
   try {
     const { publicToken } = submitManualPaymentSchema.shape.params.parse(req.params);
     const body = submitManualPaymentSchema.shape.body.parse(req.body);
@@ -35,7 +44,7 @@ paymentsRouter.post("/manual/:publicToken/proof", validateRequest(submitManualPa
   }
 });
 
-paymentsRouter.post("/mpesa/stk/:publicToken/initiate", validateRequest(stkPushInitiateSchema), async (req, res, next) => {
+paymentsRouter.post("/mpesa/stk/:publicToken/initiate", publicPaymentRateLimit, validateRequest(stkPushInitiateSchema), async (req, res, next) => {
   try {
     const { publicToken } = stkPushInitiateSchema.shape.params.parse(req.params);
     const body = stkPushInitiateSchema.shape.body.parse(req.body);
@@ -47,8 +56,22 @@ paymentsRouter.post("/mpesa/stk/:publicToken/initiate", validateRequest(stkPushI
   }
 });
 
+function assertMpesaCallbackAuthorized(req: Request) {
+  if (!env.MPESA_CALLBACK_SECRET) return;
+
+  const headerSecret = req.header("x-mpesa-callback-secret");
+  const querySecret = typeof req.query.secret === "string" ? req.query.secret : undefined;
+  const bearerToken = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+  const receivedSecret = headerSecret || querySecret || bearerToken;
+
+  if (receivedSecret !== env.MPESA_CALLBACK_SECRET) {
+    throw new UnauthorizedError("Invalid M-Pesa callback secret");
+  }
+}
+
 paymentsRouter.post("/mpesa/stk/callback", validateRequest(z.object({ body: mpesaStkCallbackSchema })), async (req, res, next) => {
   try {
+    assertMpesaCallbackAuthorized(req);
     const payload = mpesaStkCallbackSchema.parse(req.body);
     await paymentsService.ingestMpesaStkCallback(payload);
     res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
@@ -73,6 +96,21 @@ adminPaymentsRouter.get(
         limit: query.limit,
       });
       res.status(200).json({ data: rows });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+adminPaymentsRouter.post(
+  "/mpesa-transactions/:id/reverify",
+  authorize(PAYMENT_REVIEW_WRITE_ROLES),
+  validateRequest(adminMpesaTransactionIdParamsSchema),
+  async (req, res, next) => {
+    try {
+      const { id } = adminMpesaTransactionIdParamsSchema.shape.params.parse(req.params);
+      const result = await paymentsService.reverifyMpesaTransaction(id);
+      res.status(200).json({ data: result });
     } catch (error) {
       next(error);
     }

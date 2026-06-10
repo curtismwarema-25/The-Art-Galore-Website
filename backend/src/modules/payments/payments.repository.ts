@@ -165,6 +165,16 @@ export class PaymentsRepository {
     });
   }
 
+  async findPaymentTransactionById(id: string, tx?: Prisma.TransactionClient) {
+    const client = getClient(tx);
+    return client.paymentTransaction.findUnique({
+      where: { id },
+      include: {
+        order: true,
+      },
+    });
+  }
+
   async findLatestMpesaTransactionForOrder(orderId: string, tx?: Prisma.TransactionClient) {
     const client = getClient(tx);
     return client.paymentTransaction.findFirst({
@@ -446,6 +456,33 @@ export class PaymentsRepository {
         rawCallback: input.rawCallback,
       },
     });
+    return updated.count > 0;
+  }
+
+  async recordPaymentTransactionCallbackIfNonTerminal(
+    input: {
+      id: string;
+      resultCode: string;
+      resultMessage: string;
+      rawCallback?: Prisma.InputJsonValue;
+    },
+    tx: Prisma.TransactionClient,
+  ) {
+    const updated = await tx.paymentTransaction.updateMany({
+      where: {
+        id: input.id,
+        status: {
+          in: [PaymentStatus.INITIATED, PaymentStatus.PENDING],
+        },
+      },
+      data: {
+        status: PaymentStatus.PENDING,
+        resultCode: input.resultCode,
+        resultMessage: input.resultMessage,
+        rawCallback: input.rawCallback,
+      },
+    });
+
     return updated.count > 0;
   }
 

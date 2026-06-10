@@ -14,15 +14,15 @@ Implemented:
 - App startup with Prisma connection and health endpoints
 - Orders foundation:
   - `POST /api/orders`
-  - `GET /api/orders/:orderNumber`
+  - `GET /api/orders/track/:publicToken`
   - `GET /api/admin/orders`
   - `GET /api/admin/orders/:id`
   - pending-payment lifecycle persistence with reservation expiry + initial payment transaction row
-
-Not implemented yet:
-- Full public/admin business CRUD modules
-- Daraja provider initiation/callback logic
-- Ticket issuance and check-in transactional flow
+- Daraja/M-Pesa STK initiation and callback processing
+- Callback secret validation when `MPESA_CALLBACK_SECRET` is configured
+- Daraja STK Query verification before successful callback fulfillment
+- Admin M-Pesa transaction audit and reverify endpoint
+- Ticket issuance, public ticket retrieval/download, email delivery, retries, and admin check-in
 
 ## Prerequisites
 - Node.js 20+
@@ -240,6 +240,25 @@ Admin delivery endpoints:
 - `POST /api/admin/tickets/delivery/order/:orderId/resend`
 
 Admins can manually resend only while delivery is `PENDING` or `FAILED`. Successfully sent ticket emails are not resent automatically.
+
+## M-Pesa STK checkout
+
+Configure Daraja credentials in `.env`:
+- `MPESA_DARAJA_ENV`
+- `MPESA_SHORTCODE`
+- `MPESA_PASSKEY`
+- `MPESA_CONSUMER_KEY`
+- `MPESA_CONSUMER_SECRET`
+- `MPESA_CALLBACK_URL`
+- `MPESA_CALLBACK_SECRET`
+
+Production deployments should set `MPESA_CALLBACK_SECRET` and include it in callback requests as
+`x-mpesa-callback-secret`, `Authorization: Bearer <secret>`, or `?secret=` on the callback URL. When
+`NODE_ENV=production` and `MPESA_CALLBACK_URL` is configured, the backend refuses to start without the secret.
+
+The public STK initiation endpoint returns only buyer-safe status fields. Provider request IDs are available from
+`GET /api/admin/payments/mpesa-transactions`, and admins can retry provider verification with
+`POST /api/admin/payments/mpesa-transactions/:id/reverify`.
 
 Troubleshooting:
 - if attempts fail with SMTP config errors, confirm `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, credentials, and `EMAIL_FROM`

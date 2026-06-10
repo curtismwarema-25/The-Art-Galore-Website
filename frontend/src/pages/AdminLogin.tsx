@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useAuth } from "@/features/auth/useAuth";
 import { adminInputClassName, adminLabelClassName } from "@/features/admin/shared/utils";
 import { formErrorTextClassName, formHelperTextClassName } from "@/lib/formStyles";
 

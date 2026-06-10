@@ -89,10 +89,9 @@ export type InitiateStkPushInput = {
 
 export type InitiateStkPushResult = {
   orderNumber: string;
-  checkoutRequestId: string;
-  merchantRequestId: string;
   customerMessage: string;
   responseCode: string;
+  paymentStatus: "pending";
 };
 
 function buildAdminManualPaymentsPath(filters?: AdminManualPaymentQueueFilters) {
@@ -165,6 +164,23 @@ export async function rejectAdminManualPaymentSubmission(id: string, verificatio
   const response = await apiRequest<ApiData<{ orderNumber: string }>>(`/admin/payments/manual-submissions/${id}/reject`, {
     method: "POST",
     body: { verificationNote },
+  });
+
+  return response.data;
+}
+
+export async function reverifyAdminMpesaTransaction(id: string) {
+  const response = await apiRequest<
+    ApiData<{
+      orderNumber: string;
+      status: AdminMpesaTransactionStatus;
+      resultCode?: string;
+      resultDesc?: string;
+      ticketsIssued?: number;
+      ticketDeliveryStatus?: TicketDeliveryStatus;
+    }>
+  >(`/admin/payments/mpesa-transactions/${id}/reverify`, {
+    method: "POST",
   });
 
   return response.data;

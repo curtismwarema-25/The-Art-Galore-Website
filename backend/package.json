@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
+    "test": "dotenv -e .env -- tsx --test \"src/**/*.test.ts\"",
     "start": "node dist/server.js",
     "backup": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/backup.ps1",
     "backup:check": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/backup.ps1 -Check",

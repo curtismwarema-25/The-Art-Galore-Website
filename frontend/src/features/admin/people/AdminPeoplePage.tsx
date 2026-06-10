@@ -17,7 +17,7 @@ import {
   adminInputClassName,
   adminTextareaClassName,
 } from "@/features/admin/shared/utils";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useAuth } from "@/features/auth/useAuth";
 import { validateFile } from "@/features/uploads/uploadService";
 import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
 import {

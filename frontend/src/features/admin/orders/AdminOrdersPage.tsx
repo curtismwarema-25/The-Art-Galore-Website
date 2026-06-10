@@ -10,15 +10,16 @@ import StatusBadge from "@/components/common/StatusBadge";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
 import { formatDateTime, formatMoney } from "@/features/admin/shared/utils";
 import { useIssueTicketsMutation } from "@/hooks/mutations/useIssueTicketsMutation";
-import { useApproveManualPaymentMutation, useRejectManualPaymentMutation } from "@/hooks/mutations/usePaymentMutations";
+import { useApproveManualPaymentMutation, useRejectManualPaymentMutation, useReverifyMpesaTransactionMutation } from "@/hooks/mutations/usePaymentMutations";
 import { useResendTicketEmailDeliveryMutation } from "@/hooks/mutations/useTicketEmailDeliveryMutation";
 import { useAdminManualPaymentsQuery } from "@/hooks/queries/useAdminManualPaymentsQuery";
 import { useAdminMpesaTransactionsQuery } from "@/hooks/queries/useAdminMpesaTransactionsQuery";
 import { useAdminOrderQuery, useAdminOrdersQuery } from "@/hooks/queries/useAdminOrdersQuery";
 import { useAdminTicketEmailDeliveryQuery } from "@/hooks/queries/useAdminTicketEmailDeliveryQuery";
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
-import type { AdminMpesaTransactionStatus } from "@/api/endpoints/payments";
-import type { OrderLifecycleStatus, TicketDeliveryStatus } from "@/api/endpoints/orders";
+import type { AdminMpesaTransactionAuditRecord, AdminMpesaTransactionStatus } from "@/api/endpoints/payments";
+import type { OrderDetailsRecord, OrderLifecycleStatus, TicketDeliveryStatus } from "@/api/endpoints/orders";
+import type { TicketEmailDeliverySummaryRecord } from "@/api/endpoints/tickets";
 import { toast } from "@/components/ui/sonner";
 
 const ORDER_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | OrderLifecycleStatus }> = [
@@ -80,6 +81,77 @@ function formatCallback(value: unknown) {
   }
 }
 
+type ReviewModalState = {
+  submissionId: string;
+  orderNumber: string;
+  action: "approve" | "reject";
+} | null;
+
+function buildOrderTimeline(
+  order: OrderDetailsRecord,
+  mpesaTransactions: AdminMpesaTransactionAuditRecord[] | undefined,
+  ticketDelivery: TicketEmailDeliverySummaryRecord | undefined,
+) {
+  const events: Array<{ at: string; label: string; detail: string }> = [
+    {
+      at: order.placedAt,
+      label: "Order created",
+      detail: `${order.buyer.buyerName} reserved ${order.items.reduce((sum, item) => sum + item.quantity, 0)} ticket(s).`,
+    },
+  ];
+
+  for (const transaction of mpesaTransactions ?? []) {
+    events.push({
+      at: transaction.initiatedAt,
+      label: "M-Pesa STK attempt",
+      detail: `${transaction.status}${transaction.resultCode ? ` (${transaction.resultCode})` : ""}`,
+    });
+    if (transaction.completedAt) {
+      events.push({
+        at: transaction.completedAt,
+        label: "M-Pesa result",
+        detail: transaction.resultDesc ?? transaction.status,
+      });
+    }
+  }
+
+  if (order.latestPaymentProof) {
+    events.push({
+      at: order.latestPaymentProof.submittedAt,
+      label: "Payment proof submitted",
+      detail: `${order.latestPaymentProof.paymentMethod} reference ${order.latestPaymentProof.transactionReference}`,
+    });
+    if (order.latestPaymentProof.reviewedAt) {
+      events.push({
+        at: order.latestPaymentProof.reviewedAt,
+        label: "Payment proof reviewed",
+        detail: order.latestPaymentProof.verificationNote ?? order.latestPaymentProof.verificationStatus,
+      });
+    }
+  }
+
+  if (order.paidAt) {
+    events.push({ at: order.paidAt, label: "Order paid", detail: `${order.tickets.length} issued ticket(s).` });
+  }
+
+  for (const ticket of order.tickets) {
+    events.push({ at: ticket.issuedAt, label: "Ticket issued", detail: ticket.ticketNumber });
+    if (ticket.checkedInAt) {
+      events.push({ at: ticket.checkedInAt, label: "Ticket checked in", detail: ticket.ticketNumber });
+    }
+  }
+
+  for (const attempt of ticketDelivery?.attempts ?? []) {
+    events.push({
+      at: attempt.completedAt ?? attempt.createdAt,
+      label: "Ticket email delivery",
+      detail: attempt.messageId ?? attempt.errorSummary ?? attempt.status,
+    });
+  }
+
+  return events.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+}
+
 export default function AdminOrdersPage() {
   const { id: routeOrderId } = useParams();
   const [search, setSearch] = useState("");
@@ -88,6 +160,8 @@ export default function AdminOrdersPage() {
   const [mpesaSearch, setMpesaSearch] = useState("");
   const [mpesaStatusFilterValue, setMpesaStatusFilterValue] = useState<"all" | AdminMpesaTransactionStatus>("all");
   const [expandedMpesaTransactionId, setExpandedMpesaTransactionId] = useState<string | null>(null);
+  const [reviewModal, setReviewModal] = useState<ReviewModalState>(null);
+  const [reviewNote, setReviewNote] = useState("");
 
   const statusFilter = statusFilterValue === "all" ? undefined : statusFilterValue;
   const scopedEventId = eventFilter === "all" ? undefined : eventFilter;
@@ -122,6 +196,7 @@ export default function AdminOrdersPage() {
   const { data: events = [] } = useEventsQuery();
   const approveMutation = useApproveManualPaymentMutation();
   const rejectMutation = useRejectManualPaymentMutation();
+  const reverifyMpesaMutation = useReverifyMpesaTransactionMutation();
   const issueTicketsMutation = useIssueTicketsMutation();
   const resendTicketEmailMutation = useResendTicketEmailDeliveryMutation();
 
@@ -132,29 +207,41 @@ export default function AdminOrdersPage() {
 
   const reviewPending = approveMutation.isPending || rejectMutation.isPending;
 
-  const approve = async (submissionId: string) => {
-    const note = window.prompt("Optional verification note (approval):") ?? undefined;
+  const openReviewModal = (submissionId: string, orderNumber: string, action: "approve" | "reject") => {
+    setReviewModal({ submissionId, orderNumber, action });
+    setReviewNote("");
+  };
+
+  const submitReview = async () => {
+    if (!reviewModal) return;
+    const note = reviewNote.trim() || undefined;
     try {
-      const result = await approveMutation.mutateAsync({
-        id: submissionId,
-        verificationNote: note?.trim() || undefined,
-      });
-      toast.success(`Payment approved for ${result.orderNumber}. ${result.ticketsIssued} ticket(s) issued.`);
+      if (reviewModal.action === "approve") {
+        const result = await approveMutation.mutateAsync({
+          id: reviewModal.submissionId,
+          verificationNote: note,
+        });
+        toast.success(`Payment approved for ${result.orderNumber}. ${result.ticketsIssued} ticket(s) issued.`);
+      } else {
+        const result = await rejectMutation.mutateAsync({
+          id: reviewModal.submissionId,
+          verificationNote: note,
+        });
+        toast.success(`Payment rejected for ${result.orderNumber}.`);
+      }
+      setReviewModal(null);
+      setReviewNote("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not approve payment.");
+      toast.error(error instanceof Error ? error.message : "Could not review payment.");
     }
   };
 
-  const reject = async (submissionId: string) => {
-    const note = window.prompt("Add rejection note for buyer:");
+  const reverifyMpesaTransaction = async (transactionId: string) => {
     try {
-      const result = await rejectMutation.mutateAsync({
-        id: submissionId,
-        verificationNote: note?.trim() || undefined,
-      });
-      toast.success(`Payment rejected for ${result.orderNumber}.`);
+      const result = await reverifyMpesaMutation.mutateAsync(transactionId);
+      toast.success(`M-Pesa verification refreshed for ${result.orderNumber}: ${result.status}.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not reject payment.");
+      toast.error(error instanceof Error ? error.message : "Could not reverify M-Pesa transaction.");
     }
   };
 
@@ -295,10 +382,10 @@ export default function AdminOrdersPage() {
                 <td className="px-3 py-3 text-sm text-foreground-secondary">{formatDateTime(submission.submittedAt)}</td>
                 <td className="px-3 py-3">
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="accent" disabled={reviewPending} onClick={() => void approve(submission.id)}>
+                    <Button size="sm" variant="accent" disabled={reviewPending} onClick={() => openReviewModal(submission.id, submission.orderNumber, "approve")}>
                       Approve
                     </Button>
-                    <Button size="sm" variant="outline" disabled={reviewPending} onClick={() => void reject(submission.id)}>
+                    <Button size="sm" variant="outline" disabled={reviewPending} onClick={() => openReviewModal(submission.id, submission.orderNumber, "reject")}>
                       Reject
                     </Button>
                   </div>
@@ -374,15 +461,26 @@ export default function AdminOrdersPage() {
                         <p>{transaction.callbackReceived ? "Callback received" : "No callback yet"}</p>
                       </td>
                       <td className="px-3 py-3">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setExpandedMpesaTransactionId(isExpanded ? null : transaction.id)}
-                          aria-expanded={isExpanded}
-                        >
-                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                          {isExpanded ? "Hide" : "View"}
-                        </Button>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setExpandedMpesaTransactionId(isExpanded ? null : transaction.id)}
+                            aria-expanded={isExpanded}
+                          >
+                            {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            {isExpanded ? "Hide" : "View"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={reverifyMpesaMutation.isPending || !["initiated", "pending"].includes(transaction.status)}
+                            onClick={() => void reverifyMpesaTransaction(transaction.id)}
+                          >
+                            <RefreshCw size={14} />
+                            Reverify
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                     {isExpanded && (
@@ -583,6 +681,21 @@ export default function AdminOrdersPage() {
                 ) : null}
               </div>
 
+              <div className="border border-border rounded-md p-4 bg-secondary/15 text-sm text-foreground-secondary">
+                <p className="text-foreground mb-3">Order Timeline</p>
+                <div className="space-y-3">
+                  {buildOrderTimeline(selectedOrder, mpesaTransactions, ticketDelivery).map((item, index) => (
+                    <div key={`${item.at}-${item.label}-${index}`} className="grid gap-1 border-b border-border/70 pb-3 last:border-0 last:pb-0 md:grid-cols-[180px_1fr]">
+                      <p className="text-xs text-foreground-secondary">{formatDateTime(item.at)}</p>
+                      <div>
+                        <p className="text-foreground">{item.label}</p>
+                        <p>{item.detail}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
               {selectedOrder.latestPaymentProof && (
                 <div className="border border-border rounded-md p-4 bg-secondary/15 text-sm text-foreground-secondary">
                   <p className="text-foreground mb-2">Latest Payment Proof</p>
@@ -619,6 +732,36 @@ export default function AdminOrdersPage() {
             </div>
           )}
         </AdminSectionCard>
+      )}
+
+      {reviewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/75 px-4">
+          <div className="w-full max-w-lg rounded-md border border-border bg-card p-5 shadow-lg">
+            <p className="font-display text-lg text-foreground">
+              {reviewModal.action === "approve" ? "Approve Payment" : "Reject Payment"}
+            </p>
+            <p className="mt-1 text-sm text-foreground-secondary">
+              Order {reviewModal.orderNumber}
+            </p>
+            <label className="mt-4 block">
+              <span className="text-xs uppercase tracking-[0.12em] text-foreground-secondary">Review note</span>
+              <textarea
+                value={reviewNote}
+                onChange={(event) => setReviewNote(event.target.value)}
+                className="mt-2 min-h-28 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                placeholder={reviewModal.action === "approve" ? "Optional internal approval note" : "Reason visible to the operations team"}
+              />
+            </label>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={reviewPending} onClick={() => setReviewModal(null)}>
+                Cancel
+              </Button>
+              <Button type="button" size="sm" variant={reviewModal.action === "approve" ? "accent" : "outline"} disabled={reviewPending} onClick={() => void submitReview()}>
+                {reviewPending ? "Saving..." : reviewModal.action === "approve" ? "Approve" : "Reject"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

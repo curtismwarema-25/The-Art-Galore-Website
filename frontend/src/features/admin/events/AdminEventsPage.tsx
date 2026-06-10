@@ -18,7 +18,7 @@ import {
 } from "@/hooks/mutations/useTicketTierMutations";
 import { useAdminEventQuery, useAdminEventsQuery, useAdminTicketTiersQuery } from "@/hooks/queries";
 import { validateFile } from "@/features/uploads/uploadService";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useAuth } from "@/features/auth/useAuth";
 import type { EventLifecycle, EventRecord, RecordStatus, TicketTier } from "@/types/models";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
 import { adminFileInputClassName, adminInputClassName, adminTextareaClassName } from "@/features/admin/shared/utils";

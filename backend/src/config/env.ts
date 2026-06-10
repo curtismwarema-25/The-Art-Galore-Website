@@ -54,6 +54,7 @@ const envSchema = z.object({
   MPESA_CONSUMER_KEY: z.string().default(""),
   MPESA_CONSUMER_SECRET: z.string().default(""),
   MPESA_CALLBACK_URL: z.string().url().or(z.literal("")).default(""),
+  MPESA_CALLBACK_SECRET: z.string().default(""),
   MPESA_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
   MPESA_STK_INITIATE_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(30),
   MPESA_STK_PENDING_RETRY_MINUTES: z.coerce.number().int().positive().default(5),
@@ -75,6 +76,10 @@ if (!parsedEnv.success) {
     .join("; ");
 
   throw new Error(`Invalid backend environment configuration: ${errors}`);
+}
+
+if (parsedEnv.data.NODE_ENV === "production" && parsedEnv.data.MPESA_CALLBACK_URL && !parsedEnv.data.MPESA_CALLBACK_SECRET) {
+  throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_SECRET is required in production when M-Pesa callbacks are enabled");
 }
 
 export const env = parsedEnv.data;

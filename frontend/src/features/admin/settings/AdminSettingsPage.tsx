@@ -11,7 +11,7 @@ import {
   adminTextareaClassName,
 } from "@/features/admin/shared/utils";
 import { siteSettingsFormSchema } from "@/features/forms/schemas";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useAuth } from "@/features/auth/useAuth";
 import { validateFile } from "@/features/uploads/uploadService";
 import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
 import { useUpdateSiteSettingsMutation } from "@/hooks/mutations/useUpdateSiteSettingsMutation";

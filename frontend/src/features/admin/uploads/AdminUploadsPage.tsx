@@ -8,7 +8,7 @@ import SectionHeader from "@/components/common/SectionHeader";
 import StatusBadge from "@/components/common/StatusBadge";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
 import { adminInputClassName, formatDateTime } from "@/features/admin/shared/utils";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useAuth } from "@/features/auth/useAuth";
 import { useDeleteUploadMutation, useModerateUploadMutation } from "@/hooks/mutations/useUploadMutations";
 import { useAdminEventsQuery } from "@/hooks/queries/useAdminEventsQuery";
 import { useAdminUploadQuery, useAdminUploadsQuery } from "@/hooks/queries/useAdminUploadsQuery";
@@ -46,8 +46,8 @@ export default function AdminUploadsPage() {
   const moderateMutation = useModerateUploadMutation();
   const deleteMutation = useDeleteUploadMutation();
 
-  const uploads = uploadsQuery.data ?? [];
-  const events = eventsQuery.data ?? [];
+  const uploads = useMemo(() => uploadsQuery.data ?? [], [uploadsQuery.data]);
+  const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
 
   const eventById = useMemo(() => Object.fromEntries(events.map((event) => [event.id, event])), [events]);
 

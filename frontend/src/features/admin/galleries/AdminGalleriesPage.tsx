@@ -14,7 +14,7 @@ import {
   adminFileInputClassName,
   adminInputClassName,
 } from "@/features/admin/shared/utils";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useAuth } from "@/features/auth/useAuth";
 import { validateFile } from "@/features/uploads/uploadService";
 import {
   useArchiveGalleryImageMutation,
@@ -124,7 +124,7 @@ export default function AdminGalleriesPage() {
   const [editMedia, setEditMedia] = useState<GalleryMediaState | null>(null);
 
   const adminEventsQuery = useAdminEventsQuery();
-  const events = adminEventsQuery.data ?? [];
+  const events = useMemo(() => adminEventsQuery.data ?? [], [adminEventsQuery.data]);
 
   const filters = useMemo(
     () => ({
@@ -147,7 +147,7 @@ export default function AdminGalleriesPage() {
   const archiveImageMutation = useArchiveGalleryImageMutation();
   const uploadMediaMutation = useUploadMediaMutation();
 
-  const images = galleryQuery.data ?? [];
+  const images = useMemo(() => galleryQuery.data ?? [], [galleryQuery.data]);
   const selectedImage = selectedImageQuery.data;
 
   useEffect(() => {

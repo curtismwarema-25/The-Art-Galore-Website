@@ -19,7 +19,7 @@ const createOrderItemSchema = z.object({
 const createOrderBuyerSchema = z.object({
   buyerName: z.string().trim().min(2).max(191),
   buyerPhone: z.string().trim().regex(phoneRegex, "Enter a valid phone number"),
-  buyerEmail: z.string().trim().email().max(191).optional(),
+  buyerEmail: z.string().trim().email("Enter a valid email for ticket delivery").max(191),
 });
 
 export const createOrderSchema = z.object({

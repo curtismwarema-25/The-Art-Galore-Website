@@ -68,7 +68,7 @@ export const ticketPurchaseFormSchema = z.object({
   eventId: z.string().trim().min(1),
   buyerName: z.string().trim().min(2, "Enter your name"),
   buyerPhone: z.string().trim().regex(phoneRegex, "Enter a valid phone number"),
-  buyerEmail: z.string().trim().email("Enter a valid email").optional().or(z.literal("")),
+  buyerEmail: z.string().trim().email("Enter a valid email for ticket delivery"),
   quantities: z.record(z.string(), z.number().int().min(0)),
 });
 

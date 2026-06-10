@@ -69,7 +69,7 @@ export type OrderDetailsRecord = {
   buyer: {
     buyerName: string;
     buyerPhone: string;
-    buyerEmail?: string;
+    buyerEmail: string;
   };
   items: Array<{
     id: string;

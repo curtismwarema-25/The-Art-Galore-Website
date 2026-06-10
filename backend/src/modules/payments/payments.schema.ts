@@ -78,6 +78,8 @@ export const adminManualPaymentIdParamsSchema = z.object({
   }),
 });
 
+export const adminMpesaTransactionIdParamsSchema = adminManualPaymentIdParamsSchema;
+
 export const reviewManualPaymentSchema = z.object({
   body: z.object({
     verificationNote: z.string().trim().max(500).optional(),
@@ -102,6 +104,7 @@ export type SubmitManualPaymentParams = z.infer<typeof submitManualPaymentParams
 export type SubmitManualPaymentBody = z.infer<typeof submitManualPaymentBodySchema>;
 export type ListAdminManualPaymentsQuery = z.infer<typeof listAdminManualPaymentsQuerySchema>["query"];
 export type AdminManualPaymentIdParams = z.infer<typeof adminManualPaymentIdParamsSchema>["params"];
+export type AdminMpesaTransactionIdParams = z.infer<typeof adminMpesaTransactionIdParamsSchema>["params"];
 export type ReviewManualPaymentBody = z.infer<typeof reviewManualPaymentSchema>["body"];
 export type StkPushInitiateBody = z.infer<typeof stkPushInitiateBodySchema>;
 export type MpesaStkCallbackBody = z.infer<typeof mpesaStkCallbackSchema>;

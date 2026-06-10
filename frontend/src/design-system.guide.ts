@@ -64,77 +64,28 @@ RINGS (Focus states):
 
 /* ===== COMPONENT EXAMPLES ===== */
 
-/* PRIMARY BUTTON */
-.btn-primary {
-  /* bg-brand-accent text-white */
-  /* hover:bg-brand-text hover:text-white */
-  /* transition-all duration-300 */
-  /* hover:scale-[1.02] on Framer Motion */
-}
+/*
+PRIMARY BUTTON:
+- bg-brand-accent text-white
+- hover:bg-brand-text hover:text-white
+- transition-all duration-300
 
-/* SECONDARY BUTTON - Outlined */
-.btn-secondary {
-  /* border-2 border-brand-accent text-brand-accent */
-  /* hover:bg-brand-accent hover:text-white */
-  /* transition-all duration-300 */
-}
+SECONDARY BUTTON:
+- border-2 border-brand-accent text-brand-accent
+- hover:bg-brand-accent hover:text-white
 
-/* CARD - On brand-bg (white background) */
-.card-light {
-  /* bg-brand-surface text-brand-text */
-  /* p-6 md:p-8 */
-  /* space-y-4 */
-}
+CARD:
+- bg-brand-surface text-brand-text
+- p-6 md:p-8
 
-/* CARD - On brand-surface (lavender background) */
-.card-on-surface {
-  /* bg-brand-bg text-brand-text */
-  /* p-6 md:p-8 */
-}
+SECTION LABEL:
+- text-xs uppercase tracking-widest font-medium text-brand-muted
+- flex items-center gap-2
 
-/* SECTION LABEL - Used for overlines */
-.label-section {
-  /* text-xs uppercase tracking-widest font-medium text-brand-muted */
-  /* flex items-center gap-2 */
-  /* with geometric accent: w-1.5 h-1.5 bg-brand-accent */
-}
-
-/* HEADING - Primary */
-.heading-primary {
-  /* font-display font-bold text-brand-text */
-  /* text-5xl md:text-6xl lg:text-7xl */
-  /* leading-[0.9] tracking-tight */
-}
-
-/* HEADING - Secondary */
-.heading-secondary {
-  /* font-display font-semibold text-brand-text */
-  /* text-2xl md:text-3xl lg:text-4xl */
-  /* leading-tight */
-}
-
-/* TEXT - Body */
-.text-body {
-  /* font-body text-brand-text */
-  /* text-base md:text-lg leading-relaxed */
-}
-
-/* TEXT - Secondary */
-.text-secondary {
-  /* font-body text-brand-muted */
-  /* text-sm md:text-base leading-relaxed */
-}
-
-/* DIVIDER / BORDER */
-.divider {
-  /* border-b border-brand-surface */
-  /* h-px w-full */
-}
-
-/* GEOMETRIC ACCENT - Small square bullet */
-.accent-dot {
-  /* w-1.5 h-1.5 bg-brand-accent */
-}
+HEADINGS:
+- heading-primary: font-display font-bold text-brand-text text-5xl md:text-6xl lg:text-7xl
+- heading-secondary: font-display font-semibold text-brand-text text-2xl md:text-3xl lg:text-4xl
+*/
 
 /* ===== MOTION PATTERNS (Framer Motion) ===== */
 

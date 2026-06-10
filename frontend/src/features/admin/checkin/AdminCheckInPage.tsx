@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { QrCode, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/common/EmptyState";
@@ -10,7 +10,17 @@ import { formHelperTextClassName } from "@/lib/formStyles";
 import { useAdminTicketCheckInMutation } from "@/hooks/mutations/useAdminTicketCheckInMutation";
 import { useAdminTicketSearchQuery } from "@/hooks/queries/useAdminTicketSearchQuery";
 import { toast } from "@/components/ui/sonner";
-import { useAuth } from "@/features/auth/AuthContext";
+import { useAuth } from "@/features/auth/useAuth";
+
+type DetectedBarcode = {
+  rawValue: string;
+};
+
+type BarcodeDetectorInstance = {
+  detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]>;
+};
+
+type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
 
 function ticketTone(status: "active" | "checked_in" | "revoked" | "cancelled") {
   if (status === "checked_in") return "checked-in";
@@ -25,11 +35,16 @@ export default function AdminCheckInPage() {
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [activeTicketToken, setActiveTicketToken] = useState<string | null>(null);
   const [checkInMethod, setCheckInMethod] = useState<"manual" | "qr">("manual");
+  const [scannerActive, setScannerActive] = useState(false);
+  const [scannerMessage, setScannerMessage] = useState("");
   const [verificationResult, setVerificationResult] = useState<{
     tone: "approved" | "rejected" | "pending";
     title: string;
     message: string;
   } | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const detectorRef = useRef<BarcodeDetectorInstance | null>(null);
 
   const { data: matches = [], isLoading, isError, refetch } = useAdminTicketSearchQuery(
     {
@@ -39,6 +54,10 @@ export default function AdminCheckInPage() {
     Boolean(submittedQuery),
   );
   const checkInMutation = useAdminTicketCheckInMutation();
+  const barcodeDetectorConstructor = typeof window !== "undefined"
+    ? ((window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector)
+    : undefined;
+  const scannerSupported = Boolean(barcodeDetectorConstructor && navigator.mediaDevices?.getUserMedia);
 
   const activeTicket = useMemo(
     () => matches.find((ticket) => ticket.publicTicketToken === activeTicketToken) ?? matches[0] ?? null,
@@ -91,6 +110,80 @@ export default function AdminCheckInPage() {
       message: `Ticket ${firstMatch.ticketNumber} is ${firstMatch.ticketStatus}.`,
     });
   }, [isError, isLoading, matches, submittedQuery]);
+
+  useEffect(() => {
+    if (!scannerActive) return;
+
+    let stopped = false;
+    let timeoutId: number | undefined;
+
+    const scan = async () => {
+      if (stopped || !detectorRef.current || !videoRef.current) return;
+
+      try {
+        if (videoRef.current.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          const codes = await detectorRef.current.detect(videoRef.current);
+          const rawValue = codes[0]?.rawValue?.trim();
+          if (rawValue) {
+            setQuery(rawValue);
+            setSubmittedQuery(rawValue);
+            setCheckInMethod("qr");
+            setActiveTicketToken(null);
+            setVerificationResult(null);
+            setScannerMessage("QR code captured.");
+            stopScanner();
+            return;
+          }
+        }
+      } catch (error) {
+        setScannerMessage(error instanceof Error ? error.message : "Could not scan QR code.");
+      }
+
+      timeoutId = window.setTimeout(scan, 700);
+    };
+
+    timeoutId = window.setTimeout(scan, 500);
+
+    return () => {
+      stopped = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
+    };
+  }, [scannerActive]);
+
+  function stopScanner() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setScannerActive(false);
+  }
+
+  const startScanner = async () => {
+    if (!barcodeDetectorConstructor) {
+      setScannerMessage("QR scanning is not supported in this browser. Use manual search.");
+      return;
+    }
+
+    try {
+      detectorRef.current = new barcodeDetectorConstructor({ formats: ["qr_code"] });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setScannerActive(true);
+      setScannerMessage("Point the camera at a ticket QR code.");
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (error) {
+      setScannerMessage(error instanceof Error ? error.message : "Could not start camera.");
+      stopScanner();
+    }
+  };
 
   const searchTicket = () => {
     const normalized = query.trim();
@@ -149,16 +242,34 @@ export default function AdminCheckInPage() {
     }
   };
 
+  useEffect(() => stopScanner, []);
+
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader title="Event Check-In" subtitle="Search tickets and validate entries through live backend check-in endpoints." />
 
       <AdminSectionCard title="Scanner + Manual Search">
         <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr] gap-4">
-          <div className="rounded-md border border-dashed border-border bg-secondary/20 p-6 text-center">
-            <QrCode size={34} className="mx-auto text-foreground-secondary mb-3" />
-            <p className="font-display text-sm text-foreground mb-1">QR Scanner Placeholder</p>
-            <p className="text-xs text-foreground-secondary">Scan QR payload and submit it as the search query.</p>
+          <div className="rounded-md border border-dashed border-border bg-secondary/20 p-4 text-center">
+            {scannerActive ? (
+              <video ref={videoRef} className="mx-auto aspect-video w-full max-w-md rounded-md border border-border bg-background object-cover" muted playsInline />
+            ) : (
+              <QrCode size={34} className="mx-auto text-foreground-secondary mb-3" />
+            )}
+            <p className="mt-3 font-display text-sm text-foreground">
+              {scannerActive ? "Scanning QR Code" : "QR Scanner"}
+            </p>
+            <p className="mt-1 text-xs text-foreground-secondary">
+              {scannerMessage || (scannerSupported ? "Use the camera to scan ticket QR payloads." : "This browser does not support camera QR detection.")}
+            </p>
+            <div className="mt-3 flex justify-center gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={!scannerSupported || scannerActive} onClick={() => void startScanner()}>
+                Start Scanner
+              </Button>
+              <Button type="button" size="sm" variant="outline" disabled={!scannerActive} onClick={stopScanner}>
+                Stop
+              </Button>
+            </div>
           </div>
 
           <div className="space-y-3">

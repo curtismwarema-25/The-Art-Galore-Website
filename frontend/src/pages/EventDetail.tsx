@@ -120,7 +120,7 @@ export default function EventDetail() {
           buyer: {
             buyerName: parsed.data.buyerName.trim(),
             buyerPhone: parsed.data.buyerPhone.trim(),
-            buyerEmail: parsed.data.buyerEmail?.trim() || undefined,
+            buyerEmail: parsed.data.buyerEmail.trim(),
           },
           items: selectedItems,
         },
@@ -378,13 +378,15 @@ export default function EventDetail() {
 
               <div className="mt-3">
                 <label className={formLabelClassName}>
-                  Email (Optional)
+                  Email for Tickets *
                 </label>
                 <input
+                  type="email"
                   value={email}
                   onChange={(eventInput) => setEmail(eventInput.target.value)}
                   placeholder="you@example.com"
                   className={formInputClassName}
+                  required
                 />
               </div>
 

@@ -56,10 +56,9 @@ export type InitiateStkPushInput = {
 
 export type InitiateStkPushResult = {
   orderNumber: string;
-  checkoutRequestId: string;
-  merchantRequestId: string;
   customerMessage: string;
   responseCode: string;
+  paymentStatus: "pending";
 };
 
 export type MpesaTransactionAuditFilters = {
@@ -86,4 +85,13 @@ export type MpesaTransactionAuditRecord = {
   completedAt?: string;
   callbackReceived: boolean;
   rawCallback?: unknown;
+};
+
+export type ReverifyMpesaTransactionResult = {
+  orderNumber: string;
+  status: "initiated" | "pending" | "paid" | "failed" | "cancelled" | "refunded";
+  resultCode?: string;
+  resultDesc?: string;
+  ticketsIssued?: number;
+  ticketDeliveryStatus?: "pending" | "sent" | "failed";
 };

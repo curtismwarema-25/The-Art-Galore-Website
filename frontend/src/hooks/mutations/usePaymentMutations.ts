@@ -3,6 +3,7 @@ import {
   approveAdminManualPaymentSubmission,
   initiateMpesaStkPush,
   rejectAdminManualPaymentSubmission,
+  reverifyAdminMpesaTransaction,
   submitManualPaymentProof,
   type InitiateStkPushInput,
   type SubmitManualPaymentProofInput,
@@ -58,6 +59,18 @@ export function useInitiateMpesaStkPushMutation(publicToken: string) {
       queryClient.invalidateQueries({ queryKey: queryKeys.trackedOrder(publicToken) });
       queryClient.invalidateQueries({ queryKey: queryKeys.adminOrders });
       queryClient.invalidateQueries({ queryKey: queryKeys.adminMpesaTransactions });
+    },
+  });
+}
+
+export function useReverifyMpesaTransactionMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => reverifyAdminMpesaTransaction(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.adminMpesaTransactions });
+      queryClient.invalidateQueries({ queryKey: queryKeys.adminOrders });
     },
   });
 }

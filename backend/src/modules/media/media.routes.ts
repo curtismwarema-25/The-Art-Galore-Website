@@ -6,6 +6,7 @@ import { ForbiddenError, UnauthorizedError, ValidationError } from "../../common
 import { validateRequest } from "../../common/validation/validateRequest.js";
 import { getSessionCookieName } from "../../common/auth/session.js";
 import { AuthService } from "../auth/auth.service.js";
+import { createSimpleRateLimit } from "../../common/middleware/simpleRateLimit.js";
 import { mediaValidationByTarget } from "./media.config.js";
 import { deleteMediaQuerySchema, mediaTargetSchema } from "./media.schema.js";
 import { MediaService } from "./media.service.js";
@@ -19,6 +20,11 @@ const uploadParser = multer({
 
 const mediaService = new MediaService();
 const authService = new AuthService();
+const publicUploadRateLimit = createSimpleRateLimit({
+  keyPrefix: "public-upload",
+  windowMs: 15 * 60 * 1000,
+  maxAttempts: 20,
+});
 
 const WRITE_MEDIA_ROLES: UserRole[] = [UserRole.ADMIN, UserRole.STAFF];
 
@@ -49,7 +55,7 @@ mediaRouter.get("/targets", (_req, res) => {
   res.status(200).json({ data: mediaValidationByTarget });
 });
 
-mediaRouter.post("/upload", (req, res, next) => {
+mediaRouter.post("/upload", publicUploadRateLimit, (req, res, next) => {
   uploadParser.single("file")(req, res, async (error) => {
     try {
       if (error) {

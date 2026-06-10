@@ -1,26 +1,9 @@
-import { createContext, useContext, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ApiError } from "@/api/client";
-import type { AuthUser, LoginInput } from "@/api/endpoints/auth";
 import { useLoginMutation } from "@/hooks/mutations/useLoginMutation";
 import { useLogoutMutation } from "@/hooks/mutations/useLogoutMutation";
 import { useCurrentUserQuery } from "@/hooks/queries/useCurrentUserQuery";
-import type { UserRole } from "@/types/models";
-
-type AuthContextValue = {
-  user: AuthUser | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  isLoggingIn: boolean;
-  isLoggingOut: boolean;
-  loginError: string | null;
-  hasRole: (roles: UserRole[]) => boolean;
-  login: (input: LoginInput) => Promise<AuthUser>;
-  logout: () => Promise<void>;
-  clearLoginError: () => void;
-  refreshSession: () => Promise<AuthUser | null>;
-};
-
-const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+import { AuthContext, type AuthContextValue } from "@/features/auth/authContextCore";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -71,12 +54,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) {
-    throw new Error("useAuth must be used inside AuthProvider");
-  }
-  return ctx;
 }
