@@ -950,6 +950,23 @@ export default function AdminPeoplePage() {
                   placeholder="Featured works (comma or newline separated)"
                 />
               </div>
+              {(selectedPerson?.importedFrom || selectedPerson?.importNotes) && (
+                <div className="md:col-span-2 border-t border-border pt-4">
+                  <h3 className="text-sm font-display uppercase tracking-wider mb-3 text-foreground-secondary">Import Metadata</h3>
+                  {selectedPerson?.importedFrom && (
+                    <div className="mb-3">
+                      <p className="text-xs font-display text-foreground-secondary mb-1">Source</p>
+                      <p className="text-sm text-foreground">{selectedPerson.importedFrom}</p>
+                    </div>
+                  )}
+                  {selectedPerson?.importNotes && (
+                    <div>
+                      <p className="text-xs font-display text-foreground-secondary mb-1">Notes</p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap">{selectedPerson.importNotes}</p>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="md:col-span-2 flex justify-end gap-2">
                 <Button
                   type="button"

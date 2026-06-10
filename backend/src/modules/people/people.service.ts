@@ -95,9 +95,13 @@ function getCuratedImportMetadata(person: PersonWithPublicRelations | (Person & 
     additionalWorkUrl: normalizeText(curatedImport.additionalWorkUrl as string | undefined),
     importNotes: normalizeText(curatedImport.importNotes as string | undefined),
     mediaReferences: {
-      profilePhotoUrl: normalizeText(rawMedia.profilePhotoUrl as string | undefined),
-      portfolioImagesUrl: normalizeText(rawMedia.portfolioImagesUrl as string | undefined),
-    },
+      profilePhotoUrl: normalizeText(
+        typeof rawMedia.profilePhotoUrl === "string" ? rawMedia.profilePhotoUrl : undefined,
+      ),
+      portfolioImagesUrl: normalizeText(
+        typeof rawMedia.portfolioImagesUrl === "string" ? rawMedia.portfolioImagesUrl : undefined,
+      ),
+    } as PublicPersonRecord["mediaReferences"],
   };
 }
 
@@ -105,15 +109,16 @@ function buildImportMetadata(
   existing: Prisma.JsonValue | null | undefined,
   input: Pick<
     AdminCreatePersonInput,
-    "socials" | "eventRoles" | "interestedInCollaborating" | "additionalWorkUrl" | "mediaReferences"
-  >,
+    "socials" | "eventRoles" | "interestedInCollaborating" | "additionalWorkUrl" | "mediaReferences" | "importNotes"
+  > & { importNotes?: string },
 ): Prisma.InputJsonValue | undefined {
   const hasMetadataInput =
     input.socials !== undefined ||
     input.eventRoles !== undefined ||
     input.interestedInCollaborating !== undefined ||
     input.additionalWorkUrl !== undefined ||
-    input.mediaReferences !== undefined;
+    input.mediaReferences !== undefined ||
+    input.importNotes !== undefined;
 
   if (!hasMetadataInput) return undefined;
 
@@ -124,13 +129,14 @@ function buildImportMetadata(
     ...previous,
     curatedImport: {
       ...previousCurated,
-      socials: input.socials ?? previousCurated.socials,
-      eventRolesRaw: input.eventRoles ?? previousCurated.eventRolesRaw,
-      interestedInCollaborating: input.interestedInCollaborating ?? previousCurated.interestedInCollaborating,
-      additionalWorkUrl: input.additionalWorkUrl ?? previousCurated.additionalWorkUrl,
-      mediaReferences: input.mediaReferences ?? previousCurated.mediaReferences,
+      socials: input.socials ?? (previousCurated.socials as Prisma.InputJsonValue),
+      eventRolesRaw: input.eventRoles ?? (previousCurated.eventRolesRaw as Prisma.InputJsonValue),
+      interestedInCollaborating: input.interestedInCollaborating ?? (previousCurated.interestedInCollaborating as Prisma.InputJsonValue),
+      additionalWorkUrl: input.additionalWorkUrl ?? (previousCurated.additionalWorkUrl as Prisma.InputJsonValue),
+      mediaReferences: input.mediaReferences ?? (previousCurated.mediaReferences as Prisma.InputJsonValue),
+      importNotes: input.importNotes ?? (previousCurated.importNotes as Prisma.InputJsonValue),
     },
-  };
+  } as Prisma.InputJsonValue;
 }
 
 function mapPersonRecord(person: PersonWithPublicRelations, includeAdminFields = false): PublicPersonRecord | AdminPersonRecord {
@@ -189,7 +195,7 @@ function mapPersonRecord(person: PersonWithPublicRelations, includeAdminFields =
     eventRoles: curatedImport.eventRolesRaw ?? [],
     interestedInCollaborating: curatedImport.interestedInCollaborating,
     additionalWorkUrl: curatedImport.additionalWorkUrl ?? undefined,
-    mediaReferences: curatedImport.mediaReferences,
+      mediaReferences: curatedImport.mediaReferences as PublicPersonRecord["mediaReferences"],
   };
 
   if (!includeAdminFields) return record;
@@ -360,6 +366,7 @@ export class PeopleService {
       displayOrder: input.displayOrder ?? 0,
       status: parsePersonStatus(input.status),
       consentGiven: input.consentGiven,
+      importedFrom: normalizeText(input.importedFrom),
       importMetadata: buildImportMetadata(null, input),
       roles: this.buildRoles(input.category, input.isArtist, input.role),
       featuredWorks: normalizeFeaturedWorks(input.featuredWorks),
@@ -419,6 +426,7 @@ export class PeopleService {
       displayOrder: input.displayOrder,
       status: input.status ? parsePersonStatus(input.status) : undefined,
       consentGiven: input.consentGiven,
+      importedFrom: normalizeText(input.importedFrom),
       importMetadata: buildImportMetadata(existing.importMetadata, input),
       roles: hasRoleUpdate ? this.buildRoles(nextCategory, nextIsArtist, nextTitle) : undefined,
       featuredWorks: input.featuredWorks ? normalizeFeaturedWorks(input.featuredWorks) : undefined,

@@ -81,6 +81,8 @@ const createPersonBodySchema = z.object({
   additionalWorkUrl: z.string().trim().max(1_000).optional(),
   mediaReferences: mediaReferencesSchema,
   consentGiven: z.boolean().optional(),
+  importedFrom: z.string().trim().max(191).optional(),
+  importNotes: z.string().trim().max(2_000).optional(),
   image: mediaUrlOrPathSchema.optional(),
   imageMeta: personMediaMetaSchema.optional(),
   coverImage: mediaUrlOrPathSchema.optional(),

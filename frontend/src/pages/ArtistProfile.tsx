@@ -36,11 +36,16 @@ export default function ArtistProfile() {
     );
   }
 
-  const socialLinks = [
+  const allSocialLinks = [
     person.socials.instagram ? { label: "Instagram", url: person.socials.instagram } : null,
+    person.socials.tiktok ? { label: "TikTok", url: person.socials.tiktok } : null,
+    person.socials.facebook ? { label: "Facebook", url: person.socials.facebook } : null,
     person.socials.x ? { label: "X", url: person.socials.x } : null,
+    person.socials.youtube ? { label: "YouTube", url: person.socials.youtube } : null,
     person.socials.website ? { label: "Website", url: person.socials.website } : null,
   ].filter(Boolean) as { label: string; url: string }[];
+
+  const artForms = [person.primaryArtForm, person.secondaryArtForm].filter(Boolean);
 
   return (
     <>
@@ -64,19 +69,72 @@ export default function ArtistProfile() {
                   <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-2">
                     {person.category === "leadership" ? "Leadership Artist" : "Collective Artist"}
                   </p>
-                  <h1 className="text-display-lg mb-2">{person.name}</h1>
+                  <h1 className="text-display-lg mb-2">
+                    {person.preferredName && person.preferredName !== person.name ? person.preferredName : person.name}
+                  </h1>
                   <p className="font-display text-foreground-secondary">{person.role}</p>
                 </div>
 
+                {person.quote && (
+                  <blockquote className="border-l-2 border-accent pl-4 italic text-foreground-secondary">
+                    "{person.quote}"
+                  </blockquote>
+                )}
+
+                {artForms.length > 0 && (
+                  <div>
+                    <h3 className="font-display text-xs tracking-widest uppercase text-foreground-secondary mb-2">Art Forms</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {artForms.map((form) => (
+                        <span key={form} className="px-3 py-1 text-xs font-display border border-border bg-background/40 text-foreground-secondary">
+                          {form}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {person.yearsPracticing && (
+                  <div>
+                    <p className="text-sm text-foreground-secondary">
+                      <span className="font-display font-semibold">{person.yearsPracticing}</span> of artistic practice
+                    </p>
+                  </div>
+                )}
+
                 <div className="text-body space-y-4">
-                  <p>{person.bio}</p>
+                  {person.artistStatement ? (
+                    <>
+                      <h3 className="font-display text-xs tracking-widest uppercase text-foreground-secondary">Artist Statement</h3>
+                      <p>{person.artistStatement}</p>
+                    </>
+                  ) : (
+                    <p>{person.bio}</p>
+                  )}
                 </div>
 
-                {socialLinks.length > 0 && (
+                {person.interestedInCollaborating && (
+                  <div className="px-3 py-2 bg-accent/10 border border-accent/30 rounded text-xs font-display tracking-wider">
+                    ✨ Open to Collaborations
+                  </div>
+                )}
+
+                {person.additionalWorkUrl && (
+                  <a
+                    href={person.additionalWorkUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-display border border-border text-foreground-secondary hover:text-accent hover:border-accent transition-colors"
+                  >
+                    View More Work <ExternalLink size={12} />
+                  </a>
+                )}
+
+                {allSocialLinks.length > 0 && (
                   <div>
                     <h3 className="font-display text-xs tracking-widest uppercase text-foreground-secondary mb-3">Socials</h3>
                     <div className="flex flex-wrap gap-2">
-                      {socialLinks.map((social) => (
+                      {allSocialLinks.map((social) => (
                         <a
                           key={social.label}
                           href={social.url}

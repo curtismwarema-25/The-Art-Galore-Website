@@ -114,6 +114,8 @@ export type AdminCreatePersonInput = {
   additionalWorkUrl?: string;
   mediaReferences?: PublicPersonRecord["mediaReferences"];
   consentGiven?: boolean;
+  importedFrom?: string;
+  importNotes?: string;
   image?: string;
   imageMeta?: PersonMediaMetadata;
   coverImage?: string;

@@ -15,6 +15,7 @@ export default function ArtistCard({ artist }: ArtistCardProps) {
   const featuredWork = artist.featuredWorks[0];
   const eventCount = artist.eventsParticipated.length;
   const image = artist.coverImage || artist.image;
+  const artForms = [artist.primaryArtForm, artist.secondaryArtForm].filter(Boolean);
 
   return (
     <Link
@@ -36,7 +37,9 @@ export default function ArtistCard({ artist }: ArtistCardProps) {
         <div className="space-y-2">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="font-display text-lg md:text-xl leading-tight text-foreground">{artist.name}</h3>
+              <h3 className="font-display text-lg md:text-xl leading-tight text-foreground">
+                {artist.preferredName && artist.preferredName !== artist.name ? artist.preferredName : artist.name}
+              </h3>
               <p className="mt-1 text-sm text-foreground-secondary">{artist.role}</p>
             </div>
             <ArrowUpRight
@@ -47,6 +50,23 @@ export default function ArtistCard({ artist }: ArtistCardProps) {
           </div>
 
           <p className="text-xs font-display uppercase tracking-[0.14em] text-accent">{artist.medium}</p>
+          
+          {artForms.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {artForms.map((form) => (
+                <span key={form} className="inline-block px-2 py-1 text-[10px] font-display uppercase tracking-[0.1em] border border-border/50 text-foreground-secondary bg-background/40 rounded">
+                  {form}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {artist.yearsPracticing && (
+            <p className="text-xs text-foreground-secondary mt-2">
+              <span className="font-display">{artist.yearsPracticing}</span> of practice
+            </p>
+          )}
+
           <p className="text-sm leading-relaxed text-foreground-secondary">
             {truncateText(artist.bio, 130)}
           </p>
