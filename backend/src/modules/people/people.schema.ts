@@ -39,14 +39,48 @@ const eventParticipationSchema = z.object({
   participationRole: z.string().trim().min(1).max(191).optional(),
 });
 
+const optionalTextSchema = z.string().trim().max(191).optional();
+const optionalLongTextSchema = z.string().trim().max(20_000).optional();
+const socialsSchema = z.object({
+  instagram: z.string().trim().max(500).optional(),
+  tiktok: z.string().trim().max(500).optional(),
+  facebook: z.string().trim().max(500).optional(),
+  x: z.string().trim().max(500).optional(),
+  youtube: z.string().trim().max(500).optional(),
+  website: z.string().trim().max(500).optional(),
+}).optional();
+
+const mediaReferencesSchema = z.object({
+  profilePhotoUrl: z.string().trim().max(1_000).optional(),
+  portfolioImagesUrl: z.string().trim().max(1_000).optional(),
+}).optional();
+
 const createPersonBodySchema = z.object({
   name: z.string().trim().min(2).max(191),
   slug: z.string().trim().min(1).max(191).optional(),
+  preferredName: optionalTextSchema,
+  pronunciation: optionalTextSchema,
+  email: z.string().trim().email().max(191).optional(),
+  phone: z.string().trim().max(64).optional(),
+  city: optionalTextSchema,
+  preferredContactMethod: z.string().trim().max(64).optional(),
   role: z.string().trim().min(2).max(191),
   category: adminPersonCategorySchema,
   isArtist: z.boolean(),
+  shortBio: optionalLongTextSchema,
   bio: z.string().trim().min(10).max(20_000),
+  quote: z.string().trim().max(500).optional(),
+  artistStatement: optionalLongTextSchema,
   medium: z.string().trim().min(1).max(191).optional(),
+  primaryArtForm: optionalTextSchema,
+  secondaryArtForm: optionalTextSchema,
+  yearsPracticing: optionalTextSchema,
+  socials: socialsSchema,
+  eventRoles: z.array(z.string().trim().min(1).max(191)).max(64).optional(),
+  interestedInCollaborating: z.boolean().optional(),
+  additionalWorkUrl: z.string().trim().max(1_000).optional(),
+  mediaReferences: mediaReferencesSchema,
+  consentGiven: z.boolean().optional(),
   image: mediaUrlOrPathSchema.optional(),
   imageMeta: personMediaMetaSchema.optional(),
   coverImage: mediaUrlOrPathSchema.optional(),

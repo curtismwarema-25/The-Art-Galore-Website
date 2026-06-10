@@ -39,13 +39,18 @@ export interface MediaMetadata {
 
 export interface PersonSocials {
   instagram?: string;
+  tiktok?: string;
+  facebook?: string;
   x?: string;
+  youtube?: string;
   website?: string;
 }
 
 export interface PersonRecord extends BaseRecord {
   status: RecordStatus;
   name: string;
+  preferredName?: string;
+  pronunciation?: string;
   role: string;
   category: PersonCategory;
   isArtist: boolean;
@@ -53,11 +58,31 @@ export interface PersonRecord extends BaseRecord {
   imageMeta?: MediaMetadata;
   coverImage?: string;
   coverImageMeta?: MediaMetadata;
+  shortBio?: string;
   bio: string;
+  quote?: string;
+  artistStatement?: string;
   socials: PersonSocials;
+  city?: string;
   medium: string;
+  primaryArtForm?: string;
+  secondaryArtForm?: string;
+  yearsPracticing?: string;
   featuredWorks: string[];
   eventsParticipated: string[];
+  eventRoles: string[];
+  interestedInCollaborating?: boolean;
+  additionalWorkUrl?: string;
+  mediaReferences?: {
+    profilePhotoUrl?: string;
+    portfolioImagesUrl?: string;
+  };
+  email?: string;
+  phone?: string;
+  preferredContactMethod?: string;
+  consentGiven?: boolean;
+  importedFrom?: string;
+  importNotes?: string;
 }
 
 export interface PartnerRecord extends BaseRecord {

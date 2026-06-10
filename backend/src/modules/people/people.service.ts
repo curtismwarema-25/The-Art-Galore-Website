@@ -1,4 +1,4 @@
-import { PersonRoleType, PersonStatus, type Person, type PersonFeaturedWork, type PersonRole } from "@prisma/client";
+import { PersonRoleType, PersonStatus, type Person, type PersonFeaturedWork, type PersonRole, type Prisma } from "@prisma/client";
 import { NotFoundError, ValidationError } from "../../common/errors/httpErrors.js";
 import { slugify } from "../../common/utils/slug.js";
 import {
@@ -10,6 +10,7 @@ import {
 } from "./people.repository.js";
 import type {
   AdminCreatePersonInput,
+  AdminPersonRecord,
   PersonEventParticipationInput,
   AdminUpdatePersonInput,
   PublicPersonRecord,
@@ -21,6 +22,24 @@ type PersonWithPublicRelations = Person & {
   featuredWorks: PersonFeaturedWork[];
   participations: Array<{ event: { id?: string; title: string } }>;
 };
+
+type CuratedImportMetadata = {
+  socials?: PublicPersonRecord["socials"];
+  eventsParticipatedRaw?: string[];
+  eventRolesRaw?: string[];
+  interestedInCollaborating?: boolean;
+  additionalWorkUrl?: string | null;
+  importNotes?: string | null;
+  mediaReferences?: {
+    profilePhotoUrl?: string | null;
+    portfolioImagesUrl?: string | null;
+  };
+};
+
+function normalizeText(value?: string | null) {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
 
 function mapPersonStatus(status: PersonStatus): PublicPersonRecord["status"] {
   if (status === PersonStatus.DRAFT) return "draft";
@@ -44,11 +63,83 @@ function toInitialRole(person: PersonWithPublicRelations) {
   return person.headline ?? person.medium ?? "Collective Artist";
 }
 
-function mapPersonRecord(person: PersonWithPublicRelations): PublicPersonRecord {
-  const hasLeadershipRole = person.roles.some((role) => role.role === PersonRoleType.LEADERSHIP);
-  const isArtist = person.roles.some((role) => role.role === PersonRoleType.ARTIST);
+function asObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
+  if (!value || Array.isArray(value) || typeof value !== "object") return {};
+  return value as Record<string, unknown>;
+}
+
+function asStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+}
+
+function getCuratedImportMetadata(person: PersonWithPublicRelations | (Person & { roles: PersonRole[] })): CuratedImportMetadata {
+  const metadata = asObject(person.importMetadata);
+  const curatedImport = asObject(metadata.curatedImport as Prisma.JsonValue | undefined);
+  const rawSocials = asObject(curatedImport.socials as Prisma.JsonValue | undefined);
+  const rawMedia = asObject(curatedImport.mediaReferences as Prisma.JsonValue | undefined);
 
   return {
+    socials: {
+      instagram: normalizeText(rawSocials.instagram as string | undefined),
+      tiktok: normalizeText(rawSocials.tiktok as string | undefined),
+      facebook: normalizeText(rawSocials.facebook as string | undefined),
+      x: normalizeText(rawSocials.x as string | undefined),
+      youtube: normalizeText(rawSocials.youtube as string | undefined),
+      website: normalizeText(rawSocials.website as string | undefined),
+    },
+    eventsParticipatedRaw: asStringArray(curatedImport.eventsParticipatedRaw),
+    eventRolesRaw: asStringArray(curatedImport.eventRolesRaw),
+    interestedInCollaborating:
+      typeof curatedImport.interestedInCollaborating === "boolean" ? curatedImport.interestedInCollaborating : undefined,
+    additionalWorkUrl: normalizeText(curatedImport.additionalWorkUrl as string | undefined),
+    importNotes: normalizeText(curatedImport.importNotes as string | undefined),
+    mediaReferences: {
+      profilePhotoUrl: normalizeText(rawMedia.profilePhotoUrl as string | undefined),
+      portfolioImagesUrl: normalizeText(rawMedia.portfolioImagesUrl as string | undefined),
+    },
+  };
+}
+
+function buildImportMetadata(
+  existing: Prisma.JsonValue | null | undefined,
+  input: Pick<
+    AdminCreatePersonInput,
+    "socials" | "eventRoles" | "interestedInCollaborating" | "additionalWorkUrl" | "mediaReferences"
+  >,
+): Prisma.InputJsonValue | undefined {
+  const hasMetadataInput =
+    input.socials !== undefined ||
+    input.eventRoles !== undefined ||
+    input.interestedInCollaborating !== undefined ||
+    input.additionalWorkUrl !== undefined ||
+    input.mediaReferences !== undefined;
+
+  if (!hasMetadataInput) return undefined;
+
+  const previous = asObject(existing);
+  const previousCurated = asObject(previous.curatedImport as Prisma.JsonValue | undefined);
+
+  return {
+    ...previous,
+    curatedImport: {
+      ...previousCurated,
+      socials: input.socials ?? previousCurated.socials,
+      eventRolesRaw: input.eventRoles ?? previousCurated.eventRolesRaw,
+      interestedInCollaborating: input.interestedInCollaborating ?? previousCurated.interestedInCollaborating,
+      additionalWorkUrl: input.additionalWorkUrl ?? previousCurated.additionalWorkUrl,
+      mediaReferences: input.mediaReferences ?? previousCurated.mediaReferences,
+    },
+  };
+}
+
+function mapPersonRecord(person: PersonWithPublicRelations, includeAdminFields = false): PublicPersonRecord | AdminPersonRecord {
+  const hasLeadershipRole = person.roles.some((role) => role.role === PersonRoleType.LEADERSHIP);
+  const isArtist = person.roles.some((role) => role.role === PersonRoleType.ARTIST);
+  const curatedImport = getCuratedImportMetadata(person);
+  const linkedEvents = person.participations.map((participation) => participation.event.title);
+  const record: PublicPersonRecord = {
+
     id: person.id,
     slug: person.slug,
     displayOrder: person.displayOrder,
@@ -56,6 +147,8 @@ function mapPersonRecord(person: PersonWithPublicRelations): PublicPersonRecord 
     updatedAt: person.updatedAt.toISOString(),
     status: mapPersonStatus(person.status),
     name: person.fullName,
+    preferredName: person.preferredName ?? undefined,
+    pronunciation: person.pronunciation ?? undefined,
     role: toInitialRole(person),
     category: hasLeadershipRole ? "leadership" : "member",
     isArtist,
@@ -81,11 +174,34 @@ function mapPersonRecord(person: PersonWithPublicRelations): PublicPersonRecord 
           url: person.coverImageUrl ?? undefined,
         }
       : undefined,
+    shortBio: person.shortBio ?? undefined,
     bio: person.bio,
-    socials: {},
+    quote: person.quote ?? undefined,
+    artistStatement: person.artistStatement ?? undefined,
+    socials: curatedImport.socials ?? {},
+    city: person.city ?? undefined,
     medium: person.medium ?? "Mixed Media",
+    primaryArtForm: person.primaryArtForm ?? undefined,
+    secondaryArtForm: person.secondaryArtForm ?? undefined,
+    yearsPracticing: person.yearsPracticing ?? undefined,
     featuredWorks: person.featuredWorks.map((work) => work.title),
-    eventsParticipated: person.participations.map((participation) => participation.event.title),
+    eventsParticipated: linkedEvents.length > 0 ? linkedEvents : curatedImport.eventsParticipatedRaw ?? [],
+    eventRoles: curatedImport.eventRolesRaw ?? [],
+    interestedInCollaborating: curatedImport.interestedInCollaborating,
+    additionalWorkUrl: curatedImport.additionalWorkUrl ?? undefined,
+    mediaReferences: curatedImport.mediaReferences,
+  };
+
+  if (!includeAdminFields) return record;
+
+  return {
+    ...record,
+    email: person.email ?? undefined,
+    phone: person.phone ?? undefined,
+    preferredContactMethod: person.preferredContactMethod ?? undefined,
+    consentGiven: person.consentGiven ?? undefined,
+    importedFrom: person.importedFrom ?? undefined,
+    importNotes: curatedImport.importNotes ?? undefined,
   };
 }
 
@@ -116,7 +232,7 @@ export class PeopleService {
 
   async listPublicPeople(filters: PeopleListFilters) {
     const people = await this.repository.listPublicPeople(filters);
-    return people.map((person) => mapPersonRecord(person as PersonWithPublicRelations));
+    return people.map((person) => mapPersonRecord(person as PersonWithPublicRelations) as PublicPersonRecord);
   }
 
   async getPublicPersonBySlug(slug: string) {
@@ -126,12 +242,12 @@ export class PeopleService {
       throw new NotFoundError("Person not found");
     }
 
-    return mapPersonRecord(person as PersonWithPublicRelations);
+    return mapPersonRecord(person as PersonWithPublicRelations) as PublicPersonRecord;
   }
 
   async listAdminPeople(filters: AdminPeopleListFilters) {
     const people = await this.repository.listAdminPeople(filters);
-    return people.map((person) => mapPersonRecord(person as PersonWithPublicRelations));
+    return people.map((person) => mapPersonRecord(person as PersonWithPublicRelations, true) as AdminPersonRecord);
   }
 
   async getAdminPersonById(id: string) {
@@ -141,7 +257,7 @@ export class PeopleService {
       throw new NotFoundError("Person not found");
     }
 
-    return mapPersonRecord(person as PersonWithPublicRelations);
+    return mapPersonRecord(person as PersonWithPublicRelations, true) as AdminPersonRecord;
   }
 
   private async getUniquePersonSlug(name: string, inputSlug?: string, excludeId?: string) {
@@ -214,9 +330,21 @@ export class PeopleService {
     const createdId = await this.repository.createPerson({
       slug,
       fullName: input.name.trim(),
+      preferredName: normalizeText(input.preferredName),
+      pronunciation: normalizeText(input.pronunciation),
+      email: normalizeText(input.email)?.toLowerCase(),
+      phone: normalizeText(input.phone),
+      city: normalizeText(input.city),
+      preferredContactMethod: normalizeText(input.preferredContactMethod),
       headline: input.role.trim(),
+      shortBio: normalizeText(input.shortBio),
       bio: input.bio.trim(),
+      quote: normalizeText(input.quote),
+      artistStatement: normalizeText(input.artistStatement),
       medium: input.medium?.trim() || undefined,
+      primaryArtForm: normalizeText(input.primaryArtForm),
+      secondaryArtForm: normalizeText(input.secondaryArtForm),
+      yearsPracticing: normalizeText(input.yearsPracticing),
       profileImageUrl: input.image,
       profileStorageKey: input.imageMeta?.storageKey,
       profileMimeType: input.imageMeta?.mimeType,
@@ -231,6 +359,8 @@ export class PeopleService {
       coverHeight: input.coverImageMeta?.height,
       displayOrder: input.displayOrder ?? 0,
       status: parsePersonStatus(input.status),
+      consentGiven: input.consentGiven,
+      importMetadata: buildImportMetadata(null, input),
       roles: this.buildRoles(input.category, input.isArtist, input.role),
       featuredWorks: normalizeFeaturedWorks(input.featuredWorks),
       eventParticipations: await this.normalizeEventParticipations(input.eventParticipations),
@@ -259,9 +389,21 @@ export class PeopleService {
     await this.repository.updatePerson(id, {
       slug: nextSlug,
       fullName: input.name?.trim(),
+      preferredName: normalizeText(input.preferredName),
+      pronunciation: normalizeText(input.pronunciation),
+      email: normalizeText(input.email)?.toLowerCase(),
+      phone: normalizeText(input.phone),
+      city: normalizeText(input.city),
+      preferredContactMethod: normalizeText(input.preferredContactMethod),
       headline: input.role?.trim(),
+      shortBio: normalizeText(input.shortBio),
       bio: input.bio?.trim(),
+      quote: normalizeText(input.quote),
+      artistStatement: normalizeText(input.artistStatement),
       medium: input.medium?.trim(),
+      primaryArtForm: normalizeText(input.primaryArtForm),
+      secondaryArtForm: normalizeText(input.secondaryArtForm),
+      yearsPracticing: normalizeText(input.yearsPracticing),
       profileImageUrl: input.image,
       profileStorageKey: input.imageMeta?.storageKey,
       profileMimeType: input.imageMeta?.mimeType,
@@ -276,6 +418,8 @@ export class PeopleService {
       coverHeight: input.coverImageMeta?.height,
       displayOrder: input.displayOrder,
       status: input.status ? parsePersonStatus(input.status) : undefined,
+      consentGiven: input.consentGiven,
+      importMetadata: buildImportMetadata(existing.importMetadata, input),
       roles: hasRoleUpdate ? this.buildRoles(nextCategory, nextIsArtist, nextTitle) : undefined,
       featuredWorks: input.featuredWorks ? normalizeFeaturedWorks(input.featuredWorks) : undefined,
       eventParticipations: input.eventParticipations

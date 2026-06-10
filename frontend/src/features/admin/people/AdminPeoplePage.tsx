@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Dispatch, FormEvent, SetStateAction, useEffect, useMemo, useState } from "react";
 import { PencilLine, Trash2 } from "lucide-react";
 import { z } from "zod";
 import DataTable from "@/components/common/DataTable";
@@ -30,33 +30,105 @@ import type { PersonCategory, PersonRecord, RecordStatus } from "@/types/models"
 
 type PersonFormState = {
   name: string;
+  preferredName: string;
+  pronunciation: string;
+  email: string;
+  phone: string;
+  city: string;
+  preferredContactMethod: string;
   role: string;
   category: PersonCategory;
   isArtist: boolean;
+  shortBio: string;
   medium: string;
+  primaryArtForm: string;
+  secondaryArtForm: string;
+  yearsPracticing: string;
   bio: string;
+  quote: string;
+  artistStatement: string;
+  instagram: string;
+  tiktok: string;
+  facebook: string;
+  x: string;
+  youtube: string;
+  website: string;
+  eventRoles: string;
+  interestedInCollaborating: boolean;
+  additionalWorkUrl: string;
+  profilePhotoUrl: string;
+  portfolioImagesUrl: string;
+  consentGiven: boolean;
   status: "draft" | "published" | "archived";
   featuredWorks: string;
 };
 
 const personFormSchema = z.object({
   name: z.string().trim().min(2),
+  preferredName: z.string().trim().optional(),
+  pronunciation: z.string().trim().optional(),
+  email: z.string().trim().optional(),
+  phone: z.string().trim().optional(),
+  city: z.string().trim().optional(),
+  preferredContactMethod: z.string().trim().optional(),
   role: z.string().trim().min(2),
   category: z.enum(["leadership", "member"]),
   isArtist: z.boolean(),
+  shortBio: z.string().trim().optional(),
   medium: z.string().trim().min(2),
+  primaryArtForm: z.string().trim().optional(),
+  secondaryArtForm: z.string().trim().optional(),
+  yearsPracticing: z.string().trim().optional(),
   bio: z.string().trim().min(10),
+  quote: z.string().trim().optional(),
+  artistStatement: z.string().trim().optional(),
+  instagram: z.string().trim().optional(),
+  tiktok: z.string().trim().optional(),
+  facebook: z.string().trim().optional(),
+  x: z.string().trim().optional(),
+  youtube: z.string().trim().optional(),
+  website: z.string().trim().optional(),
+  eventRoles: z.string().optional(),
+  interestedInCollaborating: z.boolean(),
+  additionalWorkUrl: z.string().trim().optional(),
+  profilePhotoUrl: z.string().trim().optional(),
+  portfolioImagesUrl: z.string().trim().optional(),
+  consentGiven: z.boolean(),
   status: z.enum(["draft", "published", "archived"]),
   featuredWorks: z.string().optional(),
 });
 
 const defaultPersonForm: PersonFormState = {
   name: "",
+  preferredName: "",
+  pronunciation: "",
+  email: "",
+  phone: "",
+  city: "",
+  preferredContactMethod: "",
   role: "",
   category: "member",
   isArtist: true,
+  shortBio: "",
   medium: "Mixed Media",
+  primaryArtForm: "",
+  secondaryArtForm: "",
+  yearsPracticing: "",
   bio: "",
+  quote: "",
+  artistStatement: "",
+  instagram: "",
+  tiktok: "",
+  facebook: "",
+  x: "",
+  youtube: "",
+  website: "",
+  eventRoles: "",
+  interestedInCollaborating: false,
+  additionalWorkUrl: "",
+  profilePhotoUrl: "",
+  portfolioImagesUrl: "",
+  consentGiven: true,
   status: "draft",
   featuredWorks: "",
 };
@@ -77,17 +149,317 @@ function joinList(values: string[]) {
   return values.join("\n");
 }
 
+function optionalValue(value: string) {
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function buildPersonPayload(parsed: PersonFormState) {
+  return {
+    name: parsed.name.trim(),
+    preferredName: optionalValue(parsed.preferredName),
+    pronunciation: optionalValue(parsed.pronunciation),
+    email: optionalValue(parsed.email),
+    phone: optionalValue(parsed.phone),
+    city: optionalValue(parsed.city),
+    preferredContactMethod: optionalValue(parsed.preferredContactMethod),
+    role: parsed.role.trim(),
+    category: parsed.category,
+    isArtist: parsed.isArtist,
+    shortBio: optionalValue(parsed.shortBio),
+    medium: parsed.medium.trim(),
+    primaryArtForm: optionalValue(parsed.primaryArtForm),
+    secondaryArtForm: optionalValue(parsed.secondaryArtForm),
+    yearsPracticing: optionalValue(parsed.yearsPracticing),
+    bio: parsed.bio.trim(),
+    quote: optionalValue(parsed.quote),
+    artistStatement: optionalValue(parsed.artistStatement),
+    socials: {
+      instagram: optionalValue(parsed.instagram),
+      tiktok: optionalValue(parsed.tiktok),
+      facebook: optionalValue(parsed.facebook),
+      x: optionalValue(parsed.x),
+      youtube: optionalValue(parsed.youtube),
+      website: optionalValue(parsed.website),
+    },
+    eventRoles: splitList(parsed.eventRoles),
+    interestedInCollaborating: parsed.interestedInCollaborating,
+    additionalWorkUrl: optionalValue(parsed.additionalWorkUrl),
+    mediaReferences: {
+      profilePhotoUrl: optionalValue(parsed.profilePhotoUrl),
+      portfolioImagesUrl: optionalValue(parsed.portfolioImagesUrl),
+    },
+    consentGiven: parsed.consentGiven,
+    status: parsed.status,
+    featuredWorks: splitList(parsed.featuredWorks ?? ""),
+  };
+}
+
 function mapPersonToForm(person: PersonRecord): PersonFormState {
   return {
     name: person.name,
+    preferredName: person.preferredName ?? "",
+    pronunciation: person.pronunciation ?? "",
+    email: person.email ?? "",
+    phone: person.phone ?? "",
+    city: person.city ?? "",
+    preferredContactMethod: person.preferredContactMethod ?? "",
     role: person.role,
     category: person.category,
     isArtist: person.isArtist,
+    shortBio: person.shortBio ?? "",
     medium: person.medium,
+    primaryArtForm: person.primaryArtForm ?? "",
+    secondaryArtForm: person.secondaryArtForm ?? "",
+    yearsPracticing: person.yearsPracticing ?? "",
     bio: person.bio,
+    quote: person.quote ?? "",
+    artistStatement: person.artistStatement ?? "",
+    instagram: person.socials.instagram ?? "",
+    tiktok: person.socials.tiktok ?? "",
+    facebook: person.socials.facebook ?? "",
+    x: person.socials.x ?? "",
+    youtube: person.socials.youtube ?? "",
+    website: person.socials.website ?? "",
+    eventRoles: joinList(person.eventRoles),
+    interestedInCollaborating: Boolean(person.interestedInCollaborating),
+    additionalWorkUrl: person.additionalWorkUrl ?? "",
+    profilePhotoUrl: person.mediaReferences?.profilePhotoUrl ?? "",
+    portfolioImagesUrl: person.mediaReferences?.portfolioImagesUrl ?? "",
+    consentGiven: person.consentGiven ?? true,
     status: person.status === "draft" || person.status === "archived" ? person.status : "published",
     featuredWorks: joinList(person.featuredWorks),
   };
+}
+
+type PersonFormFieldsProps = {
+  form: PersonFormState;
+  setForm: Dispatch<SetStateAction<PersonFormState>>;
+};
+
+function PersonFormFields({ form, setForm }: PersonFormFieldsProps) {
+  return (
+    <>
+      <input
+        value={form.name}
+        onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Full name"
+      />
+      <input
+        value={form.preferredName}
+        onChange={(event) => setForm((current) => ({ ...current, preferredName: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Preferred / stage name"
+      />
+      <input
+        value={form.role}
+        onChange={(event) => setForm((current) => ({ ...current, role: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Organization role / title"
+      />
+      <input
+        value={form.pronunciation}
+        onChange={(event) => setForm((current) => ({ ...current, pronunciation: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Pronunciation"
+      />
+      <select
+        value={form.category}
+        onChange={(event) => setForm((current) => ({ ...current, category: event.target.value as PersonCategory }))}
+        className={adminInputClassName}
+      >
+        <option value="leadership">Leadership</option>
+        <option value="member">Member</option>
+      </select>
+      <select
+        value={form.status}
+        onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as PersonFormState["status"] }))}
+        className={adminInputClassName}
+      >
+        <option value="draft">Draft</option>
+        <option value="published">Published</option>
+        <option value="archived">Archived</option>
+      </select>
+      <label className={adminCheckboxFieldClassName}>
+        <input
+          type="checkbox"
+          checked={form.isArtist}
+          onChange={(event) => setForm((current) => ({ ...current, isArtist: event.target.checked }))}
+          className={adminCheckboxClassName}
+        />
+        Artist profile
+      </label>
+      <label className={adminCheckboxFieldClassName}>
+        <input
+          type="checkbox"
+          checked={form.consentGiven}
+          onChange={(event) => setForm((current) => ({ ...current, consentGiven: event.target.checked }))}
+          className={adminCheckboxClassName}
+        />
+        Publish consent
+      </label>
+      <input
+        value={form.medium}
+        onChange={(event) => setForm((current) => ({ ...current, medium: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Medium / specialty"
+      />
+      <input
+        value={form.primaryArtForm}
+        onChange={(event) => setForm((current) => ({ ...current, primaryArtForm: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Primary art form"
+      />
+      <input
+        value={form.secondaryArtForm}
+        onChange={(event) => setForm((current) => ({ ...current, secondaryArtForm: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Secondary art form"
+      />
+      <input
+        value={form.yearsPracticing}
+        onChange={(event) => setForm((current) => ({ ...current, yearsPracticing: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Years practicing"
+      />
+      <input
+        value={form.city}
+        onChange={(event) => setForm((current) => ({ ...current, city: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="City / location"
+      />
+      <input
+        value={form.preferredContactMethod}
+        onChange={(event) => setForm((current) => ({ ...current, preferredContactMethod: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Preferred contact method"
+      />
+      <input
+        value={form.email}
+        onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Admin-only email"
+      />
+      <input
+        value={form.phone}
+        onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Admin-only phone"
+      />
+      <input
+        value={form.instagram}
+        onChange={(event) => setForm((current) => ({ ...current, instagram: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Instagram"
+      />
+      <input
+        value={form.tiktok}
+        onChange={(event) => setForm((current) => ({ ...current, tiktok: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="TikTok"
+      />
+      <input
+        value={form.facebook}
+        onChange={(event) => setForm((current) => ({ ...current, facebook: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Facebook"
+      />
+      <input
+        value={form.x}
+        onChange={(event) => setForm((current) => ({ ...current, x: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="X / Twitter"
+      />
+      <input
+        value={form.youtube}
+        onChange={(event) => setForm((current) => ({ ...current, youtube: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="YouTube"
+      />
+      <input
+        value={form.website}
+        onChange={(event) => setForm((current) => ({ ...current, website: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Website / portfolio"
+      />
+      <div className="md:col-span-2">
+        <Textarea
+          value={form.shortBio}
+          onChange={(event) => setForm((current) => ({ ...current, shortBio: event.target.value }))}
+          className={adminTextareaClassName}
+          placeholder="Short bio"
+        />
+      </div>
+      <div className="md:col-span-2">
+        <Textarea
+          value={form.bio}
+          onChange={(event) => setForm((current) => ({ ...current, bio: event.target.value }))}
+          className={adminTextareaClassName}
+          placeholder="Long bio"
+        />
+      </div>
+      <div className="md:col-span-2">
+        <Textarea
+          value={form.artistStatement}
+          onChange={(event) => setForm((current) => ({ ...current, artistStatement: event.target.value }))}
+          className={adminTextareaClassName}
+          placeholder="Artist statement"
+        />
+      </div>
+      <div className="md:col-span-2">
+        <input
+          value={form.quote}
+          onChange={(event) => setForm((current) => ({ ...current, quote: event.target.value }))}
+          className={adminInputClassName}
+          placeholder="Quote / tagline"
+        />
+      </div>
+      <div className="md:col-span-2">
+        <Textarea
+          value={form.eventRoles}
+          onChange={(event) => setForm((current) => ({ ...current, eventRoles: event.target.value }))}
+          className={adminTextareaClassName}
+          placeholder="Event roles (comma or newline separated)"
+        />
+      </div>
+      <label className={adminCheckboxFieldClassName}>
+        <input
+          type="checkbox"
+          checked={form.interestedInCollaborating}
+          onChange={(event) => setForm((current) => ({ ...current, interestedInCollaborating: event.target.checked }))}
+          className={adminCheckboxClassName}
+        />
+        Interested in future collaborations
+      </label>
+      <input
+        value={form.additionalWorkUrl}
+        onChange={(event) => setForm((current) => ({ ...current, additionalWorkUrl: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Additional work URL"
+      />
+      <input
+        value={form.profilePhotoUrl}
+        onChange={(event) => setForm((current) => ({ ...current, profilePhotoUrl: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Source profile photo URL"
+      />
+      <input
+        value={form.portfolioImagesUrl}
+        onChange={(event) => setForm((current) => ({ ...current, portfolioImagesUrl: event.target.value }))}
+        className={adminInputClassName}
+        placeholder="Source portfolio images URL"
+      />
+      <div className="md:col-span-2">
+        <Textarea
+          value={form.featuredWorks}
+          onChange={(event) => setForm((current) => ({ ...current, featuredWorks: event.target.value }))}
+          className={adminTextareaClassName}
+          placeholder="Featured works (comma or newline separated)"
+        />
+      </div>
+    </>
+  );
 }
 
 export default function AdminPeoplePage() {
@@ -180,18 +552,11 @@ export default function AdminPeoplePage() {
 
     try {
       const created = await createPersonMutation.mutateAsync({
-        name: parsed.data.name.trim(),
-        role: parsed.data.role.trim(),
-        category: parsed.data.category,
-        isArtist: parsed.data.isArtist,
-        medium: parsed.data.medium.trim(),
-        bio: parsed.data.bio.trim(),
+        ...buildPersonPayload(createForm),
         image: createImageMeta?.url,
         imageMeta: createImageMeta,
         coverImage: createCoverMeta?.url,
         coverImageMeta: createCoverMeta,
-        status: parsed.data.status,
-        featuredWorks: splitList(parsed.data.featuredWorks ?? ""),
       });
 
       setCreateForm(defaultPersonForm);
@@ -223,18 +588,11 @@ export default function AdminPeoplePage() {
       await updatePersonMutation.mutateAsync({
         id: selectedPersonId,
         input: {
-          name: parsed.data.name.trim(),
-          role: parsed.data.role.trim(),
-          category: parsed.data.category,
-          isArtist: parsed.data.isArtist,
-          medium: parsed.data.medium.trim(),
-          bio: parsed.data.bio.trim(),
+          ...buildPersonPayload(editForm),
           image: editImageMeta?.url,
           imageMeta: editImageMeta,
           coverImage: editCoverMeta?.url,
           coverImageMeta: editCoverMeta,
-          status: parsed.data.status,
-          featuredWorks: splitList(parsed.data.featuredWorks ?? ""),
         },
       });
 

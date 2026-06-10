@@ -254,12 +254,6 @@ function chooseLongTextUpdate(existing: string | null, curated: string | null, m
   return undefined;
 }
 
-function chooseMediaUpdate(existing: string | null, curated: string | null): string | undefined {
-  if (!curated) return undefined;
-  if (!existing || existing.trim().length === 0 || existing === "/bg.jpg") return curated;
-  return undefined;
-}
-
 function buildImportMetadata(
   normalized: NormalizedPerson,
   rawRecord: CuratedPersonInput,
@@ -439,8 +433,6 @@ async function createPerson(normalized: NormalizedPerson, rawRecord: CuratedPers
       primaryArtForm: normalized.primaryArtForm ?? undefined,
       secondaryArtForm: normalized.secondaryArtForm ?? undefined,
       yearsPracticing: normalized.yearsPracticing ?? undefined,
-      profileImageUrl: normalized.profilePhotoUrl ?? undefined,
-      coverImageUrl: normalized.portfolioImagesUrl ?? undefined,
       displayOrder: normalized.displayOrder,
       status: PersonStatus.ACTIVE,
       importedFrom: IMPORT_SOURCE,
@@ -506,9 +498,6 @@ async function updatePerson(
   setField("primaryArtForm", chooseStringUpdate(existing.primaryArtForm, normalized.primaryArtForm));
   setField("secondaryArtForm", chooseStringUpdate(existing.secondaryArtForm, normalized.secondaryArtForm));
   setField("yearsPracticing", chooseStringUpdate(existing.yearsPracticing, normalized.yearsPracticing));
-  setField("profileImageUrl", chooseMediaUpdate(existing.profileImageUrl, normalized.profilePhotoUrl));
-  setField("coverImageUrl", chooseMediaUpdate(existing.coverImageUrl, normalized.portfolioImagesUrl));
-
   if ((existing.displayOrder ?? 0) <= 0 && normalized.displayOrder > 0) {
     setField("displayOrder", normalized.displayOrder);
   } else if (existing.importedFrom === IMPORT_SOURCE && existing.displayOrder !== normalized.displayOrder) {
@@ -579,9 +568,6 @@ function getPreviewChangedFields(existing: PersonWithRoles, normalized: Normaliz
   setField("primaryArtForm", chooseStringUpdate(existing.primaryArtForm, normalized.primaryArtForm));
   setField("secondaryArtForm", chooseStringUpdate(existing.secondaryArtForm, normalized.secondaryArtForm));
   setField("yearsPracticing", chooseStringUpdate(existing.yearsPracticing, normalized.yearsPracticing));
-  setField("profileImageUrl", chooseMediaUpdate(existing.profileImageUrl, normalized.profilePhotoUrl));
-  setField("coverImageUrl", chooseMediaUpdate(existing.coverImageUrl, normalized.portfolioImagesUrl));
-
   if ((existing.displayOrder ?? 0) <= 0 && normalized.displayOrder > 0) {
     changedFields.push("displayOrder");
   } else if (existing.importedFrom === IMPORT_SOURCE && existing.displayOrder !== normalized.displayOrder) {

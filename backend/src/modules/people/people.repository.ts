@@ -20,9 +20,21 @@ export type PersonRoleInput = {
 export type PersonWriteInput = {
   slug: string;
   fullName: string;
+  preferredName?: string;
+  pronunciation?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  preferredContactMethod?: string;
   headline?: string;
+  shortBio?: string;
   bio: string;
+  quote?: string;
+  artistStatement?: string;
   medium?: string;
+  primaryArtForm?: string;
+  secondaryArtForm?: string;
+  yearsPracticing?: string;
   profileImageUrl?: string;
   profileStorageKey?: string;
   profileMimeType?: string;
@@ -37,6 +49,9 @@ export type PersonWriteInput = {
   coverHeight?: number;
   displayOrder?: number;
   status: PersonStatus;
+  consentGiven?: boolean;
+  importedFrom?: string;
+  importMetadata?: Prisma.InputJsonValue;
   roles: PersonRoleInput[];
   featuredWorks?: string[];
   eventParticipations?: PersonEventParticipationDto[];
@@ -223,9 +238,21 @@ export class PeopleRepository {
         data: {
           slug: data.slug,
           fullName: data.fullName,
+          preferredName: data.preferredName,
+          pronunciation: data.pronunciation,
+          email: data.email,
+          phone: data.phone,
+          city: data.city,
+          preferredContactMethod: data.preferredContactMethod,
           headline: data.headline,
+          shortBio: data.shortBio,
           bio: data.bio,
+          quote: data.quote,
+          artistStatement: data.artistStatement,
           medium: data.medium,
+          primaryArtForm: data.primaryArtForm,
+          secondaryArtForm: data.secondaryArtForm,
+          yearsPracticing: data.yearsPracticing,
           profileImageUrl: data.profileImageUrl,
           profileStorageKey: data.profileStorageKey,
           profileMimeType: data.profileMimeType,
@@ -240,6 +267,9 @@ export class PeopleRepository {
           coverHeight: data.coverHeight,
           displayOrder: data.displayOrder ?? 0,
           status: data.status,
+          consentGiven: data.consentGiven,
+          importedFrom: data.importedFrom,
+          importMetadata: data.importMetadata,
         },
       });
 
@@ -285,9 +315,21 @@ export class PeopleRepository {
         data: {
           slug: data.slug,
           fullName: data.fullName,
+          preferredName: data.preferredName,
+          pronunciation: data.pronunciation,
+          email: data.email,
+          phone: data.phone,
+          city: data.city,
+          preferredContactMethod: data.preferredContactMethod,
           headline: data.headline,
+          shortBio: data.shortBio,
           bio: data.bio,
+          quote: data.quote,
+          artistStatement: data.artistStatement,
           medium: data.medium,
+          primaryArtForm: data.primaryArtForm,
+          secondaryArtForm: data.secondaryArtForm,
+          yearsPracticing: data.yearsPracticing,
           profileImageUrl: data.profileImageUrl,
           profileStorageKey: data.profileStorageKey,
           profileMimeType: data.profileMimeType,
@@ -302,6 +344,9 @@ export class PeopleRepository {
           coverHeight: data.coverHeight,
           displayOrder: data.displayOrder,
           status: data.status,
+          consentGiven: data.consentGiven,
+          importedFrom: data.importedFrom,
+          importMetadata: data.importMetadata,
         },
       });
 
