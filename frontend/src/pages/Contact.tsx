@@ -6,13 +6,11 @@ import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSetting
 export default function Contact() {
   const { data: settings } = usePublicSiteSettingsQuery();
   const fallbackEmail = "theartgaloreintl@gmail.com";
-  const fallbackPhone = "+254 700 000 000";
-  const fallbackWhatsapp = "https://wa.me/254711000000";
+  const fallbackPhone = "+254 759 292 496";
+  const additionalPhones = ["+254 700 533 716", "+254 758 732 652"];
 
   const contactEmail = settings?.contactEmail?.trim() || fallbackEmail;
   const contactPhone = settings?.contactPhone?.trim() || fallbackPhone;
-  const whatsappLink = settings?.whatsappLink?.trim() || fallbackWhatsapp;
-  const whatsappText = settings?.supportContactText?.trim() || "+254 711 000 000";
   const partnershipEmail = contactEmail || "theartgaloreintl@gmail.com";
 
   const contactMethods = [
@@ -28,12 +26,12 @@ export default function Contact() {
       value: contactPhone,
       href: `tel:${contactPhone.replace(/\s+/g, "")}`,
     },
-    {
-      icon: MessageCircle,
-      label: "WhatsApp",
-      value: whatsappText,
-      href: whatsappLink,
-    },
+    ...additionalPhones.map((phone) => ({
+      icon: Phone,
+      label: "Phone",
+      value: phone,
+      href: `tel:${phone.replace(/\s+/g, "")}`,
+    })),
   ] as const;
 
   return (
@@ -41,7 +39,7 @@ export default function Contact() {
       <div className="container-narrow">
         <ScrollReveal>
           <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-4">Contact</p>
-          <h1 className="text-display-lg mb-5">Contact Art Galore International</h1>
+          <h1 className="text-display-lg mb-5">Contact The Art Galore International</h1>
           <p className="text-body-lg max-w-2xl mb-10">
             Reach out for event inquiries, artist opportunities, media requests, or partnerships.
           </p>
@@ -74,7 +72,7 @@ export default function Contact() {
               Partnership Inquiry
             </p>
             <p className="text-body mb-6">
-              Want to collaborate with Art Galore International? Send a short note and our team
+              Want to collaborate with The Art Galore International? Send a short note and our team
               will follow up.
             </p>
             <Button variant="accent" size="lg" asChild>

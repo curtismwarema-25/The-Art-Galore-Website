@@ -15,7 +15,7 @@ export default function PrivacyPolicy() {
             legal privacy text before launch.
           </p>
           <p>
-            Art Galore International may collect contact and transaction details to process ticket
+            The Art Galore International may collect contact and transaction details to process ticket
             purchases, event participation, and communication requests.
           </p>
           <p>

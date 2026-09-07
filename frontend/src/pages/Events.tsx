@@ -5,6 +5,8 @@ import EmptyState from "@/components/common/EmptyState";
 import LoadingSkeleton from "@/components/common/LoadingSkeleton";
 import EventCard from "@/components/cards/EventCard";
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 
 export default function Events() {
   const [activeTab, setActiveTab] = useState<"upcoming" | "past">("upcoming");
@@ -113,10 +115,19 @@ export default function Events() {
         )}
 
         {!isLoading && !isError && filteredEvents.length === 0 && (
-          <EmptyState
-            title="No events found"
-            description="Try a different filter, clear search, or switch between upcoming and past tabs."
-          />
+          activeTab === "upcoming" && !search && typeFilter === "all" && dateFilter === "all" ? (
+            <div className="border border-border bg-card p-8 text-center md:p-12">
+              <p className="font-display text-xs uppercase tracking-[0.3em] text-accent">Between experiences</p>
+              <h2 className="mt-3 font-display text-2xl text-foreground">The next event is being prepared.</h2>
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-relaxed text-foreground-secondary">There are no upcoming ticketed events at the moment. Explore Art Galore, revisit past experiences, or contact the team for updates.</p>
+              <div className="mt-6 flex flex-wrap justify-center gap-3">
+                <Button variant="outline" asChild><Link to="/about">About Art Galore</Link></Button>
+                <Button variant="outline" asChild><Link to="/contact">Contact the team</Link></Button>
+              </div>
+            </div>
+          ) : (
+            <EmptyState title="No events found" description="Try a different filter, clear search, or switch between upcoming and past tabs." />
+          )
         )}
 
         {!isLoading && !isError && filteredEvents.length > 0 && (

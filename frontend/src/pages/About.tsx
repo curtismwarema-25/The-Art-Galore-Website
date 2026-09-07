@@ -43,10 +43,10 @@ export default function About() {
       <div className="container-narrow space-y-14">
         <ScrollReveal>
           <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-4">About</p>
-          <h1 className="text-display-lg mb-6">About Art Galore International</h1>
+          <h1 className="text-display-lg mb-6">About The Art Galore International</h1>
           <div className="max-w-4xl text-body space-y-5">
             <p>
-              Art Galore International is a collective of artists, organizers, and cultural
+              The Art Galore International is a collective of artists, organizers, and cultural
               contributors dedicated to connecting artists and art lovers through immersive events,
               shared experiences, and creative community building.
             </p>

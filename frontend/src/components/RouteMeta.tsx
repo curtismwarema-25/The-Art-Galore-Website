@@ -6,12 +6,12 @@ type RouteMeta = {
   description: string;
 };
 
-const brandName = "Art Galore International";
+const brandName = "The Art Galore International";
 
 const defaultMeta: RouteMeta = {
-  title: `${brandName} | Immersive Art Experiences`,
+  title: `${brandName} | A Free Space to Connect Us All`,
   description:
-    "Art Galore International creates immersive art events, showcases artists, and builds cultural collaborations.",
+    "Art Galore creates events and cultural experiences as a free space to connect us all.",
 };
 
 function upsertMeta({
@@ -37,9 +37,9 @@ function upsertMeta({
 function getRouteMeta(pathname: string): RouteMeta {
   if (pathname === "/") {
     return {
-      title: `${brandName} | Immersive Art Experiences`,
+      title: `${brandName} | A Free Space to Connect Us All`,
       description:
-        "Discover events, artists, galleries, and partners shaping vibrant cultural experiences with Art Galore International.",
+        "Art Galore creates events and cultural experiences as a free space to connect us all.",
     };
   }
   if (pathname === "/events") {

@@ -2,13 +2,13 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
+import { useEventQuery } from "@/hooks/queries/useEventQuery";
+import { hasActiveTicketTier } from "@/lib/homepageState";
 
 const navLinks = [
   { label: "Home", path: "/" },
   { label: "Events", path: "/events" },
-  { label: "Artists", path: "/artists" },
-  { label: "Gallery", path: "/gallery" },
-  { label: "Partners", path: "/partners" },
   { label: "About", path: "/about" },
   { label: "Contact", path: "/contact" },
 ];
@@ -16,6 +16,12 @@ const navLinks = [
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
+  const { data: events = [] } = useEventsQuery();
+  const upcomingEvent = events.find((event) => event.lifecycle === "upcoming");
+  const { data: eventDetail, isLoading: isEventLoading } = useEventQuery(upcomingEvent?.slug ?? "");
+  const hasTickets = Boolean(eventDetail && hasActiveTicketTier(eventDetail.ticketTiers));
+  const ctaPath = !isEventLoading && hasTickets && upcomingEvent ? `/events/${upcomingEvent.slug}` : "/events";
+  const ctaLabel = ctaPath === "/events" ? "Next Event" : "Get Tickets";
 
   const isLinkActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
@@ -26,7 +32,7 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-sm">
       <div className="container-narrow flex items-center justify-between h-16 px-4 md:px-8">
         <Link to="/" className="font-display font-bold text-base md:text-lg tracking-tight text-foreground">
-          Art Galore <span className="text-accent">International</span>
+          Art Galore
         </Link>
 
         {/* Desktop */}
@@ -45,10 +51,10 @@ export default function Navbar() {
             </Link>
           ))}
           <Link
-            to="/events"
+            to={ctaPath}
             className="bg-accent text-accent-foreground px-5 py-2.5 font-display text-xs tracking-widest uppercase hover:opacity-90 transition-opacity"
           >
-            Buy Tickets
+            {ctaLabel}
           </Link>
         </div>
 
@@ -88,11 +94,11 @@ export default function Navbar() {
                 </Link>
               ))}
               <Link
-                to="/events"
+                to={ctaPath}
                 onClick={() => setOpen(false)}
                 className="bg-accent text-accent-foreground px-5 py-3 font-display text-sm tracking-widest uppercase text-center mt-2"
               >
-                Buy Tickets
+                {ctaLabel}
               </Link>
             </div>
           </motion.div>
