@@ -106,6 +106,7 @@ export type SeedSiteSettings = {
   footerText: string;
   contactEmail: string;
   contactPhone: string;
+  supportContactText?: string;
   whatsappLink: string;
   instagramUrl: string;
   tiktokUrl: string;

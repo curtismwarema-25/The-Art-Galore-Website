@@ -1,28 +1,34 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { env } from "../../config/env.js";
 
 const DEFAULT_SETTINGS_DATA: Prisma.SiteSettingsUncheckedCreateInput = {
   settingsKey: "default",
-  siteName: "Art Galore International",
-  tagline: "Where Art Comes Alive",
-  footerText: "Art Galore International creates immersive art experiences and cultural collaborations.",
-  contactEmail: "hello@artgaloreinternational.org",
-  contactPhone: "+254700000000",
-  whatsappLink: "https://wa.me/254711000000",
-  instagramUrl: "https://instagram.com/artgaloreinternational",
-  tiktokUrl: "https://tiktok.com/@artgaloreinternational",
-  xUrl: "https://x.com/artgaloreintl",
-  facebookUrl: "https://facebook.com/artgaloreinternational",
-  heroTitle: "Where Art Comes Alive",
+  siteName: "The Art Galore International",
+  tagline: "A Free Space to Connect Us All",
+  footerText: "The Art Galore International creates immersive art experiences and cultural collaborations.",
+  contactEmail: "theartgaloreintl@gmail.com",
+  contactPhone: "+254 759 292 496",
+  whatsappLink: "",
+  instagramUrl: "https://www.instagram.com/the_art_galore_intl",
+  tiktokUrl: "https://www.tiktok.com/@the_art_galore",
+  xUrl: "",
+  facebookUrl: "",
+  heroTitle: "A Free Space to Connect Us All",
   heroSubtitle: "Immersive events, shared creativity, and community-centered experiences.",
-  defaultMetaTitle: "Art Galore International | Immersive Art Experiences",
+  defaultMetaTitle: "The Art Galore International | A Free Space to Connect Us All",
   defaultMetaDescription: "Discover events, artists, galleries, and collaborations.",
   defaultSocialPreviewImageUrl: "/bg.jpg",
   privacyPolicyLink: "/privacy-policy",
   termsLink: "/terms-of-use",
   refundPolicyLink: "/ticket-refund-policy",
   manualPaymentEnabled: true,
+  mpesaPaybill: env.MPESA_SHORTCODE || null,
+  mpesaAccountInstructions: env.MPESA_ACCOUNT_NUMBER
+    ? `Pay M-Pesa Paybill ${env.MPESA_SHORTCODE || ""} for ${env.MPESA_BUSINESS_NAME}; use account number ${env.MPESA_ACCOUNT_NUMBER}.`
+    : null,
   mpesaComingSoonMessage: "Automated M-Pesa checkout coming soon",
+  supportContactText: "+254 700 533 716 / +254 758 732 652",
 };
 
 export type SiteSettingsWriteInput = Partial<{

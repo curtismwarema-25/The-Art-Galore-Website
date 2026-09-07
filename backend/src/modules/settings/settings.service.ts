@@ -1,4 +1,5 @@
 import { NotFoundError, ValidationError } from "../../common/errors/httpErrors.js";
+import { env } from "../../config/env.js";
 import { SettingsRepository, type SiteSettingsWriteInput } from "./settings.repository.js";
 import type { PublicSiteSettingsRecord, UpdateSiteSettingsInput } from "./settings.types.js";
 
@@ -65,8 +66,12 @@ function mapSettingsRecord(settings: {
     bankAccountNumber: settings.bankAccountNumber ?? undefined,
     bankName: settings.bankName ?? undefined,
     bankBranch: settings.bankBranch ?? undefined,
-    mpesaPaybill: settings.mpesaPaybill ?? undefined,
-    mpesaAccountInstructions: settings.mpesaAccountInstructions ?? undefined,
+    mpesaPaybill: settings.mpesaPaybill ?? (env.MPESA_SHORTCODE || undefined),
+    mpesaAccountInstructions:
+      settings.mpesaAccountInstructions ??
+      (env.MPESA_ACCOUNT_NUMBER
+        ? `Pay M-Pesa Paybill ${env.MPESA_SHORTCODE || ""} for ${env.MPESA_BUSINESS_NAME}; use account number ${env.MPESA_ACCOUNT_NUMBER}.`
+        : undefined),
     supportContactText: settings.supportContactText ?? undefined,
     mpesaComingSoonMessage: settings.mpesaComingSoonMessage,
     createdAt: settings.createdAt.toISOString(),
