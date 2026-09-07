@@ -72,7 +72,7 @@ function createPaymentsService(fakeEmailService = new FakeTicketEmailService()) 
   };
 }
 
-function mockDarajaQuery(result: { ResultCode: string; ResultDesc: string; CheckoutRequestID: string }) {
+function mockDarajaQuery(result: { ResultCode: string; ResultDesc: string; CheckoutRequestID: string; MpesaReceiptNumber?: string; Amount?: number; PhoneNumber?: string }) {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -109,7 +109,7 @@ async function ensureDbAvailable(t: test.TestContext) {
   }
 }
 
-async function createFixture(status: OrderStatus, options?: { expired?: boolean; quantity?: number }): Promise<Fixture> {
+async function createFixture(status: OrderStatus, options?: { expired?: boolean; quantity?: number; expiredMinutes?: number }): Promise<Fixture> {
   const suffix = randomUUID();
   const now = new Date();
   const event = await prisma.event.create({
@@ -163,7 +163,7 @@ async function createFixture(status: OrderStatus, options?: { expired?: boolean;
       currency: "KES",
       subtotalAmount: quantity * 1000,
       totalAmount: quantity * 1000,
-      reservationExpiresAt: options?.expired ? new Date(now.getTime() - 10 * 60 * 1000) : new Date(now.getTime() + 15 * 60 * 1000),
+      reservationExpiresAt: options?.expired ? new Date(now.getTime() - (options.expiredMinutes ?? 10) * 60 * 1000) : new Date(now.getTime() + 15 * 60 * 1000),
       expiredAt: status === OrderStatus.EXPIRED ? new Date(now.getTime() - 5 * 60 * 1000) : undefined,
       items: {
         create: {
@@ -197,6 +197,23 @@ async function cleanupFixture(fixture?: Fixture, reviewerId?: string) {
   if (reviewerId) {
     await prisma.authUser.deleteMany({ where: { id: reviewerId } });
   }
+}
+
+async function createPendingMpesaTransaction(fixture: Fixture, overrides: Record<string, unknown> = {}) {
+  return prisma.paymentTransaction.create({
+    data: {
+      orderId: fixture.orderId,
+      provider: PaymentProvider.MPESA,
+      status: PaymentStatus.PENDING,
+      amount: 2000,
+      currency: "KES",
+      externalRequestId: `checkout-${randomUUID()}`,
+      providerReference: `merchant-${randomUUID()}`,
+      providerAccountKey: env.MPESA_SHORTCODE,
+      payerPhone: "254700000000",
+      ...overrides,
+    },
+  });
 }
 
 test("manual payment approval pays order, issues tickets once, and records delivery", async (t) => {
@@ -291,6 +308,9 @@ test("M-Pesa reverify pays an active order idempotently", async (t) => {
       CheckoutRequestID: checkoutRequestId,
       ResultCode: "0",
       ResultDesc: "The service request is processed successfully.",
+      MpesaReceiptNumber: `RCP-${randomUUID()}`,
+      Amount: 2000,
+      PhoneNumber: "254700000000",
     });
 
     const { paymentsService, fakeEmailService } = createPaymentsService();
@@ -312,7 +332,7 @@ test("M-Pesa reverify pays an active order idempotently", async (t) => {
   }
 });
 
-test("late M-Pesa success with reject policy fails transaction and issues no tickets", async (t) => {
+test("late M-Pesa success after grace requires review and issues no tickets", async (t) => {
   if (!(await ensureDbAvailable(t))) return;
   const restoreEnv = withWorkflowEnv();
   let restoreFetch: (() => void) | undefined;
@@ -336,20 +356,22 @@ test("late M-Pesa success with reject policy fails transaction and issues no tic
       CheckoutRequestID: checkoutRequestId,
       ResultCode: "0",
       ResultDesc: "The service request is processed successfully.",
+      MpesaReceiptNumber: `RCP-${randomUUID()}`,
+      Amount: 2000,
+      PhoneNumber: "254700000000",
     });
 
     const { paymentsService } = createPaymentsService();
     const result = await paymentsService.reverifyMpesaTransaction(transaction.id);
 
-    assert.equal(result.status, "failed");
+    assert.equal(result.status, "ambiguous");
     const order = await prisma.order.findUniqueOrThrow({
       where: { id: fixture.orderId },
       include: { tickets: true, paymentTransactions: true },
     });
-    assert.equal(order.status, OrderStatus.EXPIRED);
+    assert.equal(order.status, OrderStatus.PAYMENT_SUBMITTED);
     assert.equal(order.tickets.length, 0);
-    assert.equal(order.paymentTransactions[0]?.status, PaymentStatus.FAILED);
-    assert.equal(order.paymentTransactions[0]?.resultCode, "LATE_PAYMENT_REJECTED");
+    assert.equal(order.paymentTransactions[0]?.status, PaymentStatus.AMBIGUOUS);
   } finally {
     restoreFetch?.();
     restoreEnv();
@@ -397,5 +419,285 @@ test("M-Pesa callback route rejects missing or invalid callback secret", async (
   } finally {
     restoreEnv();
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("M-Pesa callback ingestion is durable and idempotent", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  const checkoutRequestId = `checkout-${randomUUID()}`;
+  const payload = {
+    Body: {
+      stkCallback: {
+        MerchantRequestID: `merchant-${randomUUID()}`,
+        CheckoutRequestID: checkoutRequestId,
+        ResultCode: 1032,
+        ResultDesc: "Request cancelled by user",
+      },
+    },
+  };
+
+  try {
+    const { paymentsService } = createPaymentsService();
+    await paymentsService.ingestMpesaStkCallback(payload);
+    await paymentsService.ingestMpesaStkCallback(payload);
+
+    const events = await prisma.paymentCallbackInbox.findMany({ where: { checkoutRequestId } });
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.status, "RECEIVED");
+    assert.equal(events[0]?.attemptCount, 0);
+  } finally {
+    restoreEnv();
+    await prisma.paymentCallbackInbox.deleteMany({ where: { checkoutRequestId } });
+  }
+});
+
+test("callback is persisted before the HTTP 200 response", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  env.MPESA_CALLBACK_SECRET = `secret-${randomUUID()}`;
+  const checkoutRequestId = `checkout-${randomUUID()}`;
+  const payload = { Body: { stkCallback: { MerchantRequestID: `merchant-${randomUUID()}`, CheckoutRequestID: checkoutRequestId, ResultCode: 1032, ResultDesc: "Cancelled" } } };
+  const server = http.createServer(createApp());
+
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/payments/mpesa/stk/callback`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-mpesa-callback-secret": env.MPESA_CALLBACK_SECRET },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 200);
+    const inbox = await prisma.paymentCallbackInbox.findFirst({ where: { checkoutRequestId } });
+    assert.ok(inbox);
+    assert.equal(inbox.status, "RECEIVED");
+  } finally {
+    await prisma.paymentCallbackInbox.deleteMany({ where: { checkoutRequestId } });
+    restoreEnv();
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("callback inbox claims are exclusive and expired leases are recoverable", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const repository = new PaymentsRepository();
+  const eventKey = `event-${randomUUID()}`;
+  const event = await repository.createCallbackInboxEvent({
+    provider: PaymentProvider.MPESA,
+    providerAccountKey: "174379",
+    eventKey,
+    payloadHash: randomUUID(),
+    checkoutRequestId: `checkout-${randomUUID()}`,
+    payload: { source: "mission-03" },
+    correlationId: randomUUID(),
+  });
+  assert.ok(event);
+    const now = new Date(Date.now() + 1000);
+  try {
+    const claims = await Promise.all([
+      repository.claimNextCallbackInboxEvent("worker-a", now, new Date(now.getTime() + 60_000)),
+      repository.claimNextCallbackInboxEvent("worker-b", now, new Date(now.getTime() + 60_000)),
+    ]);
+    assert.equal(claims.filter(Boolean).length, 1);
+    const beforeExpiry = await repository.claimNextCallbackInboxEvent("worker-c", now, new Date(now.getTime() + 60_000));
+    assert.equal(beforeExpiry, null);
+    const afterExpiry = await repository.claimNextCallbackInboxEvent("worker-c", new Date(now.getTime() + 61_000), new Date(now.getTime() + 121_000));
+    assert.ok(afterExpiry);
+    assert.equal(afterExpiry?.lockedBy, "worker-c");
+  } finally {
+    await prisma.paymentCallbackInbox.delete({ where: { id: event.id } });
+  }
+});
+
+test("callback processing failure is durably retryable with backoff", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  const checkoutRequestId = `checkout-${randomUUID()}`;
+  const payload = { Body: { stkCallback: { CheckoutRequestID: checkoutRequestId, ResultCode: 9999, ResultDesc: "Unknown" } } };
+  const { paymentsService } = createPaymentsService();
+  const event = await paymentsService.ingestMpesaStkCallback(payload);
+  const repository = new PaymentsRepository();
+  const claimed = await repository.claimNextCallbackInboxEvent("worker-retry", new Date(Date.now() + 1000), new Date(Date.now() + 61_000));
+  assert.ok(claimed);
+  const restoreFetch = mockDarajaQuery({ CheckoutRequestID: checkoutRequestId, ResultCode: "9999", ResultDesc: "Unknown" });
+  try {
+    await assert.rejects(() => paymentsService.processCallbackInboxEvent(claimed!.id));
+    const retry = await prisma.paymentCallbackInbox.findUniqueOrThrow({ where: { id: claimed!.id } });
+    assert.equal(retry.status, "RETRYABLE_FAILED");
+    assert.equal(retry.attemptCount, 1);
+    assert.ok(retry.nextAttemptAt > new Date());
+  } finally {
+    restoreFetch();
+    restoreEnv();
+    await prisma.paymentCallbackInbox.deleteMany({ where: { checkoutRequestId } });
+  }
+  assert.equal(event.accepted, true);
+});
+
+test("STK Query unknown and definitive failure statuses are classified separately", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  let restoreFetch: (() => void) | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
+    const ambiguousTx = await createPendingMpesaTransaction(fixture);
+    restoreFetch = mockDarajaQuery({ CheckoutRequestID: ambiguousTx.externalRequestId!, ResultCode: "9999", ResultDesc: "Unknown" });
+    const { paymentsService } = createPaymentsService();
+    const ambiguous = await paymentsService.reverifyMpesaTransaction(ambiguousTx.id);
+    assert.equal(ambiguous.status, "ambiguous");
+    assert.equal((await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: ambiguousTx.id } })).status, PaymentStatus.AMBIGUOUS);
+
+    restoreFetch();
+    const failedTx = await createPendingMpesaTransaction(fixture);
+    restoreFetch = mockDarajaQuery({ CheckoutRequestID: failedTx.externalRequestId!, ResultCode: "2001", ResultDesc: "Insufficient funds" });
+    const failed = await paymentsService.reverifyMpesaTransaction(failedTx.id);
+    assert.equal(failed.status, "failed");
+    assert.equal((await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: failedTx.id } })).status, PaymentStatus.FAILED);
+  } finally {
+    restoreFetch?.();
+    restoreEnv();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("provider evidence mismatches are recoverable and cannot issue tickets", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  let restoreFetch: (() => void) | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
+    const cases = [
+      { name: "amount", amount: 1999, PhoneNumber: "254700000000" },
+      { name: "phone", amount: 2000, PhoneNumber: "254711111111" },
+    ];
+    for (const item of cases) {
+      const transaction = await createPendingMpesaTransaction(fixture);
+      restoreFetch = mockDarajaQuery({ CheckoutRequestID: transaction.externalRequestId!, ResultCode: "0", ResultDesc: "Success", MpesaReceiptNumber: `RCP-${randomUUID()}`, Amount: item.amount, PhoneNumber: item.PhoneNumber });
+      const { paymentsService } = createPaymentsService();
+      const result = await paymentsService.reverifyMpesaTransaction(transaction.id);
+      assert.equal(result.status, "ambiguous", item.name);
+      restoreFetch();
+      restoreFetch = undefined;
+    }
+
+    const merchantTransaction = await createPendingMpesaTransaction(fixture);
+    const service = createPaymentsService().paymentsService as unknown as { applyMpesaPaymentResult: (input: Record<string, unknown>) => Promise<{ status?: string }> };
+    const merchantResult = await service.applyMpesaPaymentResult({
+      checkoutRequestId: merchantTransaction.externalRequestId,
+      merchantRequestId: "wrong-merchant",
+      providerAccountKey: env.MPESA_SHORTCODE,
+      resultCode: "0",
+      resultDesc: "Success",
+      providerReceipt: `RCP-${randomUUID()}`,
+      amount: 2000,
+      payerPhone: "254700000000",
+      rawCallback: { source: "mission-03" },
+    });
+    assert.equal(merchantResult.status, "ambiguous");
+    const accountTransaction = await createPendingMpesaTransaction(fixture);
+    const accountResult = await service.applyMpesaPaymentResult({
+      checkoutRequestId: accountTransaction.externalRequestId,
+      merchantRequestId: accountTransaction.providerReference,
+      providerAccountKey: "different-shortcode",
+      resultCode: "0",
+      resultDesc: "Success",
+      providerReceipt: `RCP-${randomUUID()}`,
+      amount: 2000,
+      payerPhone: "254700000000",
+      rawCallback: { source: "mission-03" },
+    });
+    assert.equal(accountResult.status, "ambiguous");
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: fixture.orderId }, include: { tickets: true } });
+    assert.equal(order.tickets.length, 0);
+  } finally {
+    restoreFetch?.();
+    restoreEnv();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("confirmed payment survives fulfillment failure and later retry is idempotent", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
+    const transaction = await createPendingMpesaTransaction(fixture);
+    const failingService = new PaymentsService(new PaymentsRepository(), { issueTicketsForOrder: async () => { throw new Error("simulated fulfillment crash"); } } as never);
+    const apply = failingService as unknown as { applyMpesaPaymentResult: (input: Record<string, unknown>) => Promise<{ status?: string; verifiedOrderId?: string }> };
+    const confirmed = await apply.applyMpesaPaymentResult({
+      checkoutRequestId: transaction.externalRequestId,
+      merchantRequestId: transaction.providerReference,
+      providerAccountKey: env.MPESA_SHORTCODE,
+      resultCode: "0",
+      resultDesc: "Success",
+      providerReceipt: `RCP-${randomUUID()}`,
+      amount: 2000,
+      payerPhone: "254700000000",
+      rawCallback: { source: "mission-03" },
+    });
+    assert.equal(confirmed.status, "paid");
+    assert.ok(confirmed.verifiedOrderId);
+    await assert.rejects(() => failingService.fulfillVerifiedOrder(fixture!.orderId), /simulated fulfillment crash/);
+
+    let order = await prisma.order.findUniqueOrThrow({ where: { id: fixture.orderId }, include: { tickets: true, paymentTransactions: true } });
+    assert.equal(order.paymentTransactions[0]?.status, PaymentStatus.SUCCEEDED);
+    assert.equal(order.status, OrderStatus.PAYMENT_VERIFIED);
+    assert.equal(order.tickets.length, 0);
+
+    const fakeEmail = new FakeTicketEmailService();
+    const recoveringService = createPaymentsService(fakeEmail).paymentsService;
+    const firstRetry = await recoveringService.fulfillVerifiedOrder(fixture.orderId);
+    const secondRetry = await recoveringService.fulfillVerifiedOrder(fixture.orderId);
+    assert.equal(firstRetry.ticketsIssued, 2);
+    assert.equal(secondRetry.ticketsIssued, 2);
+    order = await prisma.order.findUniqueOrThrow({ where: { id: fixture.orderId }, include: { tickets: true, paymentTransactions: true } });
+    assert.equal(order.status, OrderStatus.PAID);
+    assert.equal(order.tickets.length, 2);
+    assert.deepEqual(order.tickets.map((ticket) => ticket.sequenceNumber).sort(), [1, 2]);
+  } finally {
+    restoreEnv();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("a late valid payment within grace recovers and fulfills", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  let restoreFetch: (() => void) | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.EXPIRED, { expired: true, expiredMinutes: 1 });
+    const transaction = await createPendingMpesaTransaction(fixture);
+    restoreFetch = mockDarajaQuery({ CheckoutRequestID: transaction.externalRequestId!, ResultCode: "0", ResultDesc: "Success", MpesaReceiptNumber: `RCP-${randomUUID()}`, Amount: 2000, PhoneNumber: "254700000000" });
+    const result = await createPaymentsService().paymentsService.reverifyMpesaTransaction(transaction.id);
+    assert.equal(result.status, "paid");
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: fixture.orderId }, include: { tickets: true } });
+    assert.equal(order.status, OrderStatus.PAID);
+    assert.equal(order.tickets.length, 2);
+  } finally {
+    restoreFetch?.();
+    restoreEnv();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("terminal payment status cannot be overwritten by a late duplicate result", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
+    const transaction = await createPendingMpesaTransaction(fixture, { status: PaymentStatus.SUCCEEDED, resultCode: "0", resultMessage: "Already paid", completedAt: new Date() });
+    const apply = createPaymentsService().paymentsService as unknown as { applyMpesaPaymentResult: (input: Record<string, unknown>) => Promise<{ status?: string }> };
+    const result = await apply.applyMpesaPaymentResult({ checkoutRequestId: transaction.externalRequestId, resultCode: "2001", resultDesc: "Late failure", rawCallback: { source: "mission-03" } });
+    assert.equal(result.status, "paid");
+    assert.equal((await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transaction.id } })).status, PaymentStatus.SUCCEEDED);
+  } finally {
+    restoreEnv();
+    await cleanupFixture(fixture);
   }
 });

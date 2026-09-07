@@ -361,9 +361,8 @@ export class OrdersService {
       }
     }
 
+    let idempotentReplay = false;
     const createdOrder = await this.repository.withTransaction(async (tx) => {
-      await this.repository.expirePendingOrders(now, tx);
-
       const event = await this.repository.findEventById(input.eventId, tx);
       if (!event) {
         throw new NotFoundError("Event not found");
@@ -371,6 +370,16 @@ export class OrdersService {
       this.assertEventCanSellTickets(event, now);
 
       const ticketTierIds = requestedItems.map((item) => item.ticketTierId);
+      await this.repository.lockTicketTiersForUpdate(input.eventId, ticketTierIds, tx);
+
+      if (normalizedKey) {
+        const idempotentOrder = await this.repository.findOrderByIdempotencyKey(normalizedKey, tx);
+        if (idempotentOrder) {
+          idempotentReplay = true;
+          return idempotentOrder;
+        }
+      }
+
       const tiers = await this.repository.findTicketTiersForEvent(input.eventId, ticketTierIds, tx);
       if (tiers.length !== ticketTierIds.length) {
         throw new ValidationError("One or more ticket tiers are invalid for this event");
@@ -411,7 +420,7 @@ export class OrdersService {
 
     return {
       order: mapOrderRecord(createdOrder),
-      idempotentReplay: false,
+      idempotentReplay,
     };
   }
 

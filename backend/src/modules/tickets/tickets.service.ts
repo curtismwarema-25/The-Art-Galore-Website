@@ -199,6 +199,7 @@ export class TicketsService {
     input: {
       orderId: string;
       orderItemId: string;
+      sequenceNumber: number;
       eventId: string;
       ticketTierId: string;
       buyerId: string;
@@ -217,6 +218,7 @@ export class TicketsService {
             qrCodeValue: this.createQrCodeValue(publicTicketToken),
             orderId: input.orderId,
             orderItemId: input.orderItemId,
+            sequenceNumber: input.sequenceNumber,
             eventId: input.eventId,
             ticketTierId: input.ticketTierId,
             buyerId: input.buyerId,
@@ -253,6 +255,7 @@ export class TicketsService {
   }
 
   private async issueTicketsInTransaction(orderId: string, tx: PrismaTypes.TransactionClient) {
+    await tx.$queryRaw`SELECT id FROM \`Order\` WHERE id = ${orderId} FOR UPDATE`;
     const order = await this.repository.getOrderForTicketIssuance(orderId, tx);
     if (!order) {
       throw new NotFoundError("Order not found");
@@ -277,11 +280,16 @@ export class TicketsService {
     const createdTickets: PublicTicketWithRelations[] = [];
 
     for (const item of order.items) {
-      for (let index = 0; index < item.quantity; index += 1) {
+      const existingSequences = new Set(
+        order.tickets.filter((ticket) => ticket.orderItemId === item.id).map((ticket) => ticket.sequenceNumber),
+      );
+      for (let index = 1; index <= item.quantity; index += 1) {
+        if (existingSequences.has(index)) continue;
         const created = await this.createTicketWithRetries(
           {
             orderId: order.id,
             orderItemId: item.id,
+            sequenceNumber: index,
             eventId: order.eventId,
             ticketTierId: item.ticketTierId,
             buyerId: order.buyerId,

@@ -108,10 +108,28 @@ enum PaymentProvider {
 enum PaymentStatus {
   INITIATED
   PENDING
+  AMBIGUOUS
   SUCCEEDED
   FAILED
   CANCELLED
   REFUNDED
+}
+
+enum PaymentCallbackInboxStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  RETRYABLE_FAILED
+  MANUAL_REVIEW
+  INVALID
+}
+
+enum TicketFulfillmentStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+  MANUAL_REVIEW
 }
 
 enum CheckInMethod {
@@ -436,6 +454,12 @@ model Order {
   reservationExpiresAt DateTime
   verificationSubmittedAt DateTime?
   ticketDeliveryStatus TicketDeliveryStatus @default(PENDING)
+  ticketFulfillmentStatus TicketFulfillmentStatus @default(PENDING)
+  ticketFulfillmentAttemptCount Int                 @default(0)
+  ticketFulfillmentNextAttemptAt DateTime?
+  ticketFulfillmentLastError String?                @db.VarChar(500)
+  ticketFulfillmentLockedAt DateTime?
+  ticketFulfillmentLockedBy String?                 @db.VarChar(191)
   ticketDeliveryAttemptCount Int                 @default(0)
   ticketDeliveryLastAttemptAt DateTime?
   ticketDeliveryNextRetryAt DateTime?
@@ -487,6 +511,7 @@ model Ticket {
   publicTicketToken String @unique @db.VarChar(191)
   orderId      String      @db.VarChar(191)
   orderItemId  String      @db.VarChar(191)
+  sequenceNumber Int
   eventId      String      @db.VarChar(191)
   ticketTierId String      @db.VarChar(191)
   buyerId      String      @db.VarChar(191)
@@ -507,6 +532,7 @@ model Ticket {
   @@index([eventId, status])
   @@index([orderId])
   @@index([buyerId])
+  @@unique([orderItemId, sequenceNumber])
 }
 
 model PaymentProofSubmission {
@@ -580,8 +606,12 @@ model PaymentTransaction {
   status                PaymentStatus  @default(INITIATED)
   amount                Decimal        @db.Decimal(12, 2)
   currency              String         @default("KES") @db.VarChar(3)
+  payerPhone            String?        @db.VarChar(32)
   idempotencyKey        String?        @unique @db.VarChar(191)
   providerReference     String?        @db.VarChar(191)
+  providerAccountKey    String?        @db.VarChar(191)
+  merchantRequestId     String?        @db.VarChar(191)
+  providerReceipt       String?        @db.VarChar(191)
   externalRequestId     String?        @db.VarChar(191)
   externalTransactionId String?        @db.VarChar(191)
   resultCode            String?        @db.VarChar(32)
@@ -591,6 +621,12 @@ model PaymentTransaction {
   rawCallback           Json?
   initiatedAt           DateTime       @default(now())
   completedAt           DateTime?
+  providerConfirmedAt   DateTime?
+  reconciliationAttemptCount Int       @default(0)
+  nextReconciliationAt DateTime?
+  reconciliationLockedAt DateTime?
+  reconciliationLockedBy String?       @db.VarChar(191)
+  lastReconciliationError String?      @db.VarChar(500)
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
 
@@ -599,6 +635,46 @@ model PaymentTransaction {
   @@index([orderId, status, createdAt])
   @@index([provider, providerReference])
   @@index([status, createdAt])
+  @@index([status, nextReconciliationAt])
+  @@unique([provider, providerAccountKey, externalRequestId])
+  @@unique([provider, providerAccountKey, providerReceipt])
+  callbackInboxEvents PaymentCallbackInbox[]
+}
+
+model PaymentCallbackInbox {
+  id                    String                       @id @default(cuid()) @db.VarChar(191)
+  provider              PaymentProvider
+  providerAccountKey    String?                      @db.VarChar(191)
+  eventKey              String                       @unique @db.Char(64)
+  payloadHash           String                       @db.Char(64)
+  checkoutRequestId     String?                      @db.VarChar(191)
+  merchantRequestId     String?                      @db.VarChar(191)
+  providerReceipt       String?                      @db.VarChar(191)
+  resultCode            String?                      @db.VarChar(32)
+  resultDescription     String?                      @db.VarChar(255)
+  payload               Json
+  status                PaymentCallbackInboxStatus   @default(RECEIVED)
+  attemptCount          Int                          @default(0)
+  nextAttemptAt         DateTime                     @default(now())
+  lockedAt              DateTime?
+  lockedBy              String?                      @db.VarChar(191)
+  lastError             String?                      @db.VarChar(500)
+  requiresManualReview  Boolean                      @default(false)
+  correlationId         String?                      @db.VarChar(191)
+  paymentTransactionId  String?
+  receivedAt            DateTime                     @default(now())
+  processingStartedAt   DateTime?
+  processedAt           DateTime?
+  failedAt              DateTime?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  paymentTransaction PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
+
+  @@index([status, nextAttemptAt])
+  @@index([checkoutRequestId, receivedAt])
+  @@index([paymentTransactionId, receivedAt])
+  @@index([lockedAt, status])
 }
 
 model GalleryImage {

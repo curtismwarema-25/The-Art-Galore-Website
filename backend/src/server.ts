@@ -6,6 +6,7 @@ import { prisma } from "./lib/prisma.js";
 import { OrdersRepository } from "./modules/orders/orders.repository.js";
 import { PaymentsRepository } from "./modules/payments/payments.repository.js";
 import { TicketEmailRetryWorker } from "./modules/tickets/ticketEmailRetryWorker.js";
+import { MpesaReconciliationWorker } from "./modules/payments/mpesaReconciliationWorker.js";
 
 async function start() {
   try {
@@ -15,6 +16,7 @@ async function start() {
     const ordersRepository = new OrdersRepository();
     const paymentsRepository = new PaymentsRepository();
     const ticketEmailRetryWorker = new TicketEmailRetryWorker();
+    const mpesaReconciliationWorker = new MpesaReconciliationWorker();
     const sweepHandle = setInterval(() => {
       const now = new Date();
       Promise.all([
@@ -25,6 +27,7 @@ async function start() {
       });
     }, env.ORDER_EXPIRY_SWEEP_INTERVAL_SECONDS * 1000);
     ticketEmailRetryWorker.start();
+    mpesaReconciliationWorker.start();
 
     const app = createApp();
     const server = app.listen(env.PORT, () => {
@@ -35,6 +38,7 @@ async function start() {
       logger.info(`Received ${signal}. Shutting down...`);
       clearInterval(sweepHandle);
       ticketEmailRetryWorker.stop();
+      mpesaReconciliationWorker.stop();
       server.close(async () => {
         await prisma.$disconnect();
         process.exit(0);

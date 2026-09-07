@@ -16,13 +16,13 @@ function createServiceForPureTests() {
   };
 }
 
-test("reject policy does not accept expired late M-Pesa success", () => {
+test("expired late M-Pesa success is accepted within the grace window", () => {
   const service = createServiceForPureTests();
-  const now = new Date("2026-05-26T12:30:00.000Z");
+  const now = new Date("2026-05-26T12:05:00.000Z");
   const expiredAt = new Date("2026-05-26T12:00:00.000Z");
 
   assert.deepEqual(service.shouldAcceptLateSuccess(OrderStatus.EXPIRED, expiredAt, now), {
-    accept: false,
+    accept: true,
     review: false,
   });
 });

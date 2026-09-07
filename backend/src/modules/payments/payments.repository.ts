@@ -3,7 +3,7 @@ import {
   PaymentProvider,
   PaymentStatus,
   PaymentVerificationStatus,
-  type Prisma,
+  Prisma,
   type PrismaClient,
 } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
@@ -133,6 +133,9 @@ export class PaymentsRepository {
       idempotencyKey?: string;
       externalRequestId: string;
       providerReference: string;
+      merchantRequestId: string;
+      providerAccountKey: string;
+      payerPhone: string;
       rawRequest?: Prisma.InputJsonValue;
       rawResponse?: Prisma.InputJsonValue;
     },
@@ -145,9 +148,12 @@ export class PaymentsRepository {
         status: PaymentStatus.INITIATED,
         amount: input.amount,
         currency: input.currency,
+        payerPhone: input.payerPhone,
         idempotencyKey: input.idempotencyKey,
         externalRequestId: input.externalRequestId,
         providerReference: input.providerReference,
+        merchantRequestId: input.merchantRequestId,
+        providerAccountKey: input.providerAccountKey,
         rawRequest: input.rawRequest,
         rawResponse: input.rawResponse,
       },
@@ -157,11 +163,176 @@ export class PaymentsRepository {
   async findPaymentTransactionByExternalRequestId(externalRequestId: string, tx?: Prisma.TransactionClient) {
     const client = getClient(tx);
     return client.paymentTransaction.findFirst({
-      where: { externalRequestId },
+      where: { provider: PaymentProvider.MPESA, externalRequestId },
       include: {
         order: true,
       },
       orderBy: [{ createdAt: "desc" }],
+    });
+  }
+
+  async findPaymentTransactionByIdForUpdate(id: string, tx: Prisma.TransactionClient) {
+    return tx.paymentTransaction.findUnique({ where: { id }, include: { order: true } });
+  }
+
+  async createCallbackInboxEvent(input: {
+    provider: PaymentProvider;
+    providerAccountKey?: string;
+    eventKey: string;
+    payloadHash: string;
+    checkoutRequestId?: string;
+    merchantRequestId?: string;
+    providerReceipt?: string;
+    resultCode?: string;
+    resultDescription?: string;
+    payload: Prisma.InputJsonValue;
+    correlationId: string;
+  }) {
+    try {
+      return await prisma.paymentCallbackInbox.create({
+        data: {
+          provider: input.provider,
+          providerAccountKey: input.providerAccountKey,
+          eventKey: input.eventKey,
+          payloadHash: input.payloadHash,
+          checkoutRequestId: input.checkoutRequestId,
+          merchantRequestId: input.merchantRequestId,
+          providerReceipt: input.providerReceipt,
+          resultCode: input.resultCode,
+          resultDescription: input.resultDescription,
+          payload: input.payload,
+          correlationId: input.correlationId,
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return prisma.paymentCallbackInbox.findUnique({ where: { eventKey: input.eventKey } });
+      }
+      throw error;
+    }
+  }
+
+  async getCallbackInboxEvent(id: string) {
+    return prisma.paymentCallbackInbox.findUnique({ where: { id } });
+  }
+
+  async claimNextCallbackInboxEvent(workerId: string, now: Date, leaseUntil: Date) {
+    const candidate = await prisma.paymentCallbackInbox.findFirst({
+      where: {
+        status: { in: ["RECEIVED", "PROCESSING", "RETRYABLE_FAILED"] },
+        nextAttemptAt: { lte: now },
+        OR: [{ lockedAt: null }, { lockedAt: { lt: now } }],
+      },
+      orderBy: [{ nextAttemptAt: "asc" }, { receivedAt: "asc" }],
+    });
+    if (!candidate) return null;
+
+    const claimed = await prisma.paymentCallbackInbox.updateMany({
+      where: {
+        id: candidate.id,
+        status: { in: ["RECEIVED", "PROCESSING", "RETRYABLE_FAILED"] },
+        OR: [{ lockedAt: null }, { lockedAt: { lt: now } }],
+      },
+      data: { status: "PROCESSING", lockedAt: leaseUntil, lockedBy: workerId, processingStartedAt: now },
+    });
+    return claimed.count === 1 ? this.getCallbackInboxEvent(candidate.id) : null;
+  }
+
+  async completeCallbackInboxEvent(id: string, paymentTransactionId?: string) {
+    return prisma.paymentCallbackInbox.update({
+      where: { id },
+      data: { status: "PROCESSED", processedAt: new Date(), lockedAt: null, lockedBy: null, paymentTransactionId },
+    });
+  }
+
+  async failCallbackInboxEvent(id: string, input: { nextAttemptAt: Date; error: string; manualReview: boolean }) {
+    return prisma.paymentCallbackInbox.update({
+      where: { id },
+      data: {
+        status: input.manualReview ? "MANUAL_REVIEW" : "RETRYABLE_FAILED",
+        attemptCount: { increment: 1 },
+        nextAttemptAt: input.nextAttemptAt,
+        lastError: input.error.slice(0, 500),
+        failedAt: new Date(),
+        requiresManualReview: input.manualReview,
+        lockedAt: null,
+        lockedBy: null,
+      },
+    });
+  }
+
+  async listDueMpesaTransactionIds(now: Date, limit = 20) {
+    const rows = await prisma.paymentTransaction.findMany({
+      where: {
+        provider: PaymentProvider.MPESA,
+        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
+        OR: [{ nextReconciliationAt: null }, { nextReconciliationAt: { lte: now } }],
+      },
+      orderBy: [{ nextReconciliationAt: "asc" }, { updatedAt: "asc" }],
+      take: limit,
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  async claimMpesaTransaction(id: string, workerId: string, now: Date, leaseUntil: Date) {
+    const claimed = await prisma.paymentTransaction.updateMany({
+      where: {
+        id,
+        provider: PaymentProvider.MPESA,
+        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
+        OR: [{ reconciliationLockedAt: null }, { reconciliationLockedAt: { lt: now } }],
+      },
+      data: { reconciliationLockedAt: leaseUntil, reconciliationLockedBy: workerId },
+    });
+    if (claimed.count !== 1) return null;
+    return prisma.paymentTransaction.findUnique({ where: { id }, include: { order: true } });
+  }
+
+  async recordReconciliationFailure(id: string, input: { nextAttemptAt: Date; error: string; manualReview: boolean }) {
+    return prisma.paymentTransaction.updateMany({
+      where: { id },
+      data: {
+        status: input.manualReview ? PaymentStatus.AMBIGUOUS : PaymentStatus.AMBIGUOUS,
+        reconciliationAttemptCount: { increment: 1 },
+        nextReconciliationAt: input.nextAttemptAt,
+        lastReconciliationError: input.error.slice(0, 500),
+        reconciliationLockedAt: null,
+        reconciliationLockedBy: null,
+      },
+    });
+  }
+
+  async releaseReconciliationLease(id: string) {
+    return prisma.paymentTransaction.updateMany({ where: { id }, data: { reconciliationLockedAt: null, reconciliationLockedBy: null } });
+  }
+
+  async markOrderPaidAfterFulfillment(orderId: string, now: Date) {
+    return prisma.order.updateMany({
+      where: { id: orderId, status: OrderStatus.PAYMENT_VERIFIED },
+      data: {
+        status: OrderStatus.PAID,
+        paidAt: now,
+        ticketFulfillmentStatus: "COMPLETE",
+        ticketFulfillmentLockedAt: null,
+        ticketFulfillmentLockedBy: null,
+        ticketFulfillmentLastError: null,
+      },
+    });
+  }
+
+  async markPaymentAmbiguous(id: string, input: { resultCode?: string; resultMessage?: string; rawCallback?: Prisma.InputJsonValue; nextReconciliationAt: Date; error?: string }, tx: Prisma.TransactionClient) {
+    return tx.paymentTransaction.update({
+      where: { id },
+      data: {
+        status: PaymentStatus.AMBIGUOUS,
+        resultCode: input.resultCode,
+        resultMessage: input.resultMessage,
+        rawCallback: input.rawCallback,
+        nextReconciliationAt: input.nextReconciliationAt,
+        lastReconciliationError: input.error?.slice(0, 500),
+        reconciliationAttemptCount: { increment: 1 },
+      },
     });
   }
 
@@ -411,6 +582,8 @@ export class PaymentsRepository {
       resultCode: string;
       resultMessage: string;
       externalTransactionId?: string;
+      providerReceipt?: string;
+      providerConfirmedAt?: Date;
       rawCallback?: Prisma.InputJsonValue;
     },
     tx: Prisma.TransactionClient,
@@ -423,6 +596,8 @@ export class PaymentsRepository {
         resultCode: input.resultCode,
         resultMessage: input.resultMessage,
         externalTransactionId: input.externalTransactionId,
+        providerReceipt: input.providerReceipt,
+        providerConfirmedAt: input.providerConfirmedAt,
         rawCallback: input.rawCallback,
       },
     });
@@ -436,6 +611,8 @@ export class PaymentsRepository {
       resultCode: string;
       resultMessage: string;
       externalTransactionId?: string;
+      providerReceipt?: string;
+      providerConfirmedAt?: Date;
       rawCallback?: Prisma.InputJsonValue;
     },
     tx: Prisma.TransactionClient,
@@ -444,7 +621,7 @@ export class PaymentsRepository {
       where: {
         id: input.id,
         status: {
-          in: [PaymentStatus.INITIATED, PaymentStatus.PENDING],
+          in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS],
         },
       },
       data: {
@@ -453,6 +630,8 @@ export class PaymentsRepository {
         resultCode: input.resultCode,
         resultMessage: input.resultMessage,
         externalTransactionId: input.externalTransactionId,
+        providerReceipt: input.providerReceipt,
+        providerConfirmedAt: input.providerConfirmedAt,
         rawCallback: input.rawCallback,
       },
     });
@@ -472,11 +651,11 @@ export class PaymentsRepository {
       where: {
         id: input.id,
         status: {
-          in: [PaymentStatus.INITIATED, PaymentStatus.PENDING],
+          in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS],
         },
       },
       data: {
-        status: PaymentStatus.PENDING,
+        status: PaymentStatus.AMBIGUOUS,
         resultCode: input.resultCode,
         resultMessage: input.resultMessage,
         rawCallback: input.rawCallback,
@@ -490,12 +669,12 @@ export class PaymentsRepository {
     return prisma.paymentTransaction.updateMany({
       where: {
         provider: PaymentProvider.MPESA,
-        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING] },
+        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
         order: { status: OrderStatus.EXPIRED },
       },
       data: {
-        status: PaymentStatus.FAILED,
-        completedAt: now,
+        status: PaymentStatus.AMBIGUOUS,
+        nextReconciliationAt: now,
         resultCode: "ORDER_EXPIRED",
         resultMessage: "Order expired before MPESA confirmation",
       },
@@ -508,7 +687,9 @@ export class PaymentsRepository {
         ? PaymentStatus.INITIATED
         : filters.status === "pending"
           ? PaymentStatus.PENDING
-          : filters.status === "paid"
+          : filters.status === "ambiguous"
+            ? PaymentStatus.AMBIGUOUS
+            : filters.status === "paid"
             ? PaymentStatus.SUCCEEDED
             : filters.status === "failed"
               ? PaymentStatus.FAILED

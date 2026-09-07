@@ -1,5 +1,5 @@
 import { OrderStatus, PaymentStatus, PaymentVerificationStatus } from "@prisma/client";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { env } from "../../config/index.js";
 import { NotFoundError, ValidationError } from "../../common/errors/httpErrors.js";
@@ -72,11 +72,12 @@ type DarajaStkQueryResult = {
   ResponseDescription?: string;
   ResultCode: string;
   ResultDesc: string;
+  MpesaReceiptNumber?: string;
+  Amount?: string | number;
+  PhoneNumber?: string | number;
 };
 
 export class PaymentsService {
-  private readonly callbackInFlight = new Set<string>();
-
   constructor(
     private readonly repository: PaymentsRepository = new PaymentsRepository(),
     private readonly ticketsService: TicketsService = new TicketsService(),
@@ -85,6 +86,7 @@ export class PaymentsService {
   private mapPaymentStatusForAudit(status: PaymentStatus) {
     if (status === PaymentStatus.INITIATED) return "initiated" as const;
     if (status === PaymentStatus.PENDING) return "pending" as const;
+    if (status === PaymentStatus.AMBIGUOUS) return "ambiguous" as const;
     if (status === PaymentStatus.SUCCEEDED) return "paid" as const;
     if (status === PaymentStatus.CANCELLED) return "cancelled" as const;
     if (status === PaymentStatus.REFUNDED) return "refunded" as const;
@@ -93,12 +95,18 @@ export class PaymentsService {
 
   private shouldAcceptLateSuccess(orderStatus: OrderStatus, reservationExpiresAt: Date, now: Date) {
     if (orderStatus !== OrderStatus.EXPIRED) return { accept: true as const, review: false as const };
-    if (env.MPESA_LATE_PAYMENT_POLICY === "reject") return { accept: false as const, review: false as const };
-    if (env.MPESA_LATE_PAYMENT_POLICY === "manual_review") return { accept: false as const, review: true as const };
-
     const graceMs = env.MPESA_LATE_PAYMENT_GRACE_MINUTES * 60 * 1000;
     const withinGrace = now.getTime() <= reservationExpiresAt.getTime() + graceMs;
+    if (withinGrace) return { accept: true as const, review: false as const };
+    if (env.MPESA_LATE_PAYMENT_POLICY === "reject") return { accept: false as const, review: false as const };
+    if (env.MPESA_LATE_PAYMENT_POLICY === "manual_review") return { accept: false as const, review: true as const };
     return { accept: withinGrace, review: !withinGrace };
+  }
+
+  private classifyProviderFailure(resultCode: string) {
+    if (resultCode === "1032") return PaymentStatus.CANCELLED;
+    if (["1", "2001", "2006"].includes(resultCode)) return PaymentStatus.FAILED;
+    return PaymentStatus.AMBIGUOUS;
   }
 
   private assertDarajaConfigured() {
@@ -217,6 +225,9 @@ export class PaymentsService {
           idempotencyKey: key,
           externalRequestId: stkResponse.CheckoutRequestID,
           providerReference: stkResponse.MerchantRequestID,
+          merchantRequestId: stkResponse.MerchantRequestID,
+          providerAccountKey: env.MPESA_SHORTCODE,
+          payerPhone: normalizedPhone,
           rawRequest: stkRequestBody,
           rawResponse: stkResponse,
         },
@@ -262,6 +273,23 @@ export class PaymentsService {
     };
   }
 
+  private getCallbackReceipt(metadataMap: Map<string, string | number | undefined>) {
+    const receipt = metadataMap.get("MpesaReceiptNumber");
+    return typeof receipt === "string" && receipt.trim() ? receipt.trim() : undefined;
+  }
+
+  private getCallbackPhone(metadataMap: Map<string, string | number | undefined>) {
+    const value = metadataMap.get("PhoneNumber") ?? metadataMap.get("Phone");
+    return value === undefined ? undefined : toMpesaPhone(String(value));
+  }
+
+  private getCallbackAmount(metadataMap: Map<string, string | number | undefined>) {
+    const value = metadataMap.get("Amount");
+    if (value === undefined) return undefined;
+    const amount = Number(value);
+    return Number.isFinite(amount) ? amount : undefined;
+  }
+
   private async queryMpesaStkStatus(checkoutRequestId: string): Promise<DarajaStkQueryResult> {
     const accessToken = await this.getDarajaAccessToken();
     const timestamp = getTimestamp(new Date());
@@ -285,14 +313,17 @@ export class PaymentsService {
   private async applyMpesaPaymentResult(input: {
     checkoutRequestId: string;
     merchantRequestId?: string;
+    providerAccountKey?: string;
     resultCode: string;
     resultDesc: string;
     rawCallback?: Prisma.InputJsonValue;
     externalTransactionId?: string;
+    providerReceipt?: string;
+    amount?: number;
+    payerPhone?: string;
   }) {
     const now = new Date();
-    let paidOrderId: string | undefined;
-    let ticketsIssued: number | undefined;
+    let verifiedOrderId: string | undefined;
     let mappedStatus: ReturnType<PaymentsService["mapPaymentStatusForAudit"]> | undefined;
     let orderNumber: string | undefined;
 
@@ -304,16 +335,45 @@ export class PaymentsService {
       }
       orderNumber = transaction.order.orderNumber;
 
-      if (input.merchantRequestId && transaction.providerReference && input.merchantRequestId !== transaction.providerReference) {
+      const merchantMismatch = Boolean(input.merchantRequestId && transaction.providerReference && input.merchantRequestId !== transaction.providerReference);
+      const accountMismatch = Boolean(input.providerAccountKey && transaction.providerAccountKey && input.providerAccountKey !== transaction.providerAccountKey);
+      if (merchantMismatch || accountMismatch) {
         logger.warn("MPESA merchant request mismatch", {
           checkoutRequestId: input.checkoutRequestId,
           expectedMerchantRequestId: transaction.providerReference,
           receivedMerchantRequestId: input.merchantRequestId,
+          expectedProviderAccountKey: transaction.providerAccountKey,
+          receivedProviderAccountKey: input.providerAccountKey,
         });
+        await this.repository.markPaymentAmbiguous(transaction.id, {
+          resultCode: input.resultCode,
+          resultMessage: merchantMismatch ? "M-Pesa merchant request mismatch" : "M-Pesa provider account mismatch",
+          rawCallback: input.rawCallback,
+          nextReconciliationAt: new Date(now.getTime() + 60_000),
+          error: merchantMismatch ? "M-Pesa merchant request mismatch" : "M-Pesa provider account mismatch",
+        }, tx);
+        mappedStatus = "ambiguous";
         return;
       }
 
-      if (transaction.status !== PaymentStatus.INITIATED && transaction.status !== PaymentStatus.PENDING) {
+      if (input.resultCode === "0") {
+        const expectedAmount = Number(transaction.amount);
+        const amountMatches = input.amount === undefined || Math.abs(input.amount - expectedAmount) < 0.005;
+        const phoneMatches = !input.payerPhone || !transaction.payerPhone || input.payerPhone === transaction.payerPhone;
+        if (!input.providerReceipt || !amountMatches || !phoneMatches) {
+          await this.repository.markPaymentAmbiguous(transaction.id, {
+            resultCode: input.resultCode,
+            resultMessage: !input.providerReceipt ? "Successful provider result did not include a receipt" : "Provider payment evidence did not match the order",
+            rawCallback: input.rawCallback,
+            nextReconciliationAt: new Date(now.getTime() + 60_000),
+            error: !amountMatches ? "M-Pesa amount mismatch" : !phoneMatches ? "M-Pesa phone mismatch" : "M-Pesa receipt missing",
+          }, tx);
+          mappedStatus = "ambiguous";
+          return;
+        }
+      }
+
+      if (transaction.status !== PaymentStatus.INITIATED && transaction.status !== PaymentStatus.PENDING && transaction.status !== PaymentStatus.AMBIGUOUS) {
         logger.info("Duplicate/terminal MPESA result ignored", {
           checkoutRequestId: input.checkoutRequestId,
           transactionId: transaction.id,
@@ -352,19 +412,22 @@ export class PaymentsService {
         }
 
         if (!latePolicy.accept) {
-          await this.repository.completePaymentTransactionByIdIfNonTerminal(
-            {
-              id: transaction.id,
-              completedAt: now,
-              nextStatus: PaymentStatus.FAILED,
-              resultCode: "LATE_PAYMENT_REJECTED",
-              resultMessage: "Payment arrived after expiry policy window",
-              rawCallback: input.rawCallback,
-            },
+          await this.repository.markPaymentAmbiguous(transaction.id, {
+            resultCode: "LATE_PAYMENT_REVIEW",
+            resultMessage: "Payment arrived after expiry grace window",
+            rawCallback: input.rawCallback,
+            nextReconciliationAt: new Date(now.getTime() + 60 * 60_000),
+            error: "Late M-Pesa success requires manual review",
+          }, tx);
+          await this.repository.transitionOrderStatus(
+            transaction.orderId,
+            [OrderStatus.EXPIRED],
+            OrderStatus.PAYMENT_SUBMITTED,
             tx,
+            { verificationSubmittedAt: now },
           );
-          logger.warn("Late MPESA success rejected by policy", { orderId: transaction.orderId, checkoutRequestId: input.checkoutRequestId });
-          mappedStatus = "failed";
+          logger.warn("Late MPESA success requires manual review", { orderId: transaction.orderId, checkoutRequestId: input.checkoutRequestId });
+          mappedStatus = "ambiguous";
           return;
         }
 
@@ -376,6 +439,8 @@ export class PaymentsService {
             resultCode: input.resultCode,
             resultMessage: input.resultDesc,
             externalTransactionId: input.externalTransactionId,
+            providerReceipt: input.providerReceipt,
+            providerConfirmedAt: now,
             rawCallback: input.rawCallback,
           },
           tx,
@@ -400,74 +465,72 @@ export class PaymentsService {
           return;
         }
 
-        const issuedTickets = await this.ticketsService.issueTicketsForOrder(transaction.orderId, tx);
-        ticketsIssued = issuedTickets.length;
-        await this.repository.transitionOrderStatus(
-          transaction.orderId,
-          [OrderStatus.PAYMENT_VERIFIED],
-          OrderStatus.PAID,
-          tx,
-          {
-            paidAt: now,
-            ticketDeliveryStatus: "PENDING",
-          },
-        );
-        paidOrderId = transaction.orderId;
+        verifiedOrderId = transaction.orderId;
         mappedStatus = "paid";
         logger.info("MPESA payment processed successfully", { orderId: transaction.orderId, checkoutRequestId: input.checkoutRequestId });
-      } else if (transaction.order.status === OrderStatus.PENDING_PAYMENT) {
-        await this.repository.completePaymentTransactionByIdIfNonTerminal(
-          {
-            id: transaction.id,
-            completedAt: now,
-            nextStatus: PaymentStatus.FAILED,
-            resultCode: input.resultCode,
-            resultMessage: input.resultDesc,
-            rawCallback: input.rawCallback,
-          },
-          tx,
-        );
-        await this.repository.transitionOrderStatus(
-          transaction.orderId,
-          [OrderStatus.PENDING_PAYMENT],
-          OrderStatus.PAYMENT_REJECTED,
-          tx,
-        );
-        mappedStatus = "failed";
       } else {
-        await this.repository.completePaymentTransactionByIdIfNonTerminal(
-          {
-            id: transaction.id,
-            completedAt: now,
-            nextStatus: PaymentStatus.FAILED,
+        const failureStatus = this.classifyProviderFailure(input.resultCode);
+        if (failureStatus === PaymentStatus.AMBIGUOUS) {
+          await this.repository.markPaymentAmbiguous(transaction.id, {
             resultCode: input.resultCode,
             resultMessage: input.resultDesc,
             rawCallback: input.rawCallback,
-          },
-          tx,
-        );
-        mappedStatus = "failed";
+            nextReconciliationAt: new Date(now.getTime() + 60_000),
+            error: "Provider returned a non-definitive result",
+          }, tx);
+          await this.repository.transitionOrderStatus(
+            transaction.orderId,
+            [OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_SUBMITTED],
+            OrderStatus.PAYMENT_SUBMITTED,
+            tx,
+            { verificationSubmittedAt: now },
+          );
+          mappedStatus = "ambiguous";
+        } else {
+          await this.repository.completePaymentTransactionByIdIfNonTerminal(
+            {
+              id: transaction.id,
+              completedAt: now,
+              nextStatus: failureStatus,
+              resultCode: input.resultCode,
+              resultMessage: input.resultDesc,
+              rawCallback: input.rawCallback,
+            },
+            tx,
+          );
+          if (transaction.order.status === OrderStatus.PENDING_PAYMENT) {
+            await this.repository.transitionOrderStatus(
+              transaction.orderId,
+              [OrderStatus.PENDING_PAYMENT],
+              OrderStatus.PAYMENT_REJECTED,
+              tx,
+            );
+          }
+          mappedStatus = failureStatus === PaymentStatus.CANCELLED ? "cancelled" : "failed";
+        }
       }
     });
-
-    let ticketDeliveryStatus: Awaited<ReturnType<TicketsService["deliverIssuedTicketsForOrder"]>> | undefined;
-    if (paidOrderId) {
-      ticketDeliveryStatus = await this.ticketsService.deliverIssuedTicketsForOrder(paidOrderId);
-    }
 
     return {
       orderNumber,
       status: mappedStatus,
-      ticketsIssued,
-      ticketDeliveryStatus,
+      verifiedOrderId,
       resultCode: input.resultCode,
       resultDesc: input.resultDesc,
     };
   }
 
+  async fulfillVerifiedOrder(orderId: string) {
+    const tickets = await this.ticketsService.issueTicketsForOrder(orderId);
+    await this.repository.markOrderPaidAfterFulfillment(orderId, new Date());
+    return { ticketsIssued: tickets.length, ticketDeliveryStatus: "pending" as const };
+  }
+
   private async processMpesaStkCallbackByCheckoutRequestId(checkoutRequestId: string, payload: unknown) {
     const extracted = this.extractCallbackMetadata(payload);
-    const mpesaReceipt = extracted.metadataMap.get("MpesaReceiptNumber");
+    const mpesaReceipt = this.getCallbackReceipt(extracted.metadataMap);
+    const callbackAmount = this.getCallbackAmount(extracted.metadataMap);
+    const callbackPhone = this.getCallbackPhone(extracted.metadataMap);
 
     if (extracted.resultCode === 0) {
       const verification = await this.queryMpesaStkStatus(checkoutRequestId);
@@ -479,52 +542,83 @@ export class PaymentsService {
         return;
       }
 
-      await this.applyMpesaPaymentResult({
+      const result = await this.applyMpesaPaymentResult({
         checkoutRequestId,
         merchantRequestId: extracted.merchantRequestId,
+        providerAccountKey: env.MPESA_SHORTCODE,
         resultCode: verification.ResultCode,
         resultDesc: verification.ResultDesc,
-        externalTransactionId: typeof mpesaReceipt === "string" ? mpesaReceipt : undefined,
+        externalTransactionId: mpesaReceipt,
+        providerReceipt: mpesaReceipt,
+        amount: callbackAmount,
+        payerPhone: callbackPhone,
         rawCallback: payload as Prisma.InputJsonValue,
       });
+      if (!result.status) throw new ValidationError("M-Pesa transaction was not found for callback");
+      if (result.verifiedOrderId) await this.fulfillVerifiedOrder(result.verifiedOrderId);
       return;
     }
 
-    await this.applyMpesaPaymentResult({
+    const result = await this.applyMpesaPaymentResult({
       checkoutRequestId,
       merchantRequestId: extracted.merchantRequestId,
       resultCode: String(extracted.resultCode),
       resultDesc: extracted.resultDesc,
       rawCallback: payload as Prisma.InputJsonValue,
     });
+    if (!result.status) throw new ValidationError("M-Pesa transaction was not found for callback");
+    if (result.verifiedOrderId) await this.fulfillVerifiedOrder(result.verifiedOrderId);
   }
 
   async ingestMpesaStkCallback(payload: unknown) {
     const extracted = this.extractCallbackMetadata(payload);
     if (!extracted.checkoutRequestId) {
-      logger.warn("MPESA callback missing checkout request id");
-      return { accepted: true, message: "missing checkout request id" };
+      throw new ValidationError("M-Pesa callback is missing checkout request id");
     }
 
-    if (this.callbackInFlight.has(extracted.checkoutRequestId)) {
-      logger.info("MPESA callback already in-flight", { checkoutRequestId: extracted.checkoutRequestId });
-      return { accepted: true, message: "already processing" };
-    }
+    const payloadHash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+    const eventKey = createHash("sha256")
+      .update(`${env.MPESA_DARAJA_ENV}:${env.MPESA_SHORTCODE}:${extracted.checkoutRequestId}:${payloadHash}`)
+      .digest("hex");
+    const inboxEvent = await this.repository.createCallbackInboxEvent({
+      provider: "MPESA" as const,
+      providerAccountKey: env.MPESA_SHORTCODE,
+      eventKey,
+      payloadHash,
+      checkoutRequestId: extracted.checkoutRequestId,
+      merchantRequestId: extracted.merchantRequestId,
+      providerReceipt: this.getCallbackReceipt(extracted.metadataMap),
+      resultCode: String(extracted.resultCode),
+      resultDescription: extracted.resultDesc,
+      payload: payload as Prisma.InputJsonValue,
+      correlationId: randomUUID(),
+    });
 
-    this.callbackInFlight.add(extracted.checkoutRequestId);
-    Promise.resolve()
-      .then(() => this.processMpesaStkCallbackByCheckoutRequestId(extracted.checkoutRequestId!, payload))
-      .catch((error) => {
-        logger.error("Failed processing MPESA callback", {
-          checkoutRequestId: extracted.checkoutRequestId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      })
-      .finally(() => {
-        this.callbackInFlight.delete(extracted.checkoutRequestId!);
+    return { accepted: true, message: inboxEvent?.status === "PROCESSED" ? "already processed" : "accepted" };
+  }
+
+  async processCallbackInboxEvent(id: string) {
+    const event = await this.repository.getCallbackInboxEvent(id);
+    if (!event) throw new NotFoundError("Payment callback event not found");
+    if (!event.checkoutRequestId) throw new ValidationError("Callback event has no checkout request id");
+
+    try {
+      await this.processMpesaStkCallbackByCheckoutRequestId(event.checkoutRequestId, event.payload);
+      const transaction = await this.repository.findPaymentTransactionByExternalRequestId(event.checkoutRequestId);
+      if (transaction?.status === PaymentStatus.SUCCEEDED && transaction.order.status === OrderStatus.PAYMENT_VERIFIED) {
+        await this.fulfillVerifiedOrder(transaction.order.id);
+      }
+      await this.repository.completeCallbackInboxEvent(id, transaction?.id);
+    } catch (error) {
+      const attempts = event.attemptCount + 1;
+      const backoffMinutes = [0.5, 2, 5, 15, 30, 60][Math.min(attempts - 1, 5)] ?? 60;
+      await this.repository.failCallbackInboxEvent(id, {
+        nextAttemptAt: new Date(Date.now() + backoffMinutes * 60 * 1000),
+        error: error instanceof Error ? error.message : String(error),
+        manualReview: attempts >= env.MPESA_RECONCILIATION_MAX_ATTEMPTS,
       });
-
-    return { accepted: true, message: "accepted" };
+      throw error;
+    }
   }
 
   async submitManualPaymentProof(
@@ -762,7 +856,7 @@ export class PaymentsService {
       throw new ValidationError("M-Pesa transaction is missing a checkout request id");
     }
 
-    if (transaction.status !== PaymentStatus.INITIATED && transaction.status !== PaymentStatus.PENDING) {
+    if (transaction.status !== PaymentStatus.INITIATED && transaction.status !== PaymentStatus.PENDING && transaction.status !== PaymentStatus.AMBIGUOUS) {
       return {
         orderNumber: transaction.order.orderNumber,
         status: this.mapPaymentStatusForAudit(transaction.status),
@@ -775,8 +869,13 @@ export class PaymentsService {
     const result = await this.applyMpesaPaymentResult({
       checkoutRequestId: transaction.externalRequestId,
       merchantRequestId: transaction.providerReference ?? undefined,
+      providerAccountKey: env.MPESA_SHORTCODE,
       resultCode: verification.ResultCode,
       resultDesc: verification.ResultDesc,
+      providerReceipt: verification.MpesaReceiptNumber ?? transaction.providerReceipt ?? undefined,
+      externalTransactionId: verification.MpesaReceiptNumber ?? transaction.providerReceipt ?? undefined,
+      amount: verification.Amount === undefined ? Number(transaction.amount) : Number(verification.Amount),
+      payerPhone: verification.PhoneNumber === undefined ? transaction.payerPhone ?? undefined : toMpesaPhone(String(verification.PhoneNumber)),
       rawCallback: (transaction.rawCallback ?? {
         source: "admin-mpesa-reverify",
         queriedAt: new Date().toISOString(),
@@ -784,20 +883,21 @@ export class PaymentsService {
       }) as Prisma.InputJsonValue,
     });
 
+    const fulfillment = result.verifiedOrderId ? await this.fulfillVerifiedOrder(result.verifiedOrderId) : undefined;
     return {
       orderNumber: result.orderNumber ?? transaction.order.orderNumber,
       status: result.status ?? "pending",
       resultCode: result.resultCode,
       resultDesc: result.resultDesc,
-      ticketsIssued: result.ticketsIssued,
-      ticketDeliveryStatus: result.ticketDeliveryStatus,
+      ticketsIssued: fulfillment?.ticketsIssued,
+      ticketDeliveryStatus: fulfillment?.ticketDeliveryStatus,
     };
   }
 
   async listAdminMpesaTransactions(filters: {
     orderId?: string;
     search?: string;
-    status?: "initiated" | "pending" | "paid" | "failed" | "cancelled" | "refunded";
+    status?: "initiated" | "pending" | "ambiguous" | "paid" | "failed" | "cancelled" | "refunded";
     limit?: number;
   }) {
     const rows = await this.repository.listAdminMpesaTransactions(filters);

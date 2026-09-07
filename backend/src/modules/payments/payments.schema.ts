@@ -95,7 +95,7 @@ export const listAdminMpesaTransactionsQuerySchema = z.object({
   query: z.object({
     orderId: z.string().trim().min(1).optional(),
     search: z.string().trim().min(1).max(100).optional(),
-    status: z.enum(["initiated", "pending", "paid", "failed", "cancelled", "refunded"]).optional(),
+    status: z.enum(["initiated", "pending", "ambiguous", "paid", "failed", "cancelled", "refunded"]).optional(),
     limit: z.coerce.number().int().min(1).max(200).optional(),
   }),
 });

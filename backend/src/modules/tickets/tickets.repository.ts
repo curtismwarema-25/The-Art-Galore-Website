@@ -233,6 +233,7 @@ export class TicketsRepository {
       qrCodeValue: string;
       orderId: string;
       orderItemId: string;
+      sequenceNumber: number;
       eventId: string;
       ticketTierId: string;
       buyerId: string;
@@ -247,6 +248,7 @@ export class TicketsRepository {
         qrCodeValue: input.qrCodeValue,
         orderId: input.orderId,
         orderItemId: input.orderItemId,
+        sequenceNumber: input.sequenceNumber,
         eventId: input.eventId,
         ticketTierId: input.ticketTierId,
         buyerId: input.buyerId,

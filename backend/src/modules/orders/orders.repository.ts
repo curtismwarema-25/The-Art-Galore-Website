@@ -3,10 +3,10 @@ import {
   OrderStatus,
   PaymentStatus,
   PaymentVerificationStatus,
+  Prisma,
   type PaymentProvider,
   TicketStatus,
   TicketTierStatus,
-  type Prisma,
   type PrismaClient,
 } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
@@ -128,7 +128,19 @@ function getClient(tx?: Prisma.TransactionClient): DbClient {
 
 export class OrdersRepository {
   async withTransaction<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) {
-    return prisma.$transaction((tx) => callback(tx));
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await prisma.$transaction((tx) => callback(tx), {
+          isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
+        });
+      } catch (error) {
+        const retryable = error instanceof Prisma.PrismaClientKnownRequestError
+          && ((error.code === "P2034") || (error.code === "P2010" && /deadlock|lock wait timeout|1213|1205/i.test(error.message)));
+        if (!retryable || attempt === 2) throw error;
+      }
+    }
+
+    throw new Error("Transaction retry limit reached");
   }
 
   async expirePendingOrders(now: Date, tx?: Prisma.TransactionClient) {
@@ -261,8 +273,9 @@ export class OrdersRepository {
     return Boolean(existing);
   }
 
-  async findOrderByIdempotencyKey(idempotencyKey: string) {
-    const record = await prisma.paymentTransaction.findUnique({
+  async findOrderByIdempotencyKey(idempotencyKey: string, tx?: Prisma.TransactionClient) {
+    const client = getClient(tx);
+    const record = await client.paymentTransaction.findUnique({
       where: { idempotencyKey },
       include: {
         order: {
@@ -272,6 +285,14 @@ export class OrdersRepository {
     });
 
     return record?.order ?? null;
+  }
+
+  async lockTicketTiersForUpdate(eventId: string, ticketTierIds: string[], tx: Prisma.TransactionClient) {
+    if (ticketTierIds.length === 0) return;
+
+    await tx.$queryRaw<{ id: string }[]>(
+      Prisma.sql`SELECT id FROM TicketTier WHERE eventId = ${eventId} AND id IN (${Prisma.join(ticketTierIds)}) ORDER BY id FOR UPDATE`,
+    );
   }
 
   async createOrder(data: CreateOrderWriteInput, tx: Prisma.TransactionClient): Promise<OrderWithRelations> {
