@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, PencilLine, Trash2 } from "lucide-react";
 import { z } from "zod";
@@ -27,6 +27,7 @@ type EventFormState = {
   title: string;
   type: string;
   venue: string;
+  capacity: string;
   startAt: string;
   endAt: string;
   lifecycle: EventLifecycle;
@@ -52,6 +53,7 @@ const eventFormSchema = z
     title: z.string().trim().min(3),
     type: z.string().trim().min(2),
     venue: z.string().trim().min(2),
+    capacity: z.coerce.number().int().positive(),
     startAt: z.string().trim().min(1),
     endAt: z.string().trim().min(1),
     lifecycle: z.enum(["draft", "upcoming", "past", "cancelled"]),
@@ -94,6 +96,7 @@ const defaultEventForm: EventFormState = {
   title: "",
   type: "Sip & Paint",
   venue: "",
+  capacity: "",
   startAt: "",
   endAt: "",
   lifecycle: "draft",
@@ -144,11 +147,21 @@ function formatError(error: unknown) {
   return "Unexpected request error.";
 }
 
+function AdminField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-display uppercase tracking-[0.14em] text-foreground-secondary">{label}</span>
+      {children}
+    </label>
+  );
+}
+
 function mapEventToForm(record: EventRecord): EventFormState {
   return {
     title: record.title,
     type: record.type,
     venue: record.venue,
+    capacity: record.capacity > 0 ? String(record.capacity) : "",
     startAt: toLocalDateTimeInput(record.startAt),
     endAt: toLocalDateTimeInput(record.endAt),
     lifecycle: record.lifecycle,
@@ -219,6 +232,22 @@ export default function AdminEventsPage() {
     setEditHeroMeta(selectedEvent.heroImageMeta);
   }, [selectedEvent]);
 
+  useEffect(() => {
+    if (!routeEventId || !selectedEvent) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-event-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [routeEventId, selectedEvent]);
+
+  useEffect(() => {
+    if (!editingTierId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-ticket-tier-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editingTierId]);
+
   async function handleHeroUpload(file: File, mode: "create" | "edit") {
     const validation = validateFile(file, "event-hero");
     if (!validation.valid) {
@@ -266,6 +295,7 @@ export default function AdminEventsPage() {
         title: parsed.data.title,
         type: parsed.data.type,
         venue: parsed.data.venue,
+        capacity: parsed.data.capacity,
         startAt: toIsoString(parsed.data.startAt),
         endAt: toIsoString(parsed.data.endAt),
         lifecycle: parsed.data.lifecycle,
@@ -317,6 +347,7 @@ export default function AdminEventsPage() {
           title: parsed.data.title,
           type: parsed.data.type,
           venue: parsed.data.venue,
+          capacity: parsed.data.capacity,
           startAt: toIsoString(parsed.data.startAt),
           endAt: toIsoString(parsed.data.endAt),
           lifecycle: parsed.data.lifecycle,
@@ -429,66 +460,102 @@ export default function AdminEventsPage() {
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
         title="Events Manager"
-        subtitle="Create, update, and archive events with real backend CRUD."
+        subtitle="Choose an event to manage its public details and tickets. Create a new event only when you need to add one."
       />
 
-      <AdminSectionCard title="Create Event">
+      <div className="rounded-lg border border-accent/25 bg-accent/5 px-4 py-3 md:px-5">
+        <p className="text-xs font-display uppercase tracking-[0.16em] text-accent">Event workflow</p>
+        <p className="mt-1 text-sm text-foreground">Choose an event - update its details - set ticket tiers - publish when ready.</p>
+        <p className="mt-1 text-xs text-foreground-secondary">The public site only shows events and ticket tiers marked as published.</p>
+      </div>
+
+      <AdminSectionCard
+        title="Create a New Event"
+        description="Open this only when you are adding an event. After saving, it will open automatically for ticket setup."
+        defaultOpen={false}
+        id="admin-create-event"
+      >
         <form onSubmit={handleCreateEvent} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <input
-            value={createForm.title}
-            onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))}
-            className={adminInputClassName}
-            placeholder="Event title"
-          />
-          <select
-            value={createForm.type}
-            onChange={(event) => setCreateForm((current) => ({ ...current, type: event.target.value }))}
-            className={adminInputClassName}
-          >
+          <AdminField label="Event title">
+            <input
+              value={createForm.title}
+              onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))}
+              className={adminInputClassName}
+              placeholder="e.g. Sip and Paint Edition VI"
+            />
+          </AdminField>
+          <AdminField label="Event type">
+            <select
+              value={createForm.type}
+              onChange={(event) => setCreateForm((current) => ({ ...current, type: event.target.value }))}
+              className={adminInputClassName}
+            >
             <option value="Sip & Paint">Sip & Paint</option>
             <option value="Art Night">Art Night</option>
             <option value="Pajama Night">Pajama Night</option>
             <option value="Workshop">Workshop</option>
-          </select>
-          <input
-            type="datetime-local"
-            value={createForm.startAt}
-            onChange={(event) => setCreateForm((current) => ({ ...current, startAt: event.target.value }))}
-            className={adminInputClassName}
-          />
-          <input
-            type="datetime-local"
-            value={createForm.endAt}
-            onChange={(event) => setCreateForm((current) => ({ ...current, endAt: event.target.value }))}
-            className={adminInputClassName}
-          />
-          <input
-            value={createForm.venue}
-            onChange={(event) => setCreateForm((current) => ({ ...current, venue: event.target.value }))}
-            className={adminInputClassName}
-            placeholder="Venue"
-          />
-          <select
-            value={createForm.lifecycle}
-            onChange={(event) =>
-              setCreateForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))
-            }
-            className={adminInputClassName}
-          >
+            </select>
+          </AdminField>
+          <AdminField label="Start date and time">
+            <input
+              type="datetime-local"
+              value={createForm.startAt}
+              onChange={(event) => setCreateForm((current) => ({ ...current, startAt: event.target.value }))}
+              className={adminInputClassName}
+            />
+          </AdminField>
+          <AdminField label="End date and time">
+            <input
+              type="datetime-local"
+              value={createForm.endAt}
+              onChange={(event) => setCreateForm((current) => ({ ...current, endAt: event.target.value }))}
+              className={adminInputClassName}
+            />
+          </AdminField>
+          <AdminField label="Venue">
+            <input
+              value={createForm.venue}
+              onChange={(event) => setCreateForm((current) => ({ ...current, venue: event.target.value }))}
+              className={adminInputClassName}
+              placeholder="e.g. MASH Park, Kisii"
+            />
+          </AdminField>
+          <AdminField label="Guest capacity">
+            <input
+              type="number"
+              min="1"
+              value={createForm.capacity}
+              onChange={(event) => setCreateForm((current) => ({ ...current, capacity: event.target.value }))}
+              className={adminInputClassName}
+              placeholder="e.g. 40"
+            />
+          </AdminField>
+          <AdminField label="Publishing status">
+            <select
+              value={createForm.lifecycle}
+              onChange={(event) =>
+                setCreateForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))
+              }
+              className={adminInputClassName}
+            >
             <option value="draft">Draft</option>
             <option value="upcoming">Upcoming</option>
             <option value="past">Past</option>
             <option value="cancelled">Cancelled</option>
-          </select>
+            </select>
+          </AdminField>
           <div className="md:col-span-2">
-            <Textarea
-              value={createForm.summary}
-              onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))}
-              className={adminTextareaClassName}
-              placeholder="Summary (optional)"
-            />
+            <AdminField label="Public event summary">
+              <Textarea
+                value={createForm.summary}
+                onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))}
+                className={adminTextareaClassName}
+                placeholder="Tell guests what they will experience (optional)"
+              />
+            </AdminField>
           </div>
           <div className="md:col-span-2">
+            <p className="mb-1 text-[11px] font-display uppercase tracking-[0.14em] text-foreground-secondary">Hero image</p>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
@@ -510,13 +577,13 @@ export default function AdminEventsPage() {
           </div>
           <div className="md:col-span-2 flex justify-end">
             <Button type="submit" variant="accent" disabled={createEventMutation.isPending}>
-              {createEventMutation.isPending ? "Saving..." : "Add Event"}
+              {createEventMutation.isPending ? "Creating..." : "Create Event"}
             </Button>
           </div>
         </form>
       </AdminSectionCard>
 
-      <AdminSectionCard title="Event List">
+      <AdminSectionCard title="1. Choose an Event" description="Select a row to open the event workspace. From there you can edit the event and manage the tickets buyers can purchase.">
         <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
           <input
             value={search}
@@ -545,7 +612,22 @@ export default function AdminEventsPage() {
             minWidthClassName="min-w-[760px] md:min-w-[980px]"
           >
             {records.map((record) => (
-              <tr key={record.id} className="bg-background border border-border">
+              <tr
+                key={record.id}
+                className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${routeEventId === record.id ? "bg-accent/10" : "bg-background"}`}
+                aria-selected={routeEventId === record.id}
+                tabIndex={0}
+                onClick={(event) => {
+                  if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                  navigate(`/admin/events/${record.id}`);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    navigate(`/admin/events/${record.id}`);
+                  }
+                }}
+              >
                 <td className="px-3 py-3">
                   <div>
                     <p className="text-sm text-foreground">{record.title}</p>
@@ -584,7 +666,7 @@ export default function AdminEventsPage() {
                 <td className="px-3 py-3">
                   <div className="flex items-center gap-2">
                     <Button size="sm" variant="outline" asChild>
-                      <Link to={`/admin/events/${record.id}`}>Manage</Link>
+                      <Link to={`/admin/events/${record.id}`}>{routeEventId === record.id ? "Selected" : "Open"}</Link>
                     </Button>
                     <Button size="sm" variant="outline" asChild>
                       <Link to={`/events/${record.slug}`}>
@@ -608,67 +690,91 @@ export default function AdminEventsPage() {
       </AdminSectionCard>
 
       {!selectedEvent && (
-        <AdminSectionCard title="Ticket Tiers">
+        <AdminSectionCard title="2. Select an Event to Continue" description="Ticket tiers belong to a specific event, so choose one from the list above before adding tickets.">
           <p className="text-sm text-foreground-secondary">
-            Select an event using the <span className="font-medium text-foreground">Manage</span> action to create or update
-            ticket tiers.
+            Select an event row or use its <span className="font-medium text-foreground">Open</span> action. Its editor and ticket setup will appear here.
           </p>
         </AdminSectionCard>
       )}
 
       {selectedEvent && (
         <>
-          <AdminSectionCard title="Edit Event">
+          <AdminSectionCard title={`2. Edit Event: ${selectedEvent.title}`} description="Update the public event details, save them, then continue to ticket tiers below." id="admin-event-editor">
             <form onSubmit={handleSaveEvent} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input
-                value={editForm.title}
-                onChange={(event) => setEditForm((current) => ({ ...current, title: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Event title"
-              />
-              <input
-                value={editForm.type}
-                onChange={(event) => setEditForm((current) => ({ ...current, type: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Event type"
-              />
-              <input
-                type="datetime-local"
-                value={editForm.startAt}
-                onChange={(event) => setEditForm((current) => ({ ...current, startAt: event.target.value }))}
-                className={adminInputClassName}
-              />
-              <input
-                type="datetime-local"
-                value={editForm.endAt}
-                onChange={(event) => setEditForm((current) => ({ ...current, endAt: event.target.value }))}
-                className={adminInputClassName}
-              />
-              <input
-                value={editForm.venue}
-                onChange={(event) => setEditForm((current) => ({ ...current, venue: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Venue"
-              />
-              <select
-                value={editForm.lifecycle}
-                onChange={(event) => setEditForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))}
-                className={adminInputClassName}
-              >
+              <AdminField label="Event title">
+                <input
+                  value={editForm.title}
+                  onChange={(event) => setEditForm((current) => ({ ...current, title: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="Event title"
+                />
+              </AdminField>
+              <AdminField label="Event type">
+                <input
+                  value={editForm.type}
+                  onChange={(event) => setEditForm((current) => ({ ...current, type: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="Event type"
+                />
+              </AdminField>
+              <AdminField label="Start date and time">
+                <input
+                  type="datetime-local"
+                  value={editForm.startAt}
+                  onChange={(event) => setEditForm((current) => ({ ...current, startAt: event.target.value }))}
+                  className={adminInputClassName}
+                />
+              </AdminField>
+              <AdminField label="End date and time">
+                <input
+                  type="datetime-local"
+                  value={editForm.endAt}
+                  onChange={(event) => setEditForm((current) => ({ ...current, endAt: event.target.value }))}
+                  className={adminInputClassName}
+                />
+              </AdminField>
+              <AdminField label="Venue">
+                <input
+                  value={editForm.venue}
+                  onChange={(event) => setEditForm((current) => ({ ...current, venue: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="Venue"
+                />
+              </AdminField>
+              <AdminField label="Guest capacity">
+                <input
+                  type="number"
+                  min="1"
+                  value={editForm.capacity}
+                  onChange={(event) => setEditForm((current) => ({ ...current, capacity: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="Guest capacity"
+                />
+              </AdminField>
+              <AdminField label="Publishing status">
+                <select
+                  value={editForm.lifecycle}
+                  onChange={(event) => setEditForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))}
+                  className={adminInputClassName}
+                >
                 <option value="draft">Draft</option>
                 <option value="upcoming">Upcoming</option>
                 <option value="past">Past</option>
                 <option value="cancelled">Cancelled</option>
-              </select>
+                </select>
+              </AdminField>
               <div className="md:col-span-2">
-                <Textarea
-                  value={editForm.summary}
-                  onChange={(event) => setEditForm((current) => ({ ...current, summary: event.target.value }))}
-                  className={adminTextareaClassName}
-                  placeholder="Summary"
-                />
+                <AdminField label="Public event summary">
+                  <Textarea
+                    value={editForm.summary}
+                    onChange={(event) => setEditForm((current) => ({ ...current, summary: event.target.value }))}
+                    className={adminTextareaClassName}
+                    placeholder="Summary"
+                  />
+                </AdminField>
               </div>
               <div className="md:col-span-2">
+                <p className="mb-1 text-[11px] font-display uppercase tracking-[0.14em] text-foreground-secondary">Hero image</p>
                 <input
                   type="file"
                   accept="image/jpeg,image/png,image/webp"
@@ -696,85 +802,105 @@ export default function AdminEventsPage() {
             </form>
           </AdminSectionCard>
 
-          <AdminSectionCard title="Ticket Tiers">
+          <AdminSectionCard title={`3. Set Ticket Tiers: ${selectedEvent.title}`} description="Add the ticket options buyers will see. Published tiers are available for purchase; draft tiers stay private." id="admin-ticket-tier-form">
             <p className="mb-3 text-xs text-foreground-secondary">
               Public checkout only shows tiers with status <span className="text-foreground font-medium">Published</span>.
             </p>
             <form onSubmit={handleSubmitTier} className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <input
-                value={tierForm.name}
-                onChange={(event) => setTierForm((current) => ({ ...current, name: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Tier name"
-              />
-              <input
-                value={tierForm.description}
-                onChange={(event) => setTierForm((current) => ({ ...current, description: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Description"
-              />
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={tierForm.price}
-                onChange={(event) => setTierForm((current) => ({ ...current, price: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Price"
-              />
-              <input
-                type="number"
-                min={0}
-                value={tierForm.available}
-                onChange={(event) => setTierForm((current) => ({ ...current, available: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Available tickets"
-              />
-              <input
-                type="number"
-                min={1}
-                value={tierForm.maxPerOrder}
-                onChange={(event) => setTierForm((current) => ({ ...current, maxPerOrder: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Max per order (optional)"
-              />
-              <input
-                value={tierForm.currency}
-                onChange={(event) => setTierForm((current) => ({ ...current, currency: event.target.value }))}
-                className={adminInputClassName}
-                placeholder="Currency"
-                maxLength={3}
-              />
-              <input
-                type="datetime-local"
-                value={tierForm.saleStartAt}
-                onChange={(event) => setTierForm((current) => ({ ...current, saleStartAt: event.target.value }))}
-                className={adminInputClassName}
-              />
-              <input
-                type="datetime-local"
-                value={tierForm.saleEndAt}
-                onChange={(event) => setTierForm((current) => ({ ...current, saleEndAt: event.target.value }))}
-                className={adminInputClassName}
-              />
-              <select
-                value={tierForm.status}
-                onChange={(event) =>
-                  setTierForm((current) => ({ ...current, status: event.target.value as TicketTierFormState["status"] }))
-                }
-                className={adminInputClassName}
-              >
+              <AdminField label="Ticket tier name">
+                <input
+                  value={tierForm.name}
+                  onChange={(event) => setTierForm((current) => ({ ...current, name: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="e.g. Early Bird"
+                />
+              </AdminField>
+              <AdminField label="What this ticket includes">
+                <input
+                  value={tierForm.description}
+                  onChange={(event) => setTierForm((current) => ({ ...current, description: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="Short buyer-facing description"
+                />
+              </AdminField>
+              <AdminField label="Price">
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={tierForm.price}
+                  onChange={(event) => setTierForm((current) => ({ ...current, price: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="e.g. 1500"
+                />
+              </AdminField>
+              <AdminField label="Tickets available">
+                <input
+                  type="number"
+                  min={0}
+                  value={tierForm.available}
+                  onChange={(event) => setTierForm((current) => ({ ...current, available: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="e.g. 20"
+                />
+              </AdminField>
+              <AdminField label="Maximum per order">
+                <input
+                  type="number"
+                  min={1}
+                  value={tierForm.maxPerOrder}
+                  onChange={(event) => setTierForm((current) => ({ ...current, maxPerOrder: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="Optional limit"
+                />
+              </AdminField>
+              <AdminField label="Currency">
+                <input
+                  value={tierForm.currency}
+                  onChange={(event) => setTierForm((current) => ({ ...current, currency: event.target.value }))}
+                  className={adminInputClassName}
+                  placeholder="KES"
+                  maxLength={3}
+                />
+              </AdminField>
+              <AdminField label="Ticket sales open">
+                <input
+                  type="datetime-local"
+                  value={tierForm.saleStartAt}
+                  onChange={(event) => setTierForm((current) => ({ ...current, saleStartAt: event.target.value }))}
+                  className={adminInputClassName}
+                />
+              </AdminField>
+              <AdminField label="Ticket sales close">
+                <input
+                  type="datetime-local"
+                  value={tierForm.saleEndAt}
+                  onChange={(event) => setTierForm((current) => ({ ...current, saleEndAt: event.target.value }))}
+                  className={adminInputClassName}
+                />
+              </AdminField>
+              <AdminField label="Ticket visibility">
+                <select
+                  value={tierForm.status}
+                  onChange={(event) =>
+                    setTierForm((current) => ({ ...current, status: event.target.value as TicketTierFormState["status"] }))
+                  }
+                  className={adminInputClassName}
+                >
                 <option value="draft">Draft</option>
                 <option value="published">Published</option>
                 <option value="archived">Archived</option>
-              </select>
+                </select>
+              </AdminField>
               <div className="md:col-span-2">
-                <Textarea
-                  value={tierForm.perks}
-                  onChange={(event) => setTierForm((current) => ({ ...current, perks: event.target.value }))}
-                  className={adminTextareaClassName}
-                  placeholder="Perks (comma or newline separated)"
-                />
+                <AdminField label="Included perks">
+                  <Textarea
+                    value={tierForm.perks}
+                    onChange={(event) => setTierForm((current) => ({ ...current, perks: event.target.value }))}
+                    className={adminTextareaClassName}
+                    placeholder="One perk per line, for example: Materials included"
+                  />
+                </AdminField>
               </div>
               <div className="md:col-span-2 flex justify-end gap-2">
                 {editingTierId && (
