@@ -1,78 +1,273 @@
 import { Link } from "react-router-dom";
+import {
+  ArrowRight,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardCheck,
+  ExternalLink,
+  MapPin,
+  Ticket,
+  Upload,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/common/EmptyState";
 import LoadingSkeleton from "@/components/common/LoadingSkeleton";
 import SectionHeader from "@/components/common/SectionHeader";
 import StatCard from "@/components/common/StatCard";
-import { mockChartSeries } from "@/data/mock";
-import { useAdminStatsQuery } from "@/hooks/queries/useAdminStatsQuery";
-import AdminChartPlaceholder from "@/features/admin/shared/AdminChartPlaceholder";
+import { useAuth } from "@/features/auth/useAuth";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
+import { useAdminEventsQuery } from "@/hooks/queries/useAdminEventsQuery";
+import { useAdminStatsQuery } from "@/hooks/queries/useAdminStatsQuery";
+import type { EventRecord } from "@/types/models";
 
-const statCards = [
-  { key: "upcomingEventsCount", label: "Upcoming Events" },
-  { key: "pastEventsCount", label: "Past Events" },
-  { key: "ticketsSold", label: "Tickets Sold" },
-  { key: "paidOrders", label: "Paid Orders" },
-  { key: "pendingOrders", label: "Pending Orders" },
-  { key: "pendingUploads", label: "Pending Uploads" },
-  { key: "artistsCount", label: "Artists" },
-  { key: "partnersCount", label: "Partners" },
-] as const;
+type AttentionItem = {
+  label: string;
+  description: string;
+  count: number;
+  href: string;
+  icon: LucideIcon;
+};
 
-export default function AdminDashboardPage() {
-  const { data: stats, isLoading, isError } = useAdminStatsQuery();
+function getNextEvent(events: EventRecord[] | undefined) {
+  return [...(events ?? [])]
+    .filter((event) => event.lifecycle === "upcoming")
+    .sort((first, second) => {
+      const firstTime = Date.parse(first.startAt);
+      const secondTime = Date.parse(second.startAt);
+      return (Number.isNaN(firstTime) ? Number.MAX_SAFE_INTEGER : firstTime) -
+        (Number.isNaN(secondTime) ? Number.MAX_SAFE_INTEGER : secondTime);
+    })[0];
+}
 
-  if (isLoading) {
-    return <LoadingSkeleton rows={6} />;
+function formatEventDate(event: EventRecord) {
+  const date = new Date(event.startAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return event.date;
   }
 
-  if (isError || !stats) {
+  return date.toLocaleDateString("en-KE", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+export default function AdminDashboardPage() {
+  const { user } = useAuth();
+  const statsQuery = useAdminStatsQuery();
+  const eventsQuery = useAdminEventsQuery();
+  const stats = statsQuery.data;
+  const nextEvent = getNextEvent(eventsQuery.data);
+  const eventsUnavailable = eventsQuery.isError;
+  const firstName = user?.fullName?.trim().split(/\s+/)[0] || "there";
+
+  if (statsQuery.isLoading || eventsQuery.isLoading) {
+    return <LoadingSkeleton rows={4} />;
+  }
+
+  if (statsQuery.isError || !stats) {
     return (
       <EmptyState
         title="Dashboard unavailable"
-        description="Could not load dashboard metrics. Connect this to backend error handling."
+        description="We could not load your ticket and event overview. Please refresh and try again."
       />
     );
   }
 
+  const attentionItems: AttentionItem[] = [
+    {
+      label: "Orders and payments",
+      description: "Review pending, failed, or manually submitted payments.",
+      count: stats.pendingOrders,
+      href: "/admin/orders",
+      icon: Ticket,
+    },
+    {
+      label: "Community uploads",
+      description: "Approve or reject images waiting for moderation.",
+      count: stats.pendingUploads,
+      href: "/admin/uploads",
+      icon: Upload,
+    },
+  ];
+  const hasAttention = attentionItems.some((item) => item.count > 0);
+
   return (
     <div className="space-y-5 md:space-y-6">
-      <SectionHeader title="Overview" subtitle="Backend-ready operational summary with mock analytics placeholders." />
+      <SectionHeader
+        title={`Welcome back, ${firstName}`}
+        subtitle={eventsUnavailable ? "Event data is unavailable. Refresh to see what needs attention." : nextEvent ? `${nextEvent.title} is the next event on your calendar.` : "Get your next event ready to sell tickets."}
+        action={
+          eventsUnavailable ? (
+            <Button variant="accent" onClick={() => void eventsQuery.refetch()}>
+              <CalendarDays aria-hidden="true" />
+              Refresh events
+            </Button>
+          ) : (
+            <Button variant="accent" asChild>
+              <Link to="/admin/events">
+                <CalendarDays aria-hidden="true" />
+                {nextEvent ? "Manage event" : "Create event"}
+              </Link>
+            </Button>
+          )
+        }
+      />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        {statCards.map((card) => (
-          <StatCard
-            key={card.key}
-            label={card.label}
-            value={(stats[card.key] ?? 0).toLocaleString()}
-          />
-        ))}
-      </div>
+      <section className="overflow-hidden rounded-lg border border-accent/30 bg-accent/10" aria-labelledby="next-event-heading">
+        <div className="grid gap-5 p-5 md:grid-cols-[1fr_auto] md:items-center md:p-6">
+          <div>
+            <p className="font-display text-[10px] tracking-[0.2em] uppercase text-accent">Next event</p>
+            {eventsUnavailable ? (
+              <>
+                <h2 id="next-event-heading" className="mt-2 font-display text-2xl text-foreground md:text-3xl">
+                  Event data unavailable
+                </h2>
+                <p className="mt-2 max-w-xl text-sm text-foreground-secondary">
+                  We could not load the event list from the server, so no event details are being shown here.
+                </p>
+              </>
+            ) : nextEvent ? (
+              <>
+                <h2 id="next-event-heading" className="mt-2 font-display text-2xl text-foreground md:text-3xl">
+                  {nextEvent.title}
+                </h2>
+                <div className="mt-3 flex flex-col gap-2 text-sm text-foreground-secondary sm:flex-row sm:flex-wrap sm:gap-x-5">
+                  <span className="inline-flex items-center gap-2">
+                    <CalendarDays size={16} className="text-accent" aria-hidden="true" />
+                    {formatEventDate(nextEvent)} | {nextEvent.time}
+                  </span>
+                  <span className="inline-flex items-center gap-2">
+                    <MapPin size={16} className="text-accent" aria-hidden="true" />
+                    {nextEvent.venue}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 id="next-event-heading" className="mt-2 font-display text-2xl text-foreground md:text-3xl">
+                  No upcoming event yet
+                </h2>
+                <p className="mt-2 max-w-xl text-sm text-foreground-secondary">
+                  Create the event first, then add ticket tiers and publish the page when it is ready for buyers.
+                </p>
+              </>
+            )}
+          </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-5">
-        <AdminChartPlaceholder title="Ticket Sales Over Time" series={mockChartSeries.ticketSalesOverTime} />
-        <AdminChartPlaceholder title="Event Attendance Trends" series={mockChartSeries.attendanceTrends} />
-        <AdminChartPlaceholder title="Uploads By Event" series={mockChartSeries.uploadsByEvent} />
-      </div>
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            {eventsUnavailable ? (
+              <Button variant="accent" onClick={() => void eventsQuery.refetch()}>
+                Refresh events <ArrowRight aria-hidden="true" />
+              </Button>
+            ) : nextEvent ? (
+              <>
+                <Button variant="accent" asChild>
+                  <Link to="/admin/events">Manage tickets <ArrowRight aria-hidden="true" /></Link>
+                </Button>
+                <Button variant="outline" asChild>
+                  <Link to={`/events/${nextEvent.slug}`} target="_blank" rel="noreferrer">
+                    View public page <ExternalLink aria-hidden="true" />
+                  </Link>
+                </Button>
+              </>
+            ) : (
+              <Button variant="accent" asChild>
+                <Link to="/admin/events">Create your first event <ArrowRight aria-hidden="true" /></Link>
+              </Button>
+            )}
+          </div>
+        </div>
+      </section>
 
-      <AdminSectionCard title="Quick Actions">
-        <div className="flex flex-wrap gap-3">
-          <Button size="sm" variant="accent" asChild>
-            <Link to="/admin/events">Create Event</Link>
+      <section className="rounded-lg border border-border bg-card p-5 md:p-6" aria-labelledby="attention-heading">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 id="attention-heading" className="font-display text-xl text-foreground">Needs your attention</h2>
+            <p className="mt-1 text-sm text-foreground-secondary">Resolve these items before they slow down a buyer or guest.</p>
+          </div>
+          {hasAttention && <span className="text-xs font-display uppercase tracking-[0.14em] text-accent">{attentionItems.filter((item) => item.count > 0).length} open areas</span>}
+        </div>
+
+        {hasAttention ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            {attentionItems.filter((item) => item.count > 0).map((item) => (
+              <Link
+                key={item.href}
+                to={item.href}
+                className="group flex items-center justify-between gap-4 rounded-md border border-border bg-secondary/20 p-4 transition-colors hover:border-accent/50 hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              >
+                <span className="flex min-w-0 items-start gap-3">
+                  <item.icon size={19} className="mt-0.5 shrink-0 text-accent" aria-hidden="true" />
+                  <span className="min-w-0">
+                    <span className="block font-display text-foreground">{item.label}</span>
+                    <span className="mt-1 block text-sm text-foreground-secondary">{item.description}</span>
+                  </span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="inline-flex min-w-8 items-center justify-center rounded-full bg-accent px-2 py-1 text-xs font-display text-accent-foreground">{item.count}</span>
+                  <ArrowRight size={16} className="text-foreground-secondary transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                </span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-5 flex items-center gap-3 rounded-md border border-border bg-secondary/20 p-4 text-sm text-foreground-secondary">
+            <CheckCircle2 size={20} className="shrink-0 text-accent" aria-hidden="true" />
+            <span>You're clear. No orders or uploads need a decision right now.</span>
+          </div>
+        )}
+      </section>
+
+      <section aria-labelledby="snapshot-heading">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <h2 id="snapshot-heading" className="font-display text-xl text-foreground">Ticket snapshot</h2>
+            <p className="mt-1 text-sm text-foreground-secondary">A quick read on the business of the site.</p>
+          </div>
+          <Link to="/admin/orders" className="inline-flex items-center gap-1 text-xs font-display uppercase tracking-[0.12em] text-accent hover:opacity-80">
+            Open orders <ArrowRight size={14} aria-hidden="true" />
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:gap-4">
+          <StatCard label="Tickets sold" value={stats.ticketsSold.toLocaleString()} detail="Across all events" />
+          <StatCard label="Paid orders" value={stats.paidOrders.toLocaleString()} detail="Ready for fulfilment" />
+          <StatCard label="People and artists" value={stats.artistsCount.toLocaleString()} detail="Published profiles" />
+        </div>
+      </section>
+
+      <AdminSectionCard title="Quick actions" description="Open the tools you need when the next task is clear.">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Button variant="accent" size="lg" className="justify-start" asChild>
+            <Link to="/admin/events"><Ticket aria-hidden="true" /> Manage tickets</Link>
           </Button>
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/admin/orders">Review Orders</Link>
+          <Button variant="outline" size="lg" className="justify-start" asChild>
+            <Link to="/admin/checkin"><ClipboardCheck aria-hidden="true" /> Check in guests</Link>
           </Button>
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/admin/checkin">Open Check-In</Link>
+          <Button variant="outline" size="lg" className="justify-start" asChild>
+            <Link to="/admin/people"><Users aria-hidden="true" /> Update people</Link>
           </Button>
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/admin/uploads">Moderate Uploads</Link>
-          </Button>
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/admin/partners">Manage Partners</Link>
-          </Button>
+        </div>
+      </AdminSectionCard>
+
+      <AdminSectionCard title="Keep the public site accurate" description="Update these areas when event information changes." defaultOpen={false}>
+        <div className="grid grid-cols-1 gap-3 text-sm text-foreground-secondary md:grid-cols-3">
+          <Link to="/admin/events" className="rounded-md border border-border bg-background p-4 transition-colors hover:border-accent/50 hover:text-foreground">
+            <span className="block font-display text-foreground">Events and ticket tiers</span>
+            <span className="mt-1 block">Dates, venues, prices, and availability.</span>
+          </Link>
+          <Link to="/admin/settings" className="rounded-md border border-border bg-background p-4 transition-colors hover:border-accent/50 hover:text-foreground">
+            <span className="block font-display text-foreground">Homepage and contact</span>
+            <span className="mt-1 block">Hero copy, links, and support details.</span>
+          </Link>
+          <Link to="/admin/people" className="rounded-md border border-border bg-background p-4 transition-colors hover:border-accent/50 hover:text-foreground">
+            <span className="block font-display text-foreground">People and artists</span>
+            <span className="mt-1 block">Profiles, roles, and public bios.</span>
+          </Link>
         </div>
       </AdminSectionCard>
     </div>

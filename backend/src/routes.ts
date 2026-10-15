@@ -14,6 +14,7 @@ import { peopleRouter } from "./modules/people/people.routes.js";
 import { adminSettingsRouter, settingsRouter } from "./modules/settings/settings.routes.js";
 import { adminTicketsRouter, ticketsRouter } from "./modules/tickets/tickets.routes.js";
 import { adminUploadsRouter, uploadsRouter } from "./modules/uploads/uploads.routes.js";
+import { adminStatsRouter } from "./modules/dashboard/dashboard.routes.js";
 
 export function registerRoutes(app: Express, apiPrefix = "/api") {
   app.use(`${apiPrefix}/auth`, authRouter);
@@ -37,6 +38,7 @@ export function registerRoutes(app: Express, apiPrefix = "/api") {
   app.use(`${apiPrefix}/admin/orders`, adminOrdersRouter);
   app.use(`${apiPrefix}/admin/payments`, adminPaymentsRouter);
   app.use(`${apiPrefix}/admin/tickets`, adminTicketsRouter);
+  app.use(`${apiPrefix}/admin/stats`, adminStatsRouter);
 
   app.use(`${apiPrefix}/orders`, ordersRouter);
   app.use(`${apiPrefix}/tickets`, ticketsRouter);
