@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Eye, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -51,6 +51,14 @@ export default function AdminUploadsPage() {
 
   const eventById = useMemo(() => Object.fromEntries(events.map((event) => [event.id, event])), [events]);
 
+  useEffect(() => {
+    if (!selectedUploadId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-upload-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedUploadId]);
+
   async function handleModerate(uploadId: string, decision: Exclude<ModerationStatus, "pending">) {
     if (!canModerate) {
       toast.error("You do not have permission to moderate uploads.");
@@ -102,11 +110,11 @@ export default function AdminUploadsPage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Community Upload Moderation"
-        subtitle="Moderators, staff, and admins can review uploads. Deletion remains admin/staff only."
+        title="Community Uploads"
+        subtitle="Review what the community submitted, approve the right images, and keep the public archive clean."
       />
 
-      <AdminSectionCard title="Moderation Queue">
+      <AdminSectionCard title="Moderation Queue" description="Select a submission to open its review details, or use Approve/Reject for the quickest decision.">
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -142,7 +150,19 @@ export default function AdminUploadsPage() {
           {uploads.map((upload) => (
             <article
               key={upload.id}
-              className="rounded-md border border-border bg-background p-4 flex flex-col gap-4"
+              className={`cursor-pointer rounded-md border p-4 flex flex-col gap-4 transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${selectedUploadId === upload.id ? "border-accent/40 bg-accent/10" : "border-border bg-background"}`}
+              tabIndex={0}
+              aria-selected={selectedUploadId === upload.id}
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                setSelectedUploadId(upload.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSelectedUploadId(upload.id);
+                }
+              }}
             >
               <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                 <div className="flex items-start gap-3">
@@ -213,7 +233,7 @@ export default function AdminUploadsPage() {
       </AdminSectionCard>
 
       {selectedUploadId && (
-        <AdminSectionCard title="Upload Review Detail">
+        <AdminSectionCard title="Upload Review Detail" description="Confirm the submission details and review history before approving or rejecting it." id="admin-upload-detail">
           {uploadDetailQuery.isLoading ? (
             <p className="text-sm text-foreground-secondary">Loading upload details...</p>
           ) : uploadDetailQuery.isError || !uploadDetailQuery.data ? (

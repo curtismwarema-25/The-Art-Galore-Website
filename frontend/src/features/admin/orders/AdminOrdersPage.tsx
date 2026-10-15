@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ChevronDown, ChevronUp, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import DataTable from "@/components/common/DataTable";
@@ -36,6 +36,7 @@ const MPESA_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | AdminMp
   { label: "All", value: "all" },
   { label: "Initiated", value: "initiated" },
   { label: "Pending", value: "pending" },
+  { label: "Ambiguous / Review", value: "ambiguous" },
   { label: "Paid", value: "paid" },
   { label: "Failed", value: "failed" },
   { label: "Cancelled", value: "cancelled" },
@@ -57,7 +58,7 @@ function verificationTone(status: "pending_review" | "approved" | "rejected") {
 function mpesaStatusTone(status: AdminMpesaTransactionStatus) {
   if (status === "paid") return "paid" as const;
   if (status === "initiated") return "initiating" as const;
-  if (status === "pending") return "pending" as const;
+  if (status === "pending" || status === "ambiguous") return "pending" as const;
   return "failed" as const;
 }
 
@@ -154,6 +155,7 @@ function buildOrderTimeline(
 
 export default function AdminOrdersPage() {
   const { id: routeOrderId } = useParams();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilterValue, setStatusFilterValue] = useState<"all" | OrderLifecycleStatus>("all");
   const [eventFilter, setEventFilter] = useState("all");
@@ -283,8 +285,8 @@ export default function AdminOrdersPage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Ticket & Order Manager"
-        subtitle="Review guest checkout orders, moderate manual payment submissions, and issue tickets."
+        title="Orders & Payments"
+        subtitle="Resolve payment questions, issue tickets, and help every buyer reach a successful entry."
         action={
           <Button size="sm" variant="outline" asChild>
             <Link to="/admin/checkin">Open Check-In</Link>
@@ -292,7 +294,9 @@ export default function AdminOrdersPage() {
         }
       />
 
-      <AdminSectionCard title="Orders List">
+      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] xl:items-start">
+      <div className="xl:col-start-1 xl:row-start-1">
+      <AdminSectionCard title="Orders List" description="Select an order to open its full record beside this list.">
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -321,7 +325,22 @@ export default function AdminOrdersPage() {
           ) : (
             <DataTable headers={["Order", "Buyer", "Event", "Items", "Amount", "Order Status", "Verification", "Actions"]} minWidthClassName="min-w-[820px] md:min-w-[1080px]">
               {orders.map((order) => (
-                <tr key={order.id} className="bg-background border border-border">
+                <tr
+                  key={order.id}
+                  className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${routeOrderId === order.id ? "bg-accent/10" : "bg-background"}`}
+                  aria-selected={routeOrderId === order.id}
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a,button")) return;
+                    navigate(`/admin/orders/${order.id}`);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/admin/orders/${order.id}`);
+                    }
+                  }}
+                >
                   <td className="px-3 py-3 text-sm text-foreground">{order.orderNumber}</td>
                   <td className="px-3 py-3 text-sm text-foreground-secondary">
                     <p>{order.buyer.buyerName}</p>
@@ -340,7 +359,9 @@ export default function AdminOrdersPage() {
                   </td>
                   <td className="px-3 py-3">
                     <Button size="sm" variant="outline" asChild>
-                      <Link to={`/admin/orders/${order.id}`}>Details</Link>
+                      <Link to={`/admin/orders/${order.id}`} aria-label={`Open details for order ${order.orderNumber}`}>
+                        {routeOrderId === order.id ? "Open" : "Details"}
+                      </Link>
                     </Button>
                   </td>
                 </tr>
@@ -349,7 +370,9 @@ export default function AdminOrdersPage() {
           )}
         </div>
       </AdminSectionCard>
+      </div>
 
+      <div className="xl:col-start-1 xl:row-start-2">
       <AdminSectionCard title="Manual Payment Verification Queue">
         {isManualPaymentsLoading ? (
           <p className="text-sm text-foreground-secondary">Loading manual payment submissions...</p>
@@ -395,7 +418,9 @@ export default function AdminOrdersPage() {
           </DataTable>
         )}
       </AdminSectionCard>
+      </div>
 
+      <div className="xl:col-start-1 xl:row-start-3">
       <AdminSectionCard title="M-Pesa Transactions">
         <FilterBar
           searchValue={mpesaSearch}
@@ -474,7 +499,7 @@ export default function AdminOrdersPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={reverifyMpesaMutation.isPending || !["initiated", "pending"].includes(transaction.status)}
+                            disabled={reverifyMpesaMutation.isPending || !transaction.checkoutRequestId || !["initiated", "pending", "ambiguous"].includes(transaction.status)}
                             onClick={() => void reverifyMpesaTransaction(transaction.id)}
                           >
                             <RefreshCw size={14} />
@@ -501,6 +526,17 @@ export default function AdminOrdersPage() {
                                 {transaction.callbackReceived ? "received" : "not received"}
                               </p>
                             </div>
+                            {transaction.reconciliationRequiresManualReview && (
+                              <p className="mt-3 rounded border border-destructive/30 bg-destructive/5 p-3 text-destructive">
+                                Automatic reconciliation stopped after {transaction.reconciliationAttemptCount} attempts. Review the provider result before permitting another customer payment prompt.
+                                {transaction.lastReconciliationError ? ` Last error: ${transaction.lastReconciliationError}` : ""}
+                              </p>
+                            )}
+                            {!transaction.checkoutRequestId && transaction.reconciliationRequiresManualReview && (
+                              <p className="mt-3 rounded border border-destructive/30 bg-destructive/5 p-3 text-destructive">
+                                No Daraja checkout ID was saved for this attempt. Check the Daraja portal/support before allowing a retry.
+                              </p>
+                            )}
                             {transaction.resultDesc && (
                               <p className="mt-3">
                                 <span className="text-foreground">Result Message:</span> {transaction.resultDesc}
@@ -522,16 +558,21 @@ export default function AdminOrdersPage() {
           )}
         </div>
       </AdminSectionCard>
+      </div>
 
       {routeOrderId && (
-        <AdminSectionCard title="Order Detail">
+        <div className="order-first xl:order-none xl:col-start-2 xl:row-start-1 xl:row-span-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
+        <AdminSectionCard title="Order Details" description="Confirm the buyer and payment status, then issue or reconcile tickets when the order is paid.">
           {isSelectedLoading ? (
             <p className="text-sm text-foreground-secondary">Loading order details...</p>
           ) : !selectedOrder ? (
             <EmptyState title="Order not found" description="The selected order could not be loaded." />
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button size="sm" variant="outline" asChild>
+                  <Link to="/admin/orders">Back to all orders</Link>
+                </Button>
                 <Button
                   size="sm"
                   variant="accent"
@@ -732,7 +773,9 @@ export default function AdminOrdersPage() {
             </div>
           )}
         </AdminSectionCard>
+        </div>
       )}
+      </div>
 
       {reviewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/75 px-4">

@@ -14,27 +14,33 @@ import {
   Upload,
   Users,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import PageHeader from "@/components/common/PageHeader";
 import { useAuth } from "@/features/auth/useAuth";
 
-const navItems = [
-  { label: "Dashboard", path: "/admin", icon: LayoutDashboard, end: true },
-  { label: "Events", path: "/admin/events", icon: Calendar },
-  { label: "Tickets", path: "/admin/orders", icon: Ticket },
-  { label: "People", path: "/admin/people", icon: Users },
-  { label: "Galleries", path: "/admin/gallery", icon: Image },
-  { label: "Community Uploads", path: "/admin/uploads", icon: Upload },
-  { label: "Partners", path: "/admin/partners", icon: Handshake },
-  { label: "Site Settings", path: "/admin/settings", icon: Settings },
+type AdminNavItem = { label: string; path: string; icon: LucideIcon; end?: boolean; description: string };
+
+const navItems: AdminNavItem[] = [
+  { label: "Today", path: "/admin", icon: LayoutDashboard, end: true, description: "See what needs attention and open the next task." },
+  { label: "Events & Tickets", path: "/admin/events", icon: Calendar, description: "Create the event, publish it, and set the tickets people can buy." },
+  { label: "Orders & Payments", path: "/admin/orders", icon: Ticket, description: "Resolve payment questions and get paid orders ready for entry." },
+  { label: "Check-In", path: "/admin/checkin", icon: Ticket, description: "Scan or search a ticket, then confirm the guest in one step." },
+  { label: "People & Artists", path: "/admin/people", icon: Users, description: "Keep public profiles accurate, useful, and ready to publish." },
+  { label: "Gallery", path: "/admin/gallery", icon: Image, description: "Add event images, captions, and the visual story visitors will see." },
+  { label: "Community", path: "/admin/uploads", icon: Upload, description: "Review community submissions and approve the right images." },
+  { label: "Partners", path: "/admin/partners", icon: Handshake, description: "Keep partner information current and decide what is public." },
+  { label: "Settings", path: "/admin/settings", icon: Settings, description: "Update public copy, contact details, links, and ticket support." },
 ] as const;
 
-function getTitle(pathname: string) {
-  if (pathname.startsWith("/admin/checkin")) return "Check-In";
+function getPageMeta(pathname: string) {
+  if (pathname.startsWith("/admin/checkin")) {
+    return { title: "Check-In", description: "Scan or search a ticket, then confirm the guest in one step." };
+  }
   const matched = navItems.find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
-  if (!matched) return "Admin";
-  return matched.label;
+  if (!matched) return { title: "Admin", description: "Manage the public site and keep every event moving." };
+  return { title: matched.label, description: matched.description };
 }
 
 export default function AdminLayout() {
@@ -44,7 +50,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const { user, logout, isLoggingOut } = useAuth();
 
-  const title = useMemo(() => getTitle(location.pathname), [location.pathname]);
+  const pageMeta = useMemo(() => getPageMeta(location.pathname), [location.pathname]);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -80,6 +86,7 @@ export default function AdminLayout() {
               onClick={() => setCollapsed((current) => !current)}
               className="h-8 w-8 rounded-md border border-border text-foreground-secondary hover:text-accent transition-colors inline-flex items-center justify-center"
               aria-label="Toggle sidebar"
+              aria-expanded={!collapsed}
             >
               {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
             </button>
@@ -91,6 +98,8 @@ export default function AdminLayout() {
                 key={item.path}
                 to={item.path}
                 end={item.end}
+                title={collapsed ? item.label : undefined}
+                aria-label={item.label}
                 className={({ isActive }) =>
                   `w-full rounded-md border px-2.5 py-2.5 text-sm font-body transition-all flex items-center gap-2.5 ${
                     isActive
@@ -123,6 +132,8 @@ export default function AdminLayout() {
                   onClick={() => setMobileMenuOpen((current) => !current)}
                   className="text-foreground p-2"
                   aria-label="Toggle menu"
+                  aria-expanded={mobileMenuOpen}
+                  aria-controls="admin-mobile-navigation"
                 >
                   {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
                 </button>
@@ -135,6 +146,7 @@ export default function AdminLayout() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
                     transition={{ duration: 0.2 }}
+                    id="admin-mobile-navigation"
                     className="bg-background border-b border-border mt-2"
                   >
                     <div className="px-4 py-6 flex flex-col gap-4">
@@ -182,7 +194,7 @@ export default function AdminLayout() {
                 {isLoggingOut ? "Signing out..." : "Sign out"}
               </button>
             </div>
-            <PageHeader compact eyebrow="Admin" title={title} description="Operational center for Art Galore International." />
+            <PageHeader compact eyebrow="Admin" title={pageMeta.title} description={pageMeta.description} />
             <Outlet />
           </div>
         </main>
