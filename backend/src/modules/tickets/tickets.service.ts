@@ -310,7 +310,12 @@ export class TicketsService {
     }
 
     const tickets = await this.repository.withTransaction((innerTx) => this.issueTicketsInTransaction(orderId, innerTx));
-    await this.deliverIssuedTicketsForOrder(orderId);
+    void this.deliverIssuedTicketsForOrder(orderId).catch((error) => {
+      logger.error("Background ticket email delivery failed", {
+        orderId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
     return tickets;
   }
 

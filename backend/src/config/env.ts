@@ -1,6 +1,8 @@
 import { UserRole } from "@prisma/client";
 import { z } from "zod";
 
+const SANDBOX_SHORTCODE = "174379";
+
 const booleanEnv = z.preprocess((value) => {
   if (typeof value !== "string") return value;
 
@@ -14,6 +16,7 @@ const booleanEnv = z.preprocess((value) => {
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
+  SERVE_FRONTEND: booleanEnv.default(false),
   API_PREFIX: z.string().default("/api"),
   PUBLIC_APP_URL: z.string().url().default("http://localhost:8080"),
   PUBLIC_API_URL: z.string().url().or(z.literal("")).default(""),
@@ -49,6 +52,7 @@ const envSchema = z.object({
   EMAIL_FROM: z.string().default(""),
   EMAIL_REPLY_TO: z.string().default(""),
   MPESA_DARAJA_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+  MPESA_LIVE_PAYMENTS_ENABLED: booleanEnv.default(false),
   MPESA_SHORTCODE: z.string().default(""),
   MPESA_ACCOUNT_NUMBER: z.string().default(""),
   MPESA_BUSINESS_NAME: z.string().default("THE ART GALORE INTERNATIONAL"),
@@ -84,8 +88,36 @@ if (!parsedEnv.success) {
   throw new Error(`Invalid backend environment configuration: ${errors}`);
 }
 
-if (parsedEnv.data.NODE_ENV === "production" && parsedEnv.data.MPESA_CALLBACK_URL && !parsedEnv.data.MPESA_CALLBACK_SECRET) {
+const parsed = parsedEnv.data;
+
+if (parsed.MPESA_DARAJA_ENV === "production" && !parsed.MPESA_LIVE_PAYMENTS_ENABLED) {
+  throw new Error("Invalid backend environment configuration: production Daraja is blocked unless MPESA_LIVE_PAYMENTS_ENABLED=true");
+}
+
+if (parsed.MPESA_LIVE_PAYMENTS_ENABLED && parsed.MPESA_DARAJA_ENV !== "production") {
+  throw new Error("Invalid backend environment configuration: MPESA_LIVE_PAYMENTS_ENABLED requires MPESA_DARAJA_ENV=production");
+}
+
+if (parsed.MPESA_DARAJA_ENV === "sandbox") {
+  if (parsed.MPESA_SHORTCODE && parsed.MPESA_SHORTCODE !== SANDBOX_SHORTCODE) {
+    throw new Error(`Invalid backend environment configuration: sandbox MPESA_SHORTCODE must be ${SANDBOX_SHORTCODE}`);
+  }
+}
+
+if (parsed.EMAIL_DELIVERY_ENABLED) {
+  if (!parsed.SMTP_HOST) {
+    throw new Error("Invalid backend environment configuration: SMTP_HOST is required when email delivery is enabled");
+  }
+  if (!parsed.EMAIL_FROM) {
+    throw new Error("Invalid backend environment configuration: EMAIL_FROM is required when email delivery is enabled");
+  }
+  if (Boolean(parsed.SMTP_USER) !== Boolean(parsed.SMTP_PASSWORD)) {
+    throw new Error("Invalid backend environment configuration: SMTP_USER and SMTP_PASSWORD must be provided together");
+  }
+}
+
+if (parsed.NODE_ENV === "production" && parsed.MPESA_CALLBACK_URL && !parsed.MPESA_CALLBACK_SECRET) {
   throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_SECRET is required in production when M-Pesa callbacks are enabled");
 }
 
-export const env = parsedEnv.data;
+export const env = parsed;
