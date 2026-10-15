@@ -89,7 +89,7 @@ export default function Artists() {
         {isError && (
           <EmptyState
             title="Could not load artists"
-            description="Artist listing error placeholder. Connect this state to backend/API failures."
+            description="We could not load artist profiles from the server. Please refresh and try again."
           />
         )}
 

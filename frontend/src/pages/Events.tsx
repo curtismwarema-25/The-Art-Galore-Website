@@ -110,7 +110,7 @@ export default function Events() {
         {isError && (
           <EmptyState
             title="Could not load events"
-            description="This is an error placeholder. Wire this to backend/API error handling in production."
+            description="We could not load events from the server. Please refresh and try again."
           />
         )}
 

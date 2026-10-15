@@ -68,7 +68,7 @@ export default function Gallery() {
         {hasError && (
           <EmptyState
             title="Gallery unavailable"
-            description="Error state placeholder. Wire to backend image request failures."
+            description="We could not load gallery images from the server. Please refresh and try again."
           />
         )}
 
