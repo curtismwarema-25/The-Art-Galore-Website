@@ -623,6 +623,7 @@ model PaymentTransaction {
   completedAt           DateTime?
   providerConfirmedAt   DateTime?
   reconciliationAttemptCount Int       @default(0)
+  reconciliationRequiresManualReview Boolean @default(false)
   nextReconciliationAt DateTime?
   reconciliationLockedAt DateTime?
   reconciliationLockedBy String?       @db.VarChar(191)

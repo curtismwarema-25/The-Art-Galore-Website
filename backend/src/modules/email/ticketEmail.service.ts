@@ -19,6 +19,17 @@ function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+function getReplyToAddress(buyerEmail: string) {
+  const candidate = buyerEmail.trim();
+  // Order creation validates buyer emails. This extra check protects legacy or
+  // manually edited records from making the entire delivery fail at SMTP time.
+  const looksLikeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate);
+  if (looksLikeEmail) return candidate;
+
+  const fallback = env.EMAIL_REPLY_TO.trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fallback) ? fallback : undefined;
+}
+
 function getPublicApiBaseUrl() {
   if (env.PUBLIC_API_URL.trim()) {
     return stripTrailingSlash(env.PUBLIC_API_URL.trim());
@@ -195,7 +206,7 @@ export class TicketEmailService {
     const result = await transporter.sendMail({
       from: env.EMAIL_FROM,
       to: order.buyerEmail,
-      replyTo: env.EMAIL_REPLY_TO || undefined,
+      replyTo: getReplyToAddress(order.buyerEmail),
       subject: `Your tickets for ${order.event.title}`,
       text: buildTextBody(order),
       html: buildHtmlBody(order),

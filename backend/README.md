@@ -71,6 +71,18 @@ If you do not use a shadow database, remove `SHADOW_DATABASE_URL` from `.env`.
 ## 4) Prisma workflow
 All commands below auto-sync the root schema into `backend/prisma/schema.prisma` first.
 
+## Public production-build test through a tunnel
+
+To let testers see the built site (not Vite's development screen), build the frontend and have the backend serve it on the same origin as `/api`:
+
+1. In `backend/.env`, set `SERVE_FRONTEND=true` and keep `MPESA_DARAJA_ENV=sandbox` and `MPESA_LIVE_PAYMENTS_ENABLED=false`.
+2. From `frontend`, run `npm run build`.
+3. From `backend`, run `npm run build`, then `npm start`.
+4. Start the tunnel against backend port `4000` (for example, `ngrok http 4000`) and share only the HTTPS site URL.
+5. Set `PUBLIC_APP_URL` to that HTTPS URL, `PUBLIC_API_URL` to the same URL followed by `/api`, add that exact origin to `CORS_ORIGIN`, and set `MPESA_CALLBACK_URL` to the same URL followed by `/api/payments/mpesa/stk/callback`. For HTTPS tunnel testing, set `SESSION_COOKIE_SECURE=true`. Restart the backend after changing these values. If using a different or rotating tunnel URL, update them again.
+
+The frontend uses relative `/api` requests, so browser API traffic stays on the site's origin. The backend also serves the SPA routes and static production assets. Do not forward the database port or share `.env` values. A tunnel makes the app publicly reachable; use test data and do not allow testers to initiate real-money payments.
+
 Validate schema:
 ```bash
 npm run prisma:validate
@@ -217,7 +229,7 @@ Delivery is opt-in. Configure these env vars:
 - `SMTP_USER`
 - `SMTP_PASSWORD`
 - `EMAIL_FROM`
-- `EMAIL_REPLY_TO` (optional)
+- `EMAIL_REPLY_TO` (optional fallback; normally replies go to the buyer email entered at checkout)
 - `PUBLIC_APP_URL` (frontend origin for `/tickets/:publicTicketToken` links)
 - `PUBLIC_API_URL` (optional API base URL ending in `/api`; local fallback derives from `PORT` + `API_PREFIX`)
 - `EMAIL_ATTACH_TICKET_PDFS=true` to attach generated PDFs
@@ -226,12 +238,30 @@ Delivery is opt-in. Configure these env vars:
 - `EMAIL_DELIVERY_RETRY_SWEEP_INTERVAL_SECONDS=60`
 - `EMAIL_DELIVERY_RETRY_BATCH_SIZE=20`
 
+For a local test using Gmail SMTP, use an App Password rather than your normal account password:
+
+```dotenv
+EMAIL_DELIVERY_ENABLED=true
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your Gmail address
+SMTP_PASSWORD=your 16-character App Password
+EMAIL_FROM=your Gmail address
+EMAIL_REPLY_TO=your Gmail address
+```
+
+The sender address must be accepted by the SMTP provider. For recipients outside your machine, set
+`PUBLIC_APP_URL` to a publicly reachable frontend URL and `PUBLIC_API_URL` to a publicly reachable backend URL
+ending in `/api`; otherwise the email links will point to localhost. Restart the backend after changing `.env`.
+
 Delivery behavior:
 - successful SMTP send marks the order `ticketDeliveryStatus` as `SENT`
 - missing buyer email marks it `FAILED` with no automatic retry
 - SMTP/config failure marks it `FAILED`, records the error summary, and schedules retry backoff
 - disabled email delivery leaves the current status unchanged
 - retry backoff is 5 minutes, 15 minutes, 1 hour, then 6 hours until the max attempt cap
+- ticket records are issued before SMTP delivery is attempted, so a slow mail server does not block payment completion
 
 The backend starts an in-process retry worker with the API server. It only runs when both `EMAIL_DELIVERY_ENABLED` and `EMAIL_DELIVERY_RETRY_ENABLED` are true.
 
@@ -245,12 +275,18 @@ Admins can manually resend only while delivery is `PENDING` or `FAILED`. Success
 
 Configure Daraja credentials in `.env`:
 - `MPESA_DARAJA_ENV`
+- `MPESA_LIVE_PAYMENTS_ENABLED` (must remain `false` during sandbox testing)
 - `MPESA_SHORTCODE`
 - `MPESA_PASSKEY`
 - `MPESA_CONSUMER_KEY`
 - `MPESA_CONSUMER_SECRET`
 - `MPESA_CALLBACK_URL`
 - `MPESA_CALLBACK_SECRET`
+
+Sandbox safety is enforced server-side. Daraja requests use `https://sandbox.safaricom.co.ke`,
+sandbox STK requests use shortcode `174379` and the passkey issued by your Daraja sandbox app, and the valid phone
+number supplied by the checkout is forwarded to Daraja. Production Daraja is blocked unless both
+`MPESA_DARAJA_ENV=production` and `MPESA_LIVE_PAYMENTS_ENABLED=true` are explicitly set.
 
 Production deployments should set `MPESA_CALLBACK_SECRET` and include it in callback requests as
 `x-mpesa-callback-secret`, `Authorization: Bearer <secret>`, or `?secret=` on the callback URL. When
