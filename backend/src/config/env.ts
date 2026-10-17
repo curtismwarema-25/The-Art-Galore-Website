@@ -1,4 +1,5 @@
 import { UserRole } from "@prisma/client";
+import { isAbsolute } from "node:path";
 import { z } from "zod";
 
 const SANDBOX_SHORTCODE = "174379";
@@ -16,6 +17,7 @@ const booleanEnv = z.preprocess((value) => {
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
+  TRUST_PROXY_HOPS: z.coerce.number().int().nonnegative().default(0),
   SERVE_FRONTEND: booleanEnv.default(false),
   API_PREFIX: z.string().default("/api"),
   PUBLIC_APP_URL: z.string().url().default("http://localhost:8080"),
@@ -90,6 +92,58 @@ if (!parsedEnv.success) {
 
 const parsed = parsedEnv.data;
 
+function isUnsafePublicHostname(hostname: string) {
+  const normalized = hostname.toLowerCase().replace(/\.$/, "");
+  return (
+    normalized === "localhost" ||
+    normalized === "127.0.0.1" ||
+    normalized === "::1" ||
+    normalized.endsWith(".localhost") ||
+    normalized.endsWith(".local") ||
+    normalized.endsWith(".test") ||
+    normalized.endsWith(".ngrok-free.dev") ||
+    normalized.endsWith(".ngrok-free.app") ||
+    normalized.endsWith(".ngrok.io") ||
+    normalized.endsWith(".loca.lt") ||
+    normalized.endsWith(".localtunnel.me") ||
+    normalized.endsWith(".trycloudflare.com")
+  );
+}
+
+function assertProductionPublicUrl(value: string, name: string) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`Invalid backend environment configuration: ${name} must be a valid HTTPS URL in production`);
+  }
+
+  if (url.protocol !== "https:" || isUnsafePublicHostname(url.hostname)) {
+    throw new Error(`Invalid backend environment configuration: ${name} must be a public HTTPS URL in production`);
+  }
+}
+
+function assertProductionCorsOrigins(value: string) {
+  const origins = value.split(",").map((origin) => origin.trim()).filter(Boolean);
+
+  if (origins.length === 0) {
+    throw new Error("Invalid backend environment configuration: CORS_ORIGIN must contain at least one production origin");
+  }
+
+  for (const origin of origins) {
+    let url: URL;
+    try {
+      url = new URL(origin);
+    } catch {
+      throw new Error("Invalid backend environment configuration: CORS_ORIGIN contains an invalid origin");
+    }
+
+    if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash || isUnsafePublicHostname(url.hostname)) {
+      throw new Error("Invalid backend environment configuration: CORS_ORIGIN must contain public HTTPS origins only");
+    }
+  }
+}
+
 if (parsed.MPESA_DARAJA_ENV === "production" && !parsed.MPESA_LIVE_PAYMENTS_ENABLED) {
   throw new Error("Invalid backend environment configuration: production Daraja is blocked unless MPESA_LIVE_PAYMENTS_ENABLED=true");
 }
@@ -118,6 +172,36 @@ if (parsed.EMAIL_DELIVERY_ENABLED) {
 
 if (parsed.NODE_ENV === "production" && parsed.MPESA_CALLBACK_URL && !parsed.MPESA_CALLBACK_SECRET) {
   throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_SECRET is required in production when M-Pesa callbacks are enabled");
+}
+
+if (parsed.NODE_ENV === "production") {
+  if (parsed.SERVE_FRONTEND) {
+    throw new Error("Invalid backend environment configuration: SERVE_FRONTEND must be false for the separated Vercel/VPS deployment");
+  }
+
+  if (!parsed.PUBLIC_API_URL) {
+    throw new Error("Invalid backend environment configuration: PUBLIC_API_URL is required in production");
+  }
+
+  assertProductionPublicUrl(parsed.PUBLIC_APP_URL, "PUBLIC_APP_URL");
+  assertProductionPublicUrl(parsed.PUBLIC_API_URL, "PUBLIC_API_URL");
+  assertProductionCorsOrigins(parsed.CORS_ORIGIN);
+
+  if (!parsed.SESSION_COOKIE_SECURE) {
+    throw new Error("Invalid backend environment configuration: SESSION_COOKIE_SECURE must be true in production");
+  }
+
+  if (parsed.TRUST_PROXY_HOPS !== 1) {
+    throw new Error("Invalid backend environment configuration: TRUST_PROXY_HOPS must be 1 for the documented single reverse-proxy deployment");
+  }
+
+  if (parsed.STORAGE_PROVIDER === "local" && !isAbsolute(parsed.MEDIA_LOCAL_ROOT)) {
+    throw new Error("Invalid backend environment configuration: MEDIA_LOCAL_ROOT must be an absolute persistent path in production");
+  }
+
+  if ([parsed.JWT_ACCESS_SECRET, parsed.JWT_REFRESH_SECRET].some((secret) => secret.startsWith("replace-with-"))) {
+    throw new Error("Invalid backend environment configuration: JWT secrets must be replaced before production startup");
+  }
 }
 
 export const env = parsed;
