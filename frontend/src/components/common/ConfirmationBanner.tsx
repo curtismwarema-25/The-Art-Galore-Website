@@ -8,7 +8,7 @@ type ConfirmationBannerProps = {
 
 export default function ConfirmationBanner({ title, message, tone }: ConfirmationBannerProps) {
   return (
-    <div className="rounded-lg border border-border bg-secondary/20 p-4 md:p-5">
+    <div className="rounded-md border border-border bg-background/70 p-4 md:p-5">
       <div className="flex items-start gap-3">
         <StatusBadge tone={tone} />
         <div>

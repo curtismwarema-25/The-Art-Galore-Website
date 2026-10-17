@@ -8,7 +8,7 @@ type DataTableProps = {
 
 export default function DataTable({ headers, children, minWidthClassName = "min-w-[640px]" }: DataTableProps) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-md border border-border bg-background/50 p-2 md:p-3">
       <table className={`w-full ${minWidthClassName} border-separate border-spacing-y-2`}>
         <thead>
           <tr className="text-left">

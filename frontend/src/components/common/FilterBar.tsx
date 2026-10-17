@@ -28,7 +28,7 @@ export default function FilterBar({
   filters = [],
 }: FilterBarProps) {
   return (
-    <div className="rounded-lg border border-border bg-secondary/20 p-3 md:p-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+    <div className="grid gap-3 rounded-md border border-border bg-secondary/50 p-4 shadow-sm md:grid-cols-2 md:p-5 lg:grid-cols-4">
       <div className={filters.length ? "md:col-span-2" : "md:col-span-2 lg:col-span-4"}>
         <SearchInput value={searchValue} onChange={onSearchChange} placeholder={searchPlaceholder} />
       </div>
