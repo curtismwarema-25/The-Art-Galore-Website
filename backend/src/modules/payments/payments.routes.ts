@@ -57,7 +57,13 @@ paymentsRouter.post("/mpesa/stk/:publicToken/initiate", publicPaymentRateLimit, 
 });
 
 function assertMpesaCallbackAuthorized(req: Request) {
-  if (!env.MPESA_CALLBACK_SECRET) return;
+  if (!env.MPESA_CALLBACK_SECRET) {
+    if (env.NODE_ENV === "production") {
+      throw new UnauthorizedError("M-Pesa callback authentication is not configured");
+    }
+
+    return;
+  }
 
   const headerSecret = req.header("x-mpesa-callback-secret");
   const querySecret = typeof req.query.secret === "string" ? req.query.secret : undefined;

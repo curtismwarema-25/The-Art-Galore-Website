@@ -20,18 +20,18 @@ import { AnimatePresence, motion } from "framer-motion";
 import PageHeader from "@/components/common/PageHeader";
 import { useAuth } from "@/features/auth/useAuth";
 
-type AdminNavItem = { label: string; path: string; icon: LucideIcon; end?: boolean; description: string };
+type AdminNavItem = { label: string; path: string; icon: LucideIcon; end: boolean; description: string };
 
 const navItems: AdminNavItem[] = [
   { label: "Today", path: "/admin", icon: LayoutDashboard, end: true, description: "See what needs attention and open the next task." },
-  { label: "Events & Tickets", path: "/admin/events", icon: Calendar, description: "Create the event, publish it, and set the tickets people can buy." },
-  { label: "Orders & Payments", path: "/admin/orders", icon: Ticket, description: "Resolve payment questions and get paid orders ready for entry." },
-  { label: "Check-In", path: "/admin/checkin", icon: Ticket, description: "Scan or search a ticket, then confirm the guest in one step." },
-  { label: "People & Artists", path: "/admin/people", icon: Users, description: "Keep public profiles accurate, useful, and ready to publish." },
-  { label: "Gallery", path: "/admin/gallery", icon: Image, description: "Add event images, captions, and the visual story visitors will see." },
-  { label: "Community", path: "/admin/uploads", icon: Upload, description: "Review community submissions and approve the right images." },
-  { label: "Partners", path: "/admin/partners", icon: Handshake, description: "Keep partner information current and decide what is public." },
-  { label: "Settings", path: "/admin/settings", icon: Settings, description: "Update public copy, contact details, links, and ticket support." },
+  { label: "Events & Tickets", path: "/admin/events", icon: Calendar, end: false, description: "Create the event, publish it, and set the tickets people can buy." },
+  { label: "Orders & Payments", path: "/admin/orders", icon: Ticket, end: false, description: "Resolve payment questions and get paid orders ready for entry." },
+  { label: "Check-In", path: "/admin/checkin", icon: Ticket, end: false, description: "Scan or search a ticket, then confirm the guest in one step." },
+  { label: "People & Artists", path: "/admin/people", icon: Users, end: false, description: "Keep public profiles accurate, useful, and ready to publish." },
+  { label: "Gallery", path: "/admin/gallery", icon: Image, end: false, description: "Add event images, captions, and the visual story visitors will see." },
+  { label: "Community", path: "/admin/uploads", icon: Upload, end: false, description: "Review community submissions and approve the right images." },
+  { label: "Partners", path: "/admin/partners", icon: Handshake, end: false, description: "Keep partner information current and decide what is public." },
+  { label: "Settings", path: "/admin/settings", icon: Settings, end: false, description: "Update public copy, contact details, links, and ticket support." },
 ] as const;
 
 function getPageMeta(pathname: string) {

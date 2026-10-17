@@ -14,12 +14,16 @@ const statusCopy: Record<PaymentStatus, string> = {
   refunded: "Payment refunded.",
 };
 
+function statusBadgeTone(status: PaymentStatus) {
+  return status === "refunded" ? "rejected" : status;
+}
+
 export default function PaymentStatusPanel({ status }: PaymentStatusPanelProps) {
   return (
     <div className="border border-border rounded-md p-4 bg-background">
       <div className="flex items-center justify-between gap-2 mb-2">
         <h4 className="font-display text-sm text-foreground">Payment Status</h4>
-        <StatusBadge tone={status} />
+        <StatusBadge tone={statusBadgeTone(status)} />
       </div>
       <p className="text-xs text-foreground-secondary">{statusCopy[status]}</p>
     </div>

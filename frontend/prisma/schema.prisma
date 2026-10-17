@@ -635,6 +635,7 @@ model PaymentTransaction {
 
   @@index([orderId, status, createdAt])
   @@index([provider, providerReference])
+  @@index([orderId, provider, status])
   @@index([status, createdAt])
   @@index([status, nextReconciliationAt])
   @@unique([provider, providerAccountKey, externalRequestId])

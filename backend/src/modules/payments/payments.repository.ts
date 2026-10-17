@@ -392,7 +392,11 @@ export class PaymentsRepository {
 
   async recordReconciliationFailure(id: string, input: { nextAttemptAt: Date; error: string; manualReview: boolean; countAttempt?: boolean }) {
     return prisma.paymentTransaction.updateMany({
-      where: { id },
+      where: {
+        id,
+        provider: PaymentProvider.MPESA,
+        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
+      },
       data: {
         status: PaymentStatus.AMBIGUOUS,
         reconciliationAttemptCount: input.countAttempt === false ? undefined : { increment: 1 },

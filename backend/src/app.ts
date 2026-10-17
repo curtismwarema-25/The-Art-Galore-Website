@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { errorHandler } from "./common/middleware/errorHandler.js";
 import { env } from "./config/index.js";
 import { prisma } from "./lib/prisma.js";
+import { createProtectedMediaMiddleware } from "./modules/media/protectedMedia.js";
 import { resolveMediaRootPath } from "./modules/media/storage/localStorage.js";
 import { registerRoutes } from "./routes.js";
 
@@ -34,6 +35,7 @@ function isLoopbackOrigin(origin: string) {
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
 
   const allowedOrigins = env.CORS_ORIGIN.split(",")
     .map((origin) => origin.trim())
@@ -69,9 +71,10 @@ export function createApp() {
 
   const mediaRoot = resolveMediaRootPath();
   mkdirSync(mediaRoot, { recursive: true });
-  app.use(`${env.API_PREFIX}${env.MEDIA_PUBLIC_BASE_PATH}`, express.static(mediaRoot));
+  const mediaStatic = createProtectedMediaMiddleware(mediaRoot);
+  app.use(`${env.API_PREFIX}${env.MEDIA_PUBLIC_BASE_PATH}`, mediaStatic);
   // Backward-compatible alias for already persisted legacy `/uploads/...` URLs.
-  app.use("/uploads", express.static(mediaRoot));
+  app.use("/uploads", mediaStatic);
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok" });

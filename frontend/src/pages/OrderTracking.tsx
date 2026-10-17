@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Clock3, LoaderCircle, ReceiptText, Smartphone, Upload } from "lucide-react";
+import { LoaderCircle, ReceiptText, Smartphone, Upload } from "lucide-react";
 import EmptyState from "@/components/common/EmptyState";
 import PageHeader from "@/components/common/PageHeader";
 import StatusBadge from "@/components/common/StatusBadge";
@@ -11,6 +11,7 @@ import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSetting
 import { useTrackOrderQuery } from "@/hooks/queries/useTrackOrderQuery";
 import { createPreviewUrl, revokePreviewUrl, validateFile } from "@/features/uploads/uploadService";
 import { toast } from "@/components/ui/sonner";
+import { canStartPayment as canStartPaymentForOrder, getStkFeedbackState } from "./orderTrackingFeedback";
 import {
   formFileInputClassName,
   formHelperTextClassName,
@@ -260,18 +261,33 @@ export default function OrderTracking() {
 
   const formattedAmountDue = toMoney(order.currency, order.amountDue);
   const reservationExpiry = new Date(order.reservationExpiresAt).toLocaleString();
-  const stkErrorMessage =
-    initiateStkMutation.error instanceof Error ? initiateStkMutation.error.message : "Could not send STK push.";
   const manualPaymentEnabled = settings?.manualPaymentEnabled ?? true;
   const hasIssuedTickets = order.tickets.length > 0;
-  const canStartPayment = order.canSubmitPaymentProof
-    && !paymentProcessing
-    && !stkRequested;
+  const stkFeedback = getStkFeedbackState({
+    orderStatus: order.status,
+    paymentStatus: order.paymentStatus,
+    canSubmitPaymentProof: order.canSubmitPaymentProof,
+    mpesaPaymentPending: Boolean(order.mpesaPaymentPending),
+    ticketCount: order.tickets.length,
+    stkRequested,
+    initiationPending: initiateStkMutation.isPending,
+    initiationSuccess: initiateStkMutation.isSuccess,
+    initiationError: initiateStkMutation.isError,
+    elapsedMs: paymentWaitStartedAt === null ? 0 : paymentWaitClock - paymentWaitStartedAt,
+    reservationExpiry,
+  });
+  const canStartPayment = canStartPaymentForOrder({
+    canSubmitPaymentProof: order.canSubmitPaymentProof,
+    paymentProcessing,
+    stkRequested,
+  });
   const paymentProcessingMessage = initiateStkMutation.isPending
     ? "Sending your M-Pesa payment prompt"
-    : awaitingTicketIssue
-      ? "Payment confirmed. We’re preparing your tickets"
-      : "Check your phone and complete the M-Pesa prompt";
+    : stkFeedback?.kind === "uncertain"
+      ? "We couldn’t confirm the M-Pesa prompt"
+      : awaitingTicketIssue
+        ? "Payment confirmed. We’re preparing your tickets"
+        : "Check your phone and complete the M-Pesa prompt";
   const ticketDeliveryMessage =
     order.ticketDeliveryStatus === "sent"
       ? "Ticket email sent. You can also open tickets from this page."
@@ -288,9 +304,7 @@ export default function OrderTracking() {
               : order.verificationStatus === "pending_review"
                 ? "Payment proof submitted. Our team is reviewing it and will update this page."
                 : order.status === "payment_rejected"
-                  ? order.payment?.resultCode === "2001"
-                    ? "M-Pesa returned error 2001 (initiator information invalid). No payment was confirmed. Avoid repeated retries; contact support so the Daraja sandbox setup can be checked."
-                    : "The payment was not completed. You can send another STK prompt or submit payment proof."
+                  ? "The payment was not completed. You can send another STK prompt or submit payment proof."
                   : "Payment is pending. Complete the STK prompt or submit proof if needed.";
 
   return (
@@ -339,13 +353,9 @@ export default function OrderTracking() {
           <div className="rounded-md border border-border bg-secondary/15 p-3 text-sm text-foreground-secondary">
             <p className="text-foreground">Fulfillment Status</p>
             <p className="mt-1">{ticketDeliveryMessage}</p>
-            {paymentProcessing && (
+            {stkFeedback && (
               <p className="mt-2 rounded-sm border border-accent/30 bg-background/70 p-3 text-foreground" aria-live="polite">
-                {initiateStkMutation.isPending
-                  ? "Sending the M-Pesa prompt. Please keep this order page open for now."
-                  : awaitingTicketIssue
-                    ? "Payment is confirmed; ticket creation is still in progress. You can leave and return to this link later."
-                    : "We’re still checking with M-Pesa. You can leave and return to this order link later. Don’t start another payment while this one is pending."}
+                {stkFeedback.message}
               </p>
             )}
             {(stkRequested || pollPaymentStatus) && order.paymentStatus === "pending" && (
@@ -384,17 +394,6 @@ export default function OrderTracking() {
               </Button>
             </div>
 
-            <div className="flex items-start gap-2 rounded-md border border-border bg-secondary/15 p-3 text-sm text-foreground-secondary">
-              <Clock3 size={16} className="mt-0.5 shrink-0 text-accent" />
-              <div>
-                {initiateStkMutation.isPending && <p>Sending a payment prompt to your phone.</p>}
-                {initiateStkMutation.isSuccess && <p className="text-foreground">M-Pesa prompt sent. Complete it on your phone.</p>}
-                {initiateStkMutation.isError && <p>{stkErrorMessage}</p>}
-                {!initiateStkMutation.isPending && !initiateStkMutation.isSuccess && !initiateStkMutation.isError && (
-                  <p>Complete the M-Pesa prompt before {reservationExpiry}.</p>
-                )}
-              </div>
-            </div>
           </article>
         )}
 

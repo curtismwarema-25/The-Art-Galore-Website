@@ -53,3 +53,25 @@ test("reconciliation limits a worker sweep to one status-query candidate", async
   assert.equal(requestedLimit, 1);
   assert.equal(reverifyCount, 1);
 });
+
+test("a concurrent callback completion is not downgraded by reconciliation failure handling", async () => {
+  let status = "SUCCEEDED";
+  let releasedLease = false;
+  const repository = {
+    claimNextCallbackInboxEvent: async () => null,
+    listDueMpesaTransactionIds: async () => ["payment-1"],
+    claimMpesaTransaction: async () => ({ reconciliationAttemptCount: 0, externalRequestId: "checkout-1" }),
+    recordReconciliationFailure: async () => ({ count: 0 }),
+    releaseReconciliationLease: async () => { releasedLease = true; },
+  } as unknown as PaymentsRepository;
+  const paymentsService = {
+    reverifyMpesaTransaction: async () => {
+      if (status === "SUCCEEDED") throw new Error("status query failed after callback completion");
+    },
+  } as unknown as PaymentsService;
+
+  await new MpesaReconciliationWorker(repository, paymentsService).runOnce();
+
+  assert.equal(status, "SUCCEEDED");
+  assert.equal(releasedLease, true);
+});

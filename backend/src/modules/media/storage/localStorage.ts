@@ -41,6 +41,13 @@ function resolveMediaPath(storageKey: string) {
   return { absolute, normalized };
 }
 
+function getMediaUrl(target: MediaTarget, storageKey: string) {
+  const relativeUrl = `${env.API_PREFIX}${env.MEDIA_PUBLIC_BASE_PATH}/${storageKey}`;
+  if (target !== "payment-proof" || !env.PUBLIC_API_URL) return relativeUrl;
+
+  return `${env.PUBLIC_API_URL.replace(/\/+$/g, "")}${env.MEDIA_PUBLIC_BASE_PATH}/${storageKey}`;
+}
+
 function getFileExtension(mimeType: string, originalName: string) {
   const mapped = mimeToExtensionMap[mimeType];
   if (mapped) return mapped;
@@ -83,7 +90,7 @@ class LocalMediaStorage {
     return {
       target: input.target,
       storageKey: normalized,
-      url: `${env.API_PREFIX}${env.MEDIA_PUBLIC_BASE_PATH}/${normalized}`,
+      url: getMediaUrl(input.target, normalized),
       mimeType: input.mimeType,
       sizeBytes: input.buffer.byteLength,
       width,

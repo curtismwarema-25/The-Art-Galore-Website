@@ -29,14 +29,25 @@ type ScreenshotAsset = {
   sizeBytes: number;
 };
 
-function assertScreenshotAsset(asset?: ScreenshotAsset) {
+export function assertScreenshotAsset(asset?: ScreenshotAsset) {
   if (!asset) return;
 
-  if (!asset.storageKey.startsWith("payment-proof/")) {
+  const normalizedStorageKey = asset.storageKey.replace(/\\/g, "/");
+  if (
+    normalizedStorageKey !== asset.storageKey ||
+    !normalizedStorageKey.startsWith("payment-proof/") ||
+    normalizedStorageKey.includes("..")
+  ) {
     throw new ValidationError("Invalid screenshot storage key");
   }
 
-  if (!asset.url.includes("/media/files/payment-proof/")) {
+  const mediaPath = `${env.MEDIA_PUBLIC_BASE_PATH.replace(/^\/+|\/+$/g, "")}/${normalizedStorageKey}`;
+  const expectedRelativeUrl = `${env.API_PREFIX.replace(/\/+$/g, "")}/${mediaPath}`;
+  const expectedAbsoluteUrl = env.PUBLIC_API_URL
+    ? `${env.PUBLIC_API_URL.replace(/\/+$/g, "")}/${mediaPath}`
+    : undefined;
+
+  if (asset.url !== expectedRelativeUrl && asset.url !== expectedAbsoluteUrl) {
     throw new ValidationError("Invalid screenshot URL");
   }
 

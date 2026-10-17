@@ -18,9 +18,10 @@ import { useAdminOrderQuery, useAdminOrdersQuery } from "@/hooks/queries/useAdmi
 import { useAdminTicketEmailDeliveryQuery } from "@/hooks/queries/useAdminTicketEmailDeliveryQuery";
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
 import type { AdminMpesaTransactionAuditRecord, AdminMpesaTransactionStatus } from "@/api/endpoints/payments";
-import type { OrderDetailsRecord, OrderLifecycleStatus, TicketDeliveryStatus } from "@/api/endpoints/orders";
+import type { OrderDetailsRecord, OrderLifecycleStatus, TicketDeliveryStatus, VerificationStatus } from "@/api/endpoints/orders";
 import type { TicketEmailDeliverySummaryRecord } from "@/api/endpoints/tickets";
 import { toast } from "@/components/ui/sonner";
+import { canReverifyMpesaTransaction, isMpesaManualReview, mpesaStatusTone } from "./mpesaStatus";
 
 const ORDER_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | OrderLifecycleStatus }> = [
   { label: "All", value: "all" },
@@ -36,7 +37,7 @@ const MPESA_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | AdminMp
   { label: "All", value: "all" },
   { label: "Initiated", value: "initiated" },
   { label: "Pending", value: "pending" },
-  { label: "Ambiguous / Review", value: "ambiguous" },
+  { label: "Ambiguous / Manual review", value: "ambiguous" },
   { label: "Paid", value: "paid" },
   { label: "Failed", value: "failed" },
   { label: "Cancelled", value: "cancelled" },
@@ -49,17 +50,11 @@ function orderStatusTone(status: OrderLifecycleStatus) {
   return "pending";
 }
 
-function verificationTone(status: "pending_review" | "approved" | "rejected") {
+function verificationTone(status: VerificationStatus) {
   if (status === "approved") return "approved";
   if (status === "rejected") return "rejected";
+  if (status === "not_submitted") return "draft";
   return "pending";
-}
-
-function mpesaStatusTone(status: AdminMpesaTransactionStatus) {
-  if (status === "paid") return "paid" as const;
-  if (status === "initiated") return "initiating" as const;
-  if (status === "pending" || status === "ambiguous") return "pending" as const;
-  return "failed" as const;
 }
 
 function ticketDeliveryTone(status: TicketDeliveryStatus) {
@@ -457,6 +452,7 @@ export default function AdminOrdersPage() {
             >
               {mpesaTransactions.map((transaction) => {
                 const isExpanded = expandedMpesaTransactionId === transaction.id;
+                const requiresManualReview = isMpesaManualReview(transaction);
                 return (
                   <Fragment key={transaction.id}>
                     <tr className="bg-background border border-border">
@@ -466,7 +462,10 @@ export default function AdminOrdersPage() {
                         {formatMoney(transaction.currency, transaction.amount)}
                       </td>
                       <td className="px-3 py-3">
-                        <StatusBadge tone={mpesaStatusTone(transaction.status)} label={transaction.status} />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge tone={mpesaStatusTone(transaction.status)} label={transaction.status} />
+                          {requiresManualReview && <StatusBadge tone="pending" label="manual review" />}
+                        </div>
                       </td>
                       <td className="px-3 py-3 text-sm text-foreground-secondary" title={transaction.checkoutRequestId}>
                         {compactReference(transaction.checkoutRequestId)}
@@ -499,7 +498,7 @@ export default function AdminOrdersPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={reverifyMpesaMutation.isPending || !transaction.checkoutRequestId || !["initiated", "pending", "ambiguous"].includes(transaction.status)}
+                            disabled={reverifyMpesaMutation.isPending || !canReverifyMpesaTransaction(transaction)}
                             onClick={() => void reverifyMpesaTransaction(transaction.id)}
                           >
                             <RefreshCw size={14} />
@@ -525,16 +524,24 @@ export default function AdminOrdersPage() {
                                 <span className="text-foreground">Callback:</span>{" "}
                                 {transaction.callbackReceived ? "received" : "not received"}
                               </p>
+                              <p>
+                                <span className="text-foreground">Reconciliation attempts:</span>{" "}
+                                {transaction.reconciliationAttemptCount}
+                              </p>
                             </div>
-                            {transaction.reconciliationRequiresManualReview && (
+                            {requiresManualReview && (
                               <p className="mt-3 rounded border border-destructive/30 bg-destructive/5 p-3 text-destructive">
-                                Automatic reconciliation stopped after {transaction.reconciliationAttemptCount} attempts. Review the provider result before permitting another customer payment prompt.
-                                {transaction.lastReconciliationError ? ` Last error: ${transaction.lastReconciliationError}` : ""}
+                                Manual review required. Reverify checks the existing M-Pesa request status and does not create a new STK prompt.
                               </p>
                             )}
-                            {!transaction.checkoutRequestId && transaction.reconciliationRequiresManualReview && (
-                              <p className="mt-3 rounded border border-destructive/30 bg-destructive/5 p-3 text-destructive">
-                                No Daraja checkout ID was saved for this attempt. Check the Daraja portal/support before allowing a retry.
+                            {!transaction.checkoutRequestId && requiresManualReview && (
+                              <p className="mt-2 rounded border border-destructive/30 bg-destructive/5 p-3 text-destructive">
+                                No checkout request is available for safe automatic recovery.
+                              </p>
+                            )}
+                            {transaction.lastReconciliationError && (
+                              <p className="mt-2">
+                                <span className="text-foreground">Last reconciliation error:</span> {transaction.lastReconciliationError}
                               </p>
                             )}
                             {transaction.resultDesc && (

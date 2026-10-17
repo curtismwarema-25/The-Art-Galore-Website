@@ -81,12 +81,20 @@ export class MpesaReconciliationWorker {
         const attempts = transaction.reconciliationAttemptCount + 1;
         const backoffMinutes = [0.5, 2, 5, 15, 30, 60][Math.min(attempts - 1, 5)] ?? 60;
         const nextAttemptAt = new Date(Date.now() + (rateLimited ? (error.retryAfterMs ?? 5 * 60_000) : backoffMinutes * 60_000));
-        await this.repository.recordReconciliationFailure(id, {
+        const recordedFailure = await this.repository.recordReconciliationFailure(id, {
           nextAttemptAt,
           error: error instanceof Error ? error.message : String(error),
           manualReview: !rateLimited && attempts >= env.MPESA_RECONCILIATION_MAX_ATTEMPTS,
           countAttempt: !rateLimited,
         });
+        if (recordedFailure.count !== 1) {
+          await this.repository.releaseReconciliationLease(id);
+          logger.warn("Skipped stale M-Pesa reconciliation failure after a concurrent terminal update", {
+            paymentTransactionId: id,
+            checkoutRequestId: transaction.externalRequestId,
+          });
+          continue;
+        }
         if (rateLimited) {
           await this.repository.deferDueMpesaTransactions(new Date(), nextAttemptAt);
           logger.warn("Deferred M-Pesa reconciliation because Daraja rate-limited status queries", {
