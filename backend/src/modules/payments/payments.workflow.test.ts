@@ -380,8 +380,10 @@ test("late M-Pesa success after grace requires review and issues no tickets", as
 });
 
 test("M-Pesa callback route rejects missing or invalid callback secret", async () => {
+  const originalNodeEnv = env.NODE_ENV;
   const restoreEnv = withWorkflowEnv();
-  env.MPESA_CALLBACK_SECRET = `secret-${randomUUID()}`;
+  env.NODE_ENV = "production";
+  env.MPESA_CALLBACK_SECRET = "";
 
   const app = createApp();
   const server = http.createServer(app);
@@ -403,6 +405,13 @@ test("M-Pesa callback route rejects missing or invalid callback secret", async (
       },
     };
 
+    const missingConfiguration = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(callbackPayload),
+    });
+
+    env.MPESA_CALLBACK_SECRET = `secret-${randomUUID()}`;
     const missingSecret = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -414,10 +423,12 @@ test("M-Pesa callback route rejects missing or invalid callback secret", async (
       body: JSON.stringify(callbackPayload),
     });
 
+    assert.equal(missingConfiguration.status, 401);
     assert.equal(missingSecret.status, 401);
     assert.equal(invalidSecret.status, 401);
   } finally {
     restoreEnv();
+    env.NODE_ENV = originalNodeEnv;
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
