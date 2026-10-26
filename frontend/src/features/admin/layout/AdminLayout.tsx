@@ -16,10 +16,11 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import type { LucideIcon } from "lucide-react";
 import PageHeader from "@/components/common/PageHeader";
 import { useAuth } from "@/features/auth/useAuth";
 
-const navItems = [
+const navItems: Array<{ label: string; path: string; icon: LucideIcon; end?: boolean }> = [
   { label: "Dashboard", path: "/admin", icon: LayoutDashboard, end: true },
   { label: "Events", path: "/admin/events", icon: Calendar },
   { label: "Tickets", path: "/admin/orders", icon: Ticket },
@@ -28,7 +29,7 @@ const navItems = [
   { label: "Community Uploads", path: "/admin/uploads", icon: Upload },
   { label: "Partners", path: "/admin/partners", icon: Handshake },
   { label: "Site Settings", path: "/admin/settings", icon: Settings },
-] as const;
+];
 
 function getTitle(pathname: string) {
   if (pathname.startsWith("/admin/checkin")) return "Check-In";

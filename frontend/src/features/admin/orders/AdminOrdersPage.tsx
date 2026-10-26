@@ -48,7 +48,8 @@ function orderStatusTone(status: OrderLifecycleStatus) {
   return "pending";
 }
 
-function verificationTone(status: "pending_review" | "approved" | "rejected") {
+function verificationTone(status: "not_submitted" | "pending_review" | "approved" | "rejected") {
+  if (status === "not_submitted") return "pending" as const;
   if (status === "approved") return "approved";
   if (status === "rejected") return "rejected";
   return "pending";

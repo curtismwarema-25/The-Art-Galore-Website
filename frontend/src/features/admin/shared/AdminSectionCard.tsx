@@ -1,11 +1,23 @@
-import type { ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
+import { useState, type ReactNode } from "react";
 
-export default function AdminSectionCard({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+export default function AdminSectionCard({ title, description, children, defaultOpen = true }: { title: string; description?: string; children: ReactNode; defaultOpen?: boolean }) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
   return (
-    <section className="rounded-lg border border-border bg-card p-5 md:p-6">
-      <h2 className="font-display text-base md:text-lg text-foreground mb-4">{title}</h2>
-      {description && <p className="-mt-2 mb-4 text-sm text-foreground-secondary">{description}</p>}
-      {children}
-    </section>
+    <details
+      open={isOpen}
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
+      className="group rounded-lg border border-border bg-card p-5 md:p-6"
+    >
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 [&::-webkit-details-marker]:hidden">
+        <span>
+          <span className="block font-display text-base md:text-lg text-foreground">{title}</span>
+          {description && <span className="mt-1 block text-sm text-foreground-secondary">{description}</span>}
+        </span>
+        <ChevronDown size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-foreground-secondary transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="mt-5">{children}</div>
+    </details>
   );
 }
