@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { mediaUrlOrPathSchema } from "@/lib/validation/media";
 
-const phoneRegex = /^\+?\d{9,15}$/;
+const phoneRegex = /^(?:\+?254[17]\d{8}|0[17]\d{8})$/;
 
 export const eventFormSchema = z.object({
   title: z.string().trim().min(3),

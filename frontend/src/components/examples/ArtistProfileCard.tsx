@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion, type Variants } from 'framer-motion';
 import { useState } from 'react';
 
 /**
@@ -31,7 +31,7 @@ export function ArtistProfileCard({
 }: ArtistProfileProps) {
   const [isHovered, setIsHovered] = useState(false);
 
-  const containerVariants = {
+  const containerVariants: Variants = {
     hidden: { opacity: 0, y: 20 },
     visible: {
       opacity: 1,

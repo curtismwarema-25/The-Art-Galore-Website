@@ -151,6 +151,14 @@ export default function AdminGalleriesPage() {
   const selectedImage = selectedImageQuery.data;
 
   useEffect(() => {
+    if (!selectedImageId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-gallery-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedImageId]);
+
+  useEffect(() => {
     if (!createForm.eventId && events[0]) {
       setCreateForm((current) => ({ ...current, eventId: events[0].id }));
     }
@@ -450,7 +458,22 @@ export default function AdminGalleriesPage() {
           ) : (
             <DataTable headers={["Preview", "Event", "Caption", "Sort order", "Featured", "Actions"]} minWidthClassName="min-w-[760px] md:min-w-[980px]">
               {images.map((image) => (
-                <tr key={image.id} className="bg-background border border-border">
+                <tr
+                  key={image.id}
+                  className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${selectedImageId === image.id ? "bg-accent/10" : "bg-background"}`}
+                  aria-selected={selectedImageId === image.id}
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                    setSelectedImageId(image.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedImageId(image.id);
+                    }
+                  }}
+                >
                   <td className="px-3 py-3">
                     <img src={image.image} alt={image.caption} className="h-14 w-14 object-cover rounded-sm" />
                   </td>

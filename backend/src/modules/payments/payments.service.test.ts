@@ -1,7 +1,8 @@
 import { OrderStatus } from "@prisma/client";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PaymentsService } from "./payments.service.js";
+import { env } from "../../config/index.js";
+import { assertScreenshotAsset, PaymentsService } from "./payments.service.js";
 
 function createServiceForPureTests() {
   return new PaymentsService({} as never, {} as never) as unknown as {
@@ -59,4 +60,17 @@ test("callback metadata extraction reads checkout, merchant, result, and receipt
   assert.equal(result.resultCode, 0);
   assert.equal(result.resultDesc, "Success");
   assert.equal(result.metadataMap.get("MpesaReceiptNumber"), "ABC123");
+});
+
+test("payment-proof validation rejects external or mismatched media URLs", () => {
+  const baseAsset = {
+    storageKey: "payment-proof/2026/09/proof.jpg",
+    mimeType: "image/jpeg",
+    sizeBytes: 1024,
+  };
+
+  const expectedRelativeUrl = `${env.API_PREFIX.replace(/\/+$/g, "")}/${env.MEDIA_PUBLIC_BASE_PATH.replace(/^\/+|\/+$/g, "")}/${baseAsset.storageKey}`;
+  assert.doesNotThrow(() => assertScreenshotAsset({ ...baseAsset, url: expectedRelativeUrl }));
+  assert.throws(() => assertScreenshotAsset({ ...baseAsset, url: "https://attacker.example/payment-proof/2026/09/proof.jpg" }));
+  assert.throws(() => assertScreenshotAsset({ ...baseAsset, url: "/api/media/files/payment-proof/other.jpg" }));
 });

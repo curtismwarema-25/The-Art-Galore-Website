@@ -422,6 +422,30 @@ test("M-Pesa callback route rejects missing or invalid callback secret", async (
   }
 });
 
+test("production M-Pesa callback route fails closed when its secret is absent", async () => {
+  const originalNodeEnv = env.NODE_ENV;
+  const originalSecret = env.MPESA_CALLBACK_SECRET;
+  env.NODE_ENV = "production";
+  env.MPESA_CALLBACK_SECRET = "";
+
+  const server = http.createServer(createApp());
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/payments/mpesa/stk/callback`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ Body: { stkCallback: { CheckoutRequestID: "checkout", ResultCode: 1, ResultDesc: "Failed" } } }),
+    });
+
+    assert.equal(response.status, 401);
+  } finally {
+    env.NODE_ENV = originalNodeEnv;
+    env.MPESA_CALLBACK_SECRET = originalSecret;
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
 test("M-Pesa callback ingestion is durable and idempotent", async (t) => {
   if (!(await ensureDbAvailable(t))) return;
   const restoreEnv = withWorkflowEnv();
@@ -693,8 +717,10 @@ test("terminal payment status cannot be overwritten by a late duplicate result",
     fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
     const transaction = await createPendingMpesaTransaction(fixture, { status: PaymentStatus.SUCCEEDED, resultCode: "0", resultMessage: "Already paid", completedAt: new Date() });
     const apply = createPaymentsService().paymentsService as unknown as { applyMpesaPaymentResult: (input: Record<string, unknown>) => Promise<{ status?: string }> };
-    const result = await apply.applyMpesaPaymentResult({ checkoutRequestId: transaction.externalRequestId, resultCode: "2001", resultDesc: "Late failure", rawCallback: { source: "mission-03" } });
-    assert.equal(result.status, "paid");
+    const duplicateSuccess = await apply.applyMpesaPaymentResult({ checkoutRequestId: transaction.externalRequestId, resultCode: "0", resultDesc: "Late duplicate success", rawCallback: { source: "mission-03" } });
+    assert.equal(duplicateSuccess.status, "paid");
+    const lateFailure = await apply.applyMpesaPaymentResult({ checkoutRequestId: transaction.externalRequestId, resultCode: "2001", resultDesc: "Late failure", rawCallback: { source: "mission-04" } });
+    assert.equal(lateFailure.status, "paid");
     assert.equal((await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transaction.id } })).status, PaymentStatus.SUCCEEDED);
   } finally {
     restoreEnv();

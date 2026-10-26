@@ -119,7 +119,10 @@ export type PublicTrackedOrderRecord = {
     quantity: number;
   }>;
   canSubmitPaymentProof: boolean;
+  mpesaPaymentPending: boolean;
+  manualReviewRequired: boolean;
   ticketDeliveryStatus: TicketDeliveryStatus;
+  ticketEmailDeliveryEnabled: boolean;
   tickets: Array<{
     ticketNumber: string;
     publicTicketToken: string;

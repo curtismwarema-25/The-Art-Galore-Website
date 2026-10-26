@@ -14,9 +14,9 @@ import {
   Upload,
   Users,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { LucideIcon } from "lucide-react";
 import PageHeader from "@/components/common/PageHeader";
 import { useAuth } from "@/features/auth/useAuth";
 
@@ -34,8 +34,7 @@ const navItems: Array<{ label: string; path: string; icon: LucideIcon; end?: boo
 function getTitle(pathname: string) {
   if (pathname.startsWith("/admin/checkin")) return "Guest check-in";
   const matched = navItems.find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
-  if (!matched) return "Admin";
-  return matched.label;
+  return matched?.label ?? "Admin";
 }
 
 function getPageDescription(pathname: string) {
@@ -93,6 +92,7 @@ export default function AdminLayout() {
               onClick={() => setCollapsed((current) => !current)}
               className="h-8 w-8 rounded-md border border-border text-foreground-secondary hover:text-accent transition-colors inline-flex items-center justify-center"
               aria-label="Toggle sidebar"
+              aria-expanded={!collapsed}
             >
               {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
             </button>
@@ -104,6 +104,8 @@ export default function AdminLayout() {
                 key={item.path}
                 to={item.path}
                 end={item.end}
+                title={collapsed ? item.label : undefined}
+                aria-label={item.label}
                 className={({ isActive }) =>
                   `w-full rounded-md border px-2.5 py-2.5 text-sm font-body transition-all flex items-center gap-2.5 ${
                     isActive
@@ -136,6 +138,8 @@ export default function AdminLayout() {
                   onClick={() => setMobileMenuOpen((current) => !current)}
                   className="text-foreground p-2"
                   aria-label="Toggle menu"
+                  aria-expanded={mobileMenuOpen}
+                  aria-controls="admin-mobile-navigation"
                 >
                   {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
                 </button>
@@ -148,6 +152,7 @@ export default function AdminLayout() {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
                     transition={{ duration: 0.2 }}
+                    id="admin-mobile-navigation"
                     className="bg-background border-b border-border mt-2"
                   >
                     <div className="px-4 py-6 flex flex-col gap-4">

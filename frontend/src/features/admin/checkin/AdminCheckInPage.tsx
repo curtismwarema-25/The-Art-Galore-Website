@@ -242,7 +242,10 @@ export default function AdminCheckInPage() {
     }
   };
 
-  useEffect(() => stopScanner, []);
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+  }, []);
 
   return (
     <div className="space-y-5 md:space-y-6">

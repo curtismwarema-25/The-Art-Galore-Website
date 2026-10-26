@@ -71,6 +71,85 @@ If you do not use a shadow database, remove `SHADOW_DATABASE_URL` from `.env`.
 ## 4) Prisma workflow
 All commands below auto-sync the root schema into `backend/prisma/schema.prisma` first.
 
+Migration portability note: the tracked schema source is `frontend/prisma/schema.prisma`. The historical
+migrations that reference `person` and `order` must be validated separately on a disposable Linux MySQL
+instance before production deployment because the original tables were created as `Person` and `Order`.
+This M-Pesa integration does not rewrite those historical migrations; any Linux table-name casing repair
+requires its own migration decision after the staging chain has been tested.
+
+## Public production-build test through a tunnel
+
+To let testers see the built site (not Vite's development screen), build the frontend and have the backend serve it on the same origin as `/api`:
+
+1. In `backend/.env`, set `SERVE_FRONTEND=true` and keep `MPESA_DARAJA_ENV=sandbox` and `MPESA_LIVE_PAYMENTS_ENABLED=false`.
+2. From `frontend`, run `npm run build`.
+3. From `backend`, run `npm run build`, then `npm start`.
+4. Start the tunnel against backend port `4000` (for example, `ngrok http 4000`) and share only the HTTPS site URL.
+5. Set `PUBLIC_APP_URL` to that HTTPS URL, `PUBLIC_API_URL` to the same URL followed by `/api`, add that exact origin to `CORS_ORIGIN`, and set `MPESA_CALLBACK_URL` to the same URL followed by `/api/payments/mpesa/stk/callback`. For HTTPS tunnel testing, set `SESSION_COOKIE_SECURE=true`. Restart the backend after changing these values. If using a different or rotating tunnel URL, update them again.
+
+The frontend uses relative `/api` requests, so browser API traffic stays on the site's origin. The backend also serves the SPA routes and static production assets. Do not forward the database port or share `.env` values. A tunnel makes the app publicly reachable; use test data and do not allow testers to initiate real-money payments.
+
+## Production topology: Vercel frontend + VPS backend
+
+The intended production topology keeps the Vite frontend on Vercel and runs the Express backend as one supervised process on a VPS:
+
+```text
+https://YOUR_DOMAIN       -> Vercel frontend
+https://www.YOUR_DOMAIN   -> canonical domain or the same Vercel project
+https://YOUR_API_DOMAIN   -> VPS HTTPS reverse proxy -> 127.0.0.1:4000
+Express                   -> MySQL
+Express                   -> YOUR_VPS_MEDIA_PATH (persistent media volume)
+```
+
+The repository includes `frontend/vercel.json` for two purposes:
+
+- `/api/:path*` is proxied to `https://YOUR_API_DOMAIN/api/:path*`.
+- frontend deep links such as `/admin/login` are served by the SPA entry point.
+
+Before deploying, replace `YOUR_API_DOMAIN` in that file with the real API hostname. The Vercel project should use `frontend/` as its root directory, run `npm run build`, and publish `dist`. Keep `VITE_API_BASE_URL=/api` so API and media URLs retain the existing same-origin behavior.
+
+Configure these Vercel variables for Production and Preview as appropriate:
+
+```dotenv
+VITE_API_BASE_URL=/api
+VITE_APP_ENV=production
+VITE_ENABLE_ADMIN=true
+```
+
+Configure the backend environment on the VPS with real values, never with the example placeholders:
+
+```dotenv
+NODE_ENV=production
+PORT=4000
+TRUST_PROXY_HOPS=1
+SERVE_FRONTEND=false
+PUBLIC_APP_URL=https://YOUR_DOMAIN
+ADMIN_APP_URL=https://admin.YOUR_DOMAIN
+PUBLIC_API_URL=https://YOUR_API_DOMAIN/api
+CORS_ORIGIN=https://YOUR_DOMAIN,https://www.YOUR_DOMAIN,https://admin.YOUR_DOMAIN
+SESSION_COOKIE_SECURE=true
+SESSION_SAME_SITE=lax
+SESSION_COOKIE_DOMAIN=
+MEDIA_LOCAL_ROOT=YOUR_VPS_MEDIA_PATH
+SEED_ADMIN_ENABLED=false
+```
+
+`YOUR_VPS_MEDIA_PATH` must be an absolute directory outside the application release directory, owned by the backend service account, and included in media backups. Do not expose port 4000 or the MySQL port publicly; expose only the reverse proxy's HTTP/HTTPS ports. Use the VPS provider's exact public IP for the `api` DNS record and the exact Vercel-prescribed target for the apex/`www` records. Do not remove existing DNS records until their purpose is verified.
+
+The reverse proxy must terminate HTTPS and forward the original host/protocol and the `/api` path unchanged. An example is only valid after confirming that the VPS uses Nginx or Caddy; do not apply a provider-specific configuration blindly.
+
+Recommended deployment sequence:
+
+1. Back up the production database and media directory.
+2. Deploy the backend release and install production dependencies.
+3. Confirm the VPS environment variables without printing their values.
+4. Run `npm run prisma:migrate:deploy` against the intended database.
+5. Start one backend instance under the existing or selected process manager.
+6. Verify `/health`, `/health/db`, `/admin/login`, API login, uploads, and the M-Pesa callback path.
+7. Confirm the process restarts after failure and reboot.
+
+Do not enable PM2 cluster mode or multiple backend replicas while the in-process order, payment, email, and M-Pesa workers remain enabled. Do not run live M-Pesa transactions during deployment verification.
+
 Validate schema:
 ```bash
 npm run prisma:validate
@@ -217,7 +296,7 @@ Delivery is opt-in. Configure these env vars:
 - `SMTP_USER`
 - `SMTP_PASSWORD`
 - `EMAIL_FROM`
-- `EMAIL_REPLY_TO` (optional)
+- `EMAIL_REPLY_TO` (optional fallback; normally replies go to the buyer email entered at checkout)
 - `PUBLIC_APP_URL` (frontend origin for `/tickets/:publicTicketToken` links)
 - `PUBLIC_API_URL` (optional API base URL ending in `/api`; local fallback derives from `PORT` + `API_PREFIX`)
 - `EMAIL_ATTACH_TICKET_PDFS=true` to attach generated PDFs
@@ -226,12 +305,30 @@ Delivery is opt-in. Configure these env vars:
 - `EMAIL_DELIVERY_RETRY_SWEEP_INTERVAL_SECONDS=60`
 - `EMAIL_DELIVERY_RETRY_BATCH_SIZE=20`
 
+For a local test using Gmail SMTP, use an App Password rather than your normal account password:
+
+```dotenv
+EMAIL_DELIVERY_ENABLED=true
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your Gmail address
+SMTP_PASSWORD=your 16-character App Password
+EMAIL_FROM=your Gmail address
+EMAIL_REPLY_TO=your Gmail address
+```
+
+The sender address must be accepted by the SMTP provider. For recipients outside your machine, set
+`PUBLIC_APP_URL` to a publicly reachable frontend URL and `PUBLIC_API_URL` to a publicly reachable backend URL
+ending in `/api`; otherwise the email links will point to localhost. Restart the backend after changing `.env`.
+
 Delivery behavior:
 - successful SMTP send marks the order `ticketDeliveryStatus` as `SENT`
 - missing buyer email marks it `FAILED` with no automatic retry
 - SMTP/config failure marks it `FAILED`, records the error summary, and schedules retry backoff
 - disabled email delivery leaves the current status unchanged
 - retry backoff is 5 minutes, 15 minutes, 1 hour, then 6 hours until the max attempt cap
+- ticket records are issued before SMTP delivery is attempted, so a slow mail server does not block payment completion
 
 The backend starts an in-process retry worker with the API server. It only runs when both `EMAIL_DELIVERY_ENABLED` and `EMAIL_DELIVERY_RETRY_ENABLED` are true.
 
@@ -245,6 +342,7 @@ Admins can manually resend only while delivery is `PENDING` or `FAILED`. Success
 
 Configure Daraja credentials in `.env`:
 - `MPESA_DARAJA_ENV`
+- `MPESA_LIVE_PAYMENTS_ENABLED` (must remain `false` during sandbox testing)
 - `MPESA_SHORTCODE`
 - `MPESA_PASSKEY`
 - `MPESA_CONSUMER_KEY`
@@ -252,9 +350,16 @@ Configure Daraja credentials in `.env`:
 - `MPESA_CALLBACK_URL`
 - `MPESA_CALLBACK_SECRET`
 
-Production deployments should set `MPESA_CALLBACK_SECRET` and include it in callback requests as
+Sandbox safety is enforced server-side. Daraja requests use `https://sandbox.safaricom.co.ke`,
+sandbox STK requests use shortcode `174379` and the passkey issued by your Daraja sandbox app, and the valid phone
+number supplied by the checkout is forwarded to Daraja. Production Daraja is blocked unless both
+`MPESA_DARAJA_ENV=production` and `MPESA_LIVE_PAYMENTS_ENABLED=true` are explicitly set.
+
+Production deployments must set `MPESA_CALLBACK_URL` to a public HTTPS callback URL and set `MPESA_CALLBACK_SECRET`, then include the secret in callback requests as
 `x-mpesa-callback-secret`, `Authorization: Bearer <secret>`, or `?secret=` on the callback URL. When
-`NODE_ENV=production` and `MPESA_CALLBACK_URL` is configured, the backend refuses to start without the secret.
+`NODE_ENV=production` the backend refuses to start without both the callback URL and secret.
+
+Prefer the header or bearer form. A query-string secret can be captured by reverse-proxy, web-server, browser-history, or monitoring logs; if the Daraja callback contract requires it, configure log redaction and rotate the secret if it is exposed. Application error logs record the request path without its query string.
 
 The public STK initiation endpoint returns only buyer-safe status fields. Provider request IDs are available from
 `GET /api/admin/payments/mpesa-transactions`, and admins can retry provider verification with

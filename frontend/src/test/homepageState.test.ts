@@ -4,11 +4,13 @@ import type { TicketTier } from "@/types/models";
 
 const baseTier: TicketTier = {
   id: "tier-1",
+  slug: "general-admission",
   eventId: "event-1",
   name: "General admission",
   description: "Entry",
   price: 1000,
   currency: "KES",
+  perks: ["Entry"],
   available: 10,
   status: "published",
   saleStartAt: null,

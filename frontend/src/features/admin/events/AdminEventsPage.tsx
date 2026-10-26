@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ExternalLink, PencilLine, Trash2 } from "lucide-react";
 import { z } from "zod";
@@ -27,6 +27,7 @@ type EventFormState = {
   title: string;
   type: string;
   venue: string;
+  capacity: string;
   startAt: string;
   endAt: string;
   lifecycle: EventLifecycle;
@@ -52,6 +53,7 @@ const eventFormSchema = z
     title: z.string().trim().min(3),
     type: z.string().trim().min(2),
     venue: z.string().trim().min(2),
+    capacity: z.coerce.number().int().positive(),
     startAt: z.string().trim().min(1),
     endAt: z.string().trim().min(1),
     lifecycle: z.enum(["draft", "upcoming", "past", "cancelled"]),
@@ -94,6 +96,7 @@ const defaultEventForm: EventFormState = {
   title: "",
   type: "Sip & Paint",
   venue: "",
+  capacity: "",
   startAt: "",
   endAt: "",
   lifecycle: "draft",
@@ -144,11 +147,21 @@ function formatError(error: unknown) {
   return "Unexpected request error.";
 }
 
+function AdminField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-display uppercase tracking-[0.14em] text-foreground-secondary">{label}</span>
+      {children}
+    </label>
+  );
+}
+
 function mapEventToForm(record: EventRecord): EventFormState {
   return {
     title: record.title,
     type: record.type,
     venue: record.venue,
+    capacity: record.capacity > 0 ? String(record.capacity) : "",
     startAt: toLocalDateTimeInput(record.startAt),
     endAt: toLocalDateTimeInput(record.endAt),
     lifecycle: record.lifecycle,
@@ -219,6 +232,22 @@ export default function AdminEventsPage() {
     setEditHeroMeta(selectedEvent.heroImageMeta);
   }, [selectedEvent]);
 
+  useEffect(() => {
+    if (!routeEventId || !selectedEvent) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-event-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [routeEventId, selectedEvent]);
+
+  useEffect(() => {
+    if (!editingTierId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-ticket-tier-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [editingTierId]);
+
   async function handleHeroUpload(file: File, mode: "create" | "edit") {
     const validation = validateFile(file, "event-hero");
     if (!validation.valid) {
@@ -266,6 +295,7 @@ export default function AdminEventsPage() {
         title: parsed.data.title,
         type: parsed.data.type,
         venue: parsed.data.venue,
+        capacity: parsed.data.capacity,
         startAt: toIsoString(parsed.data.startAt),
         endAt: toIsoString(parsed.data.endAt),
         lifecycle: parsed.data.lifecycle,
@@ -317,6 +347,7 @@ export default function AdminEventsPage() {
           title: parsed.data.title,
           type: parsed.data.type,
           venue: parsed.data.venue,
+          capacity: parsed.data.capacity,
           startAt: toIsoString(parsed.data.startAt),
           endAt: toIsoString(parsed.data.endAt),
           lifecycle: parsed.data.lifecycle,
@@ -471,7 +502,8 @@ export default function AdminEventsPage() {
             className={adminInputClassName}
             placeholder="Venue"
           />
-          <select
+          <AdminField label="Publishing status">
+            <select
             value={createForm.lifecycle}
             onChange={(event) =>
               setCreateForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))
@@ -483,16 +515,20 @@ export default function AdminEventsPage() {
             <option value="upcoming">Upcoming</option>
             <option value="past">Past</option>
             <option value="cancelled">Cancelled</option>
-          </select>
+            </select>
+          </AdminField>
           <div className="md:col-span-2">
-            <Textarea
-              value={createForm.summary}
-              onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))}
-              className={adminTextareaClassName}
-              placeholder="Summary (optional)"
-            />
+            <AdminField label="Public event summary">
+              <Textarea
+                value={createForm.summary}
+                onChange={(event) => setCreateForm((current) => ({ ...current, summary: event.target.value }))}
+                className={adminTextareaClassName}
+                placeholder="Tell guests what they will experience (optional)"
+              />
+            </AdminField>
           </div>
           <div className="md:col-span-2">
+            <p className="mb-1 text-[11px] font-display uppercase tracking-[0.14em] text-foreground-secondary">Hero image</p>
             <input
               type="file"
               aria-label="Event hero image"
@@ -550,7 +586,22 @@ export default function AdminEventsPage() {
             minWidthClassName="min-w-[760px] md:min-w-[980px]"
           >
             {records.map((record) => (
-              <tr key={record.id} className="bg-background border border-border">
+              <tr
+                key={record.id}
+                className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${routeEventId === record.id ? "bg-accent/10" : "bg-background"}`}
+                aria-selected={routeEventId === record.id}
+                tabIndex={0}
+                onClick={(event) => {
+                  if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                  navigate(`/admin/events/${record.id}`);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    navigate(`/admin/events/${record.id}`);
+                  }
+                }}
+              >
                 <td className="px-3 py-3">
                   <div>
                     <p className="text-sm text-foreground">{record.title}</p>
@@ -615,8 +666,7 @@ export default function AdminEventsPage() {
       {!selectedEvent && (
         <AdminSectionCard title="Ticket tiers">
           <p className="text-sm text-foreground-secondary">
-            Select an event using the <span className="font-medium text-foreground">Manage</span> action to create or update
-            ticket tiers.
+            Select an event row or use its <span className="font-medium text-foreground">Open</span> action. Its editor and ticket setup will appear here.
           </p>
         </AdminSectionCard>
       )}
@@ -657,7 +707,8 @@ export default function AdminEventsPage() {
                 className={adminInputClassName}
                 placeholder="Venue"
               />
-              <select
+              <AdminField label="Publishing status">
+                <select
                 value={editForm.lifecycle}
                 onChange={(event) => setEditForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))}
                 className={adminInputClassName}
@@ -667,16 +718,20 @@ export default function AdminEventsPage() {
                 <option value="upcoming">Upcoming</option>
                 <option value="past">Past</option>
                 <option value="cancelled">Cancelled</option>
-              </select>
+                </select>
+              </AdminField>
               <div className="md:col-span-2">
-                <Textarea
-                  value={editForm.summary}
-                  onChange={(event) => setEditForm((current) => ({ ...current, summary: event.target.value }))}
-                  className={adminTextareaClassName}
-                  placeholder="Summary"
-                />
+                <AdminField label="Public event summary">
+                  <Textarea
+                    value={editForm.summary}
+                    onChange={(event) => setEditForm((current) => ({ ...current, summary: event.target.value }))}
+                    className={adminTextareaClassName}
+                    placeholder="Summary"
+                  />
+                </AdminField>
               </div>
               <div className="md:col-span-2">
+                <p className="mb-1 text-[11px] font-display uppercase tracking-[0.14em] text-foreground-secondary">Hero image</p>
                 <input
                   type="file"
                   aria-label="Event hero image"
@@ -768,7 +823,8 @@ export default function AdminEventsPage() {
                 onChange={(event) => setTierForm((current) => ({ ...current, saleEndAt: event.target.value }))}
                 className={adminInputClassName}
               />
-              <select
+              <AdminField label="Ticket visibility">
+                <select
                 value={tierForm.status}
                 onChange={(event) =>
                   setTierForm((current) => ({ ...current, status: event.target.value as TicketTierFormState["status"] }))
@@ -779,7 +835,8 @@ export default function AdminEventsPage() {
                 <option value="draft">Draft</option>
                 <option value="published">Published</option>
                 <option value="archived">Archived</option>
-              </select>
+                </select>
+              </AdminField>
               <div className="md:col-span-2">
                 <Textarea
                   value={tierForm.perks}

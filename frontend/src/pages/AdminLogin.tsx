@@ -43,7 +43,7 @@ export default function AdminLogin() {
     }
 
     try {
-      await login(parsed.data);
+      await login({ email, password });
       navigate(redirectTo, { replace: true });
     } catch {
       // Error is stored in auth context as loginError.

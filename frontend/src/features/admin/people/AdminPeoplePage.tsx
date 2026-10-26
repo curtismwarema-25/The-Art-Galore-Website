@@ -501,6 +501,14 @@ export default function AdminPeoplePage() {
   const selectedPerson = personQuery.data;
 
   useEffect(() => {
+    if (!selectedPersonId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-person-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedPersonId]);
+
+  useEffect(() => {
     if (!selectedPerson) return;
     setEditForm(mapPersonToForm(selectedPerson));
     setEditImageMeta(selectedPerson.imageMeta);
@@ -803,7 +811,22 @@ export default function AdminPeoplePage() {
               minWidthClassName="min-w-[760px] md:min-w-[900px]"
             >
               {people.map((person) => (
-                <tr key={person.id} className="bg-background border border-border">
+                <tr
+                  key={person.id}
+                  className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${selectedPersonId === person.id ? "bg-accent/10" : "bg-background"}`}
+                  aria-selected={selectedPersonId === person.id}
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                    setSelectedPersonId(person.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedPersonId(person.id);
+                    }
+                  }}
+                >
                   <td className="px-3 py-3 text-sm text-foreground">{person.name}</td>
                   <td className="px-3 py-3 text-sm text-foreground-secondary">{person.role}</td>
                   <td className="px-3 py-3">

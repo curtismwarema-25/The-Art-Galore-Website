@@ -106,6 +106,14 @@ export default function AdminPartnersPage() {
   const selectedPartner = selectedPartnerQuery.data;
 
   useEffect(() => {
+    if (!selectedPartnerId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-partner-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedPartnerId]);
+
+  useEffect(() => {
     if (!selectedPartner) return;
     setEditForm(mapPartnerToForm(selectedPartner));
     setEditLogoMeta(selectedPartner.logoMeta);
@@ -342,7 +350,22 @@ export default function AdminPartnersPage() {
           ) : (
             <div className="space-y-3">
               {partners.map((partner) => (
-                <article key={partner.id} className="rounded-md border border-border bg-background p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <article
+                  key={partner.id}
+                  className={`cursor-pointer rounded-md border p-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${selectedPartnerId === partner.id ? "border-accent/40 bg-accent/10" : "border-border bg-background"}`}
+                  tabIndex={0}
+                  aria-selected={selectedPartnerId === partner.id}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                    setSelectedPartnerId(partner.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedPartnerId(partner.id);
+                    }
+                  }}
+                >
                   <div className="flex items-start gap-3">
                     <div className="h-11 w-14 rounded-md border border-border bg-secondary/25 flex items-center justify-center">
                       {partner.logoMeta?.url ? (

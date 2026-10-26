@@ -623,6 +623,7 @@ model PaymentTransaction {
   completedAt           DateTime?
   providerConfirmedAt   DateTime?
   reconciliationAttemptCount Int       @default(0)
+  reconciliationRequiresManualReview Boolean @default(false)
   nextReconciliationAt DateTime?
   reconciliationLockedAt DateTime?
   reconciliationLockedBy String?       @db.VarChar(191)
@@ -634,6 +635,7 @@ model PaymentTransaction {
 
   @@index([orderId, status, createdAt])
   @@index([provider, providerReference])
+  @@index([orderId, provider, status])
   @@index([status, createdAt])
   @@index([status, nextReconciliationAt])
   @@unique([provider, providerAccountKey, externalRequestId])

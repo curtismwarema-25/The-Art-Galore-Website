@@ -1,4 +1,4 @@
-import { EventStatus, OrderStatus, PaymentProvider, PaymentStatus, type Prisma, TicketTierStatus } from "@prisma/client";
+import { EventStatus, OrderStatus, PaymentProvider, PaymentStatus, PaymentVerificationStatus, type Prisma, TicketTierStatus } from "@prisma/client";
 import { randomBytes, randomInt } from "node:crypto";
 import { NotFoundError, ValidationError } from "../../common/errors/httpErrors.js";
 import { env } from "../../config/index.js";
@@ -75,7 +75,14 @@ function deriveOrderPaymentStatus(order: OrderWithRelations): PaymentLifecycleSt
     return "paid";
   }
 
-  if (order.status === OrderStatus.EXPIRED || order.status === OrderStatus.PAYMENT_REJECTED) {
+  const latestPayment = order.paymentTransactions[0];
+  if (
+    order.status === OrderStatus.EXPIRED
+    || order.status === OrderStatus.PAYMENT_REJECTED
+    || latestPayment?.status === PaymentStatus.FAILED
+    || latestPayment?.status === PaymentStatus.CANCELLED
+    || latestPayment?.status === PaymentStatus.REFUNDED
+  ) {
     return "failed";
   }
 
@@ -167,7 +174,27 @@ function mapOrderRecord(order: OrderWithRelations): SerializedOrderRecord {
 
 function mapPublicTrackedOrderRecord(order: OrderWithRelations): PublicTrackedOrderRecord {
   const latestProof = order.paymentProofSubmissions[0] ?? null;
-  const mappedStatus = mapOrderStatus(order.status);
+  const latestPayment = order.paymentTransactions[0] ?? null;
+  const mpesaPaymentPending = order.status !== OrderStatus.PAID
+    && order.status !== OrderStatus.PAYMENT_VERIFIED
+    && order.paymentTransactions.some((payment) =>
+      payment.provider === PaymentProvider.MPESA
+      && (payment.status === PaymentStatus.INITIATED
+        || payment.status === PaymentStatus.PENDING
+        || payment.status === PaymentStatus.AMBIGUOUS),
+    );
+  const manualReviewRequired = order.status !== OrderStatus.PAID
+    && order.status !== OrderStatus.PAYMENT_VERIFIED
+    && order.paymentTransactions.some((payment) =>
+      payment.provider === PaymentProvider.MPESA
+      && payment.reconciliationRequiresManualReview,
+    );
+  const hasTerminalAutomatedFailure = latestPayment?.provider === PaymentProvider.MPESA
+    && (latestPayment.status === PaymentStatus.FAILED || latestPayment.status === PaymentStatus.CANCELLED)
+    && latestProof?.verificationStatus !== PaymentVerificationStatus.PENDING;
+  const mappedStatus = hasTerminalAutomatedFailure && order.status === OrderStatus.PAYMENT_SUBMITTED
+    ? "payment_rejected"
+    : mapOrderStatus(order.status);
   const verificationStatus = mapVerificationStatus(latestProof?.verificationStatus);
 
   return {
@@ -190,8 +217,11 @@ function mapPublicTrackedOrderRecord(order: OrderWithRelations): PublicTrackedOr
       tierName: item.ticketTier.name,
       quantity: item.quantity,
     })),
-    canSubmitPaymentProof: mappedStatus === "pending_payment" || mappedStatus === "payment_rejected",
+    canSubmitPaymentProof: (mappedStatus === "pending_payment" || mappedStatus === "payment_rejected") && !mpesaPaymentPending,
+    mpesaPaymentPending,
+    manualReviewRequired,
     ticketDeliveryStatus: mapTicketDeliveryStatus(order.ticketDeliveryStatus),
+    ticketEmailDeliveryEnabled: env.EMAIL_DELIVERY_ENABLED,
     tickets: order.tickets.map((ticket) => ({
       ticketNumber: ticket.ticketNumber,
       publicTicketToken: ticket.publicTicketToken,

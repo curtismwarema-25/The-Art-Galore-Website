@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion, type Variants } from 'framer-motion';
 
 /**
  * Minimalist Hero Component
@@ -23,7 +23,7 @@ export function HeroMinimal() {
     },
   };
 
-  const itemVariants = {
+  const itemVariants: Variants = {
     hidden: { opacity: 0, y: 12 },
     visible: {
       opacity: 1,

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Eye, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -50,6 +50,14 @@ export default function AdminUploadsPage() {
   const events = useMemo(() => eventsQuery.data ?? [], [eventsQuery.data]);
 
   const eventById = useMemo(() => Object.fromEntries(events.map((event) => [event.id, event])), [events]);
+
+  useEffect(() => {
+    if (!selectedUploadId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-upload-detail")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedUploadId]);
 
   async function handleModerate(uploadId: string, decision: Exclude<ModerationStatus, "pending">) {
     if (!canModerate) {
@@ -142,7 +150,19 @@ export default function AdminUploadsPage() {
           {uploads.map((upload) => (
             <article
               key={upload.id}
-              className="rounded-md border border-border bg-background p-4 flex flex-col gap-4"
+              className={`cursor-pointer rounded-md border p-4 flex flex-col gap-4 transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${selectedUploadId === upload.id ? "border-accent/40 bg-accent/10" : "border-border bg-background"}`}
+              tabIndex={0}
+              aria-selected={selectedUploadId === upload.id}
+              onClick={(event) => {
+                if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                setSelectedUploadId(upload.id);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setSelectedUploadId(upload.id);
+                }
+              }}
             >
               <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                 <div className="flex items-start gap-3">

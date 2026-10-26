@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ChevronDown, ChevronUp, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import DataTable from "@/components/common/DataTable";
@@ -18,9 +18,10 @@ import { useAdminOrderQuery, useAdminOrdersQuery } from "@/hooks/queries/useAdmi
 import { useAdminTicketEmailDeliveryQuery } from "@/hooks/queries/useAdminTicketEmailDeliveryQuery";
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
 import type { AdminMpesaTransactionAuditRecord, AdminMpesaTransactionStatus } from "@/api/endpoints/payments";
-import type { OrderDetailsRecord, OrderLifecycleStatus, TicketDeliveryStatus } from "@/api/endpoints/orders";
+import type { OrderDetailsRecord, OrderLifecycleStatus, TicketDeliveryStatus, VerificationStatus } from "@/api/endpoints/orders";
 import type { TicketEmailDeliverySummaryRecord } from "@/api/endpoints/tickets";
 import { toast } from "@/components/ui/sonner";
+import { canReverifyMpesaTransaction, isMpesaManualReview, mpesaStatusTone } from "./mpesaStatus";
 
 const ORDER_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | OrderLifecycleStatus }> = [
   { label: "All", value: "all" },
@@ -36,6 +37,7 @@ const MPESA_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | AdminMp
   { label: "All", value: "all" },
   { label: "Initiated", value: "initiated" },
   { label: "Pending", value: "pending" },
+  { label: "Ambiguous / Manual review", value: "ambiguous" },
   { label: "Paid", value: "paid" },
   { label: "Failed", value: "failed" },
   { label: "Cancelled", value: "cancelled" },
@@ -53,13 +55,6 @@ function verificationTone(status: "not_submitted" | "pending_review" | "approved
   if (status === "approved") return "approved";
   if (status === "rejected") return "rejected";
   return "pending";
-}
-
-function mpesaStatusTone(status: AdminMpesaTransactionStatus) {
-  if (status === "paid") return "paid" as const;
-  if (status === "initiated") return "initiating" as const;
-  if (status === "pending") return "pending" as const;
-  return "failed" as const;
 }
 
 function ticketDeliveryTone(status: TicketDeliveryStatus) {
@@ -155,6 +150,7 @@ function buildOrderTimeline(
 
 export default function AdminOrdersPage() {
   const { id: routeOrderId } = useParams();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilterValue, setStatusFilterValue] = useState<"all" | OrderLifecycleStatus>("all");
   const [eventFilter, setEventFilter] = useState("all");
@@ -294,6 +290,8 @@ export default function AdminOrdersPage() {
         }
       />
 
+      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] xl:items-start">
+      <div className="xl:col-start-1 xl:row-start-1">
       <AdminSectionCard title="Orders">
         <FilterBar
           searchValue={search}
@@ -323,7 +321,22 @@ export default function AdminOrdersPage() {
           ) : (
             <DataTable headers={["Order", "Buyer", "Event", "Items", "Amount", "Order status", "Payment review", "Actions"]} minWidthClassName="min-w-[820px] md:min-w-[1080px]">
               {orders.map((order) => (
-                <tr key={order.id} className="bg-background border border-border">
+                <tr
+                  key={order.id}
+                  className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${routeOrderId === order.id ? "bg-accent/10" : "bg-background"}`}
+                  aria-selected={routeOrderId === order.id}
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a,button")) return;
+                    navigate(`/admin/orders/${order.id}`);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      navigate(`/admin/orders/${order.id}`);
+                    }
+                  }}
+                >
                   <td className="px-3 py-3 text-sm text-foreground">{order.orderNumber}</td>
                   <td className="px-3 py-3 text-sm text-foreground-secondary">
                     <p>{order.buyer.buyerName}</p>
@@ -351,7 +364,9 @@ export default function AdminOrdersPage() {
           )}
         </div>
       </AdminSectionCard>
+      </div>
 
+      <div className="xl:col-start-1 xl:row-start-2">
       <AdminSectionCard title="Payment proof review">
         {isManualPaymentsLoading ? (
           <p className="text-sm text-foreground-secondary">Loading payment proofs…</p>
@@ -397,7 +412,9 @@ export default function AdminOrdersPage() {
           </DataTable>
         )}
       </AdminSectionCard>
+      </div>
 
+      <div className="xl:col-start-1 xl:row-start-3">
       <AdminSectionCard title="M-Pesa transactions">
         <FilterBar
           searchValue={mpesaSearch}
@@ -434,6 +451,7 @@ export default function AdminOrdersPage() {
             >
               {mpesaTransactions.map((transaction) => {
                 const isExpanded = expandedMpesaTransactionId === transaction.id;
+                const requiresManualReview = isMpesaManualReview(transaction);
                 return (
                   <Fragment key={transaction.id}>
                     <tr className="bg-background border border-border">
@@ -476,7 +494,7 @@ export default function AdminOrdersPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={reverifyMpesaMutation.isPending || !["initiated", "pending"].includes(transaction.status)}
+                            disabled={reverifyMpesaMutation.isPending || !canReverifyMpesaTransaction(transaction)}
                             onClick={() => void reverifyMpesaTransaction(transaction.id)}
                           >
                             <RefreshCw size={14} />
@@ -502,7 +520,26 @@ export default function AdminOrdersPage() {
                                 <span className="text-foreground">Callback:</span>{" "}
                                 {transaction.callbackReceived ? "received" : "not received"}
                               </p>
+                              <p>
+                                <span className="text-foreground">Reconciliation attempts:</span>{" "}
+                                {transaction.reconciliationAttemptCount}
+                              </p>
                             </div>
+                            {requiresManualReview && (
+                              <p className="mt-3 rounded border border-destructive/30 bg-destructive/5 p-3 text-destructive">
+                                Manual review required. Reverify checks the existing M-Pesa request status and does not create a new STK prompt.
+                              </p>
+                            )}
+                            {!transaction.checkoutRequestId && requiresManualReview && (
+                              <p className="mt-2 rounded border border-destructive/30 bg-destructive/5 p-3 text-destructive">
+                                No checkout request is available for safe automatic recovery.
+                              </p>
+                            )}
+                            {transaction.lastReconciliationError && (
+                              <p className="mt-2">
+                                <span className="text-foreground">Last reconciliation error:</span> {transaction.lastReconciliationError}
+                              </p>
+                            )}
                             {transaction.resultDesc && (
                               <p className="mt-3">
                                 <span className="text-foreground">Result Message:</span> {transaction.resultDesc}
@@ -524,8 +561,10 @@ export default function AdminOrdersPage() {
           )}
         </div>
       </AdminSectionCard>
+      </div>
 
       {routeOrderId && (
+        <div className="order-first xl:order-none xl:col-start-2 xl:row-start-1 xl:row-span-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
         <AdminSectionCard title="Order details">
           {isSelectedLoading ? (
             <p className="text-sm text-foreground-secondary">Loading order details…</p>
@@ -533,7 +572,10 @@ export default function AdminOrdersPage() {
             <EmptyState title="Order not found" description="The selected order could not be loaded." />
           ) : (
             <div className="space-y-4">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button size="sm" variant="outline" asChild>
+                  <Link to="/admin/orders">Back to all orders</Link>
+                </Button>
                 <Button
                   size="sm"
                   variant="accent"
@@ -734,7 +776,9 @@ export default function AdminOrdersPage() {
             </div>
           )}
         </AdminSectionCard>
+        </div>
       )}
+      </div>
 
       {reviewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/75 px-4">

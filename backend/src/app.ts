@@ -1,10 +1,13 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { errorHandler } from "./common/middleware/errorHandler.js";
 import { env } from "./config/index.js";
 import { prisma } from "./lib/prisma.js";
+import { createProtectedMediaMiddleware } from "./modules/media/protectedMedia.js";
 import { resolveMediaRootPath } from "./modules/media/storage/localStorage.js";
 import { registerRoutes } from "./routes.js";
 
@@ -32,6 +35,7 @@ function isLoopbackOrigin(origin: string) {
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
 
   const allowedOrigins = env.CORS_ORIGIN.split(",")
     .map((origin) => origin.trim())
@@ -67,9 +71,10 @@ export function createApp() {
 
   const mediaRoot = resolveMediaRootPath();
   mkdirSync(mediaRoot, { recursive: true });
-  app.use(`${env.API_PREFIX}${env.MEDIA_PUBLIC_BASE_PATH}`, express.static(mediaRoot));
+  const mediaStatic = createProtectedMediaMiddleware(mediaRoot);
+  app.use(`${env.API_PREFIX}${env.MEDIA_PUBLIC_BASE_PATH}`, mediaStatic);
   // Backward-compatible alias for already persisted legacy `/uploads/...` URLs.
-  app.use("/uploads", express.static(mediaRoot));
+  app.use("/uploads", mediaStatic);
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
@@ -85,6 +90,29 @@ export function createApp() {
   });
 
   registerRoutes(app, env.API_PREFIX);
+
+  if (env.SERVE_FRONTEND) {
+    const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../");
+    const frontendDist = resolve(projectRoot, "frontend/dist");
+    const frontendIndex = resolve(frontendDist, "index.html");
+
+    if (!existsSync(frontendIndex)) {
+      throw new Error(`SERVE_FRONTEND is enabled, but the production frontend build is missing at ${frontendDist}`);
+    }
+
+    app.use(express.static(frontendDist, { index: false, fallthrough: true }));
+    app.get("*", (req, res, next) => {
+      const isApiRequest = req.path === env.API_PREFIX || req.path.startsWith(`${env.API_PREFIX}/`);
+      const isHealthRequest = req.path === "/health" || req.path.startsWith("/health/");
+      if (isApiRequest || isHealthRequest || !req.accepts("html")) {
+        next();
+        return;
+      }
+
+      res.sendFile(frontendIndex);
+    });
+  }
+
   app.use(errorHandler);
 
   return app;

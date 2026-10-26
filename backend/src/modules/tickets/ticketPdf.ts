@@ -7,6 +7,18 @@ type TicketPdfOptions = {
   qrImageBuffer: Buffer;
 };
 
+const BRAND = {
+  background: "#FFFFFF",
+  surface: "#E8E4F5",
+  midnight: "#141738",
+  indigo: "#3E458D",
+  purple: "#7B6AB5",
+  border: "#D8D1EA",
+  white: "#FFFFFF",
+  danger: "#B4233A",
+  dangerSurface: "#FCE8EC",
+};
+
 function formatDateTime(value: Date, timezone: string) {
   return new Intl.DateTimeFormat("en-KE", {
     dateStyle: "full",
@@ -22,15 +34,21 @@ function formatStatus(status: ReturnType<typeof mapTicketStatus>) {
   return "Active";
 }
 
-function formatStatusTone(status: ReturnType<typeof mapTicketStatus>) {
-  if (status === "checked_in") return "#0f766e";
-  if (status === "revoked" || status === "cancelled") return "#b91c1c";
-  return "#166534";
+function formatStatusColors(status: ReturnType<typeof mapTicketStatus>) {
+  if (status === "revoked" || status === "cancelled") {
+    return { foreground: BRAND.danger, background: BRAND.dangerSurface, border: "#F3C4CC" };
+  }
+  if (status === "checked_in") {
+    return { foreground: BRAND.white, background: BRAND.indigo, border: BRAND.indigo };
+  }
+  return { foreground: BRAND.white, background: BRAND.purple, border: BRAND.purple };
 }
 
 function writeField(doc: PDFKit.PDFDocument, label: string, value: string, x: number, y: number) {
-  doc.fontSize(9).fillColor("#6b7280").text(label.toUpperCase(), x, y, { width: 220 });
-  doc.fontSize(11).fillColor("#111827").text(value, x, y + 14, { width: 240 });
+  doc.font("Helvetica-Bold").fontSize(8).fillColor(BRAND.indigo)
+    .text(label.toUpperCase(), x, y, { width: 250, characterSpacing: 0.8 });
+  doc.font("Helvetica").fontSize(11).fillColor(BRAND.midnight)
+    .text(value, x, y + 14, { width: 255, lineGap: 2 });
 }
 
 export async function renderTicketPdf({ brandName, ticket, qrImageBuffer }: TicketPdfOptions) {
@@ -57,75 +75,77 @@ export async function renderTicketPdf({ brandName, ticket, qrImageBuffer }: Tick
       ? formatDateTime(ticket.checkIns[0].checkedInAt, ticket.event.timezone)
       : "Not checked in";
 
-    doc.rect(0, 0, doc.page.width, 110).fill("#111827");
-    doc.fillColor("#f9fafb").fontSize(14).font("Helvetica-Bold").text(brandName, 48, 36);
-    doc.fontSize(22).font("Helvetica-Bold").text("Event Ticket", 48, 56);
-    doc.fontSize(11).font("Helvetica").text(ticket.ticketNumber, 48, 84);
+    const pageWidth = doc.page.width;
+    const cardX = 36;
+    const cardY = 142;
+    const cardWidth = pageWidth - 72;
+    const statusColors = formatStatusColors(ticketStatus);
 
-    doc.fillColor("#111827");
-    doc.roundedRect(48, 134, doc.page.width - 96, 640, 8).lineWidth(1).stroke("#e5e7eb");
+    doc.rect(0, 0, pageWidth, doc.page.height).fill(BRAND.background);
+    doc.rect(0, 0, pageWidth, 126).fill(BRAND.midnight);
+    doc.roundedRect(pageWidth - 142, 34, 92, 54, 12).fill("#201D49");
+    doc.circle(pageWidth - 96, 61, 18).fill(BRAND.purple);
+    doc.circle(pageWidth - 96, 61, 7).fill(BRAND.midnight);
 
-    doc.font("Helvetica-Bold").fontSize(16).text(ticket.event.title, 70, 158, { width: 320 });
-    doc.font("Helvetica").fontSize(11).fillColor("#374151").text(ticket.ticketTier.name, 70, 182, { width: 320 });
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(BRAND.surface)
+      .text(brandName.toUpperCase(), 42, 28, { characterSpacing: 1.5 });
+    doc.font("Helvetica-Bold").fontSize(25).fillColor(BRAND.white).text("Event Ticket", 42, 48);
+    doc.font("Helvetica").fontSize(11).fillColor(BRAND.surface).text(ticket.ticketNumber, 43, 84);
+    doc.moveTo(42, 108).lineTo(112, 108).lineWidth(3).stroke(BRAND.purple);
 
-    doc.roundedRect(400, 158, 150, 34, 6).fillAndStroke("#f3f4f6", "#e5e7eb");
-    doc
-      .fillColor(formatStatusTone(ticketStatus))
-      .font("Helvetica-Bold")
-      .fontSize(11)
-      .text(formatStatus(ticketStatus), 420, 169, { width: 120, align: "center" });
+    doc.roundedRect(cardX, cardY, cardWidth, 634, 14)
+      .fillAndStroke(BRAND.surface, BRAND.border);
 
-    writeField(doc, "Event Date", `${eventStart} to ${eventEnd}`, 70, 232);
-    writeField(doc, "Venue", ticket.event.venueName, 70, 286);
-    writeField(doc, "Order Number", ticket.order.orderNumber, 70, 340);
-    writeField(doc, "Attendee", ticket.order.buyerName, 70, 394);
-    writeField(doc, "Issued At", issuedDate, 70, 448);
-    writeField(doc, "Checked In At", checkedInAt, 70, 502);
+    doc.font("Helvetica-Bold").fontSize(8).fillColor(BRAND.indigo)
+      .text("YOUR ADMISSION PASS", 60, 164, { characterSpacing: 1.6 });
+    doc.font("Helvetica-Bold").fontSize(18).fillColor(BRAND.midnight)
+      .text(ticket.event.title, 60, 184, { width: 320, height: 42, ellipsis: true });
+    doc.font("Helvetica").fontSize(11).fillColor(BRAND.indigo)
+      .text(ticket.ticketTier.name, 60, 229, { width: 280 });
 
+    doc.roundedRect(416, 165, 122, 30, 15)
+      .fillAndStroke(statusColors.background, statusColors.border);
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(statusColors.foreground)
+      .text(formatStatus(ticketStatus).toUpperCase(), 422, 175, { width: 110, align: "center", characterSpacing: 0.5 });
+
+    doc.save();
+    doc.dash(4, { space: 4 }).moveTo(344, 250).lineTo(344, 635).lineWidth(1).stroke(BRAND.border);
+    doc.restore();
+
+    writeField(doc, "Event Date", `${eventStart} to ${eventEnd}`, 60, 274);
+    writeField(doc, "Venue", ticket.event.venueName, 60, 332);
+    writeField(doc, "Order Number", ticket.order.orderNumber, 60, 390);
+    writeField(doc, "Attendee", ticket.order.buyerName, 60, 448);
+    writeField(doc, "Issued At", issuedDate, 60, 506);
+    writeField(doc, "Checked In At", checkedInAt, 60, 564);
+
+    doc.roundedRect(367, 267, 168, 168, 10).fill(BRAND.white);
     if (qrImageBuffer.length > 0) {
-      doc.image(qrImageBuffer, 390, 252, {
-        fit: [170, 170],
+      doc.image(qrImageBuffer, 376, 276, {
+        fit: [150, 150],
         align: "center",
         valign: "center",
       });
-      doc.rect(390, 252, 170, 170).lineWidth(1).stroke("#e5e7eb");
     }
+    doc.roundedRect(367, 267, 168, 168, 10).lineWidth(1).stroke(BRAND.border);
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(BRAND.midnight)
+      .text("SCAN AT THE DOOR", 367, 448, { width: 168, align: "center", characterSpacing: 0.7 });
+    doc.font("Helvetica").fontSize(8).fillColor(BRAND.indigo)
+      .text("Keep this QR code ready for check-in.", 367, 463, { width: 168, align: "center" });
+    doc.font("Helvetica-Bold").fontSize(8).fillColor(BRAND.midnight)
+      .text("Ticket access token", 367, 498, { width: 168, align: "center" });
+    doc.font("Helvetica").fontSize(7).fillColor(BRAND.indigo)
+      .text(ticket.publicTicketToken, 372, 512, { width: 158, align: "center", lineGap: 2 });
 
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#6b7280")
-      .text("Present this QR code at check-in.", 390, 432, { width: 170, align: "center" });
-
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#6b7280")
-      .text("Token", 390, 468, { width: 170, align: "center" });
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(9)
-      .fillColor("#374151")
-      .text(ticket.publicTicketToken, 390, 480, { width: 170, align: "center" });
-
-    doc
-      .moveTo(70, 570)
-      .lineTo(doc.page.width - 70, 570)
-      .lineWidth(1)
-      .stroke("#e5e7eb");
-
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#6b7280")
-      .text("This ticket is non-transferable unless explicitly approved by organizers.", 70, 586, {
-        width: doc.page.width - 140,
+    doc.roundedRect(59, 660, cardWidth - 46, 82, 9).fill(BRAND.white);
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(BRAND.midnight)
+      .text("A few things to know", 76, 675);
+    doc.font("Helvetica").fontSize(9).fillColor(BRAND.indigo)
+      .text("This ticket is non-transferable unless approved by the organizers.", 76, 694, {
+        width: cardWidth - 86,
       });
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#6b7280")
-      .text(`Generated by ${brandName}`, 70, 606, { width: doc.page.width - 140 });
+    doc.font("Helvetica").fontSize(8).fillColor(BRAND.indigo)
+      .text(`Issued by ${brandName}`, 76, 718, { width: cardWidth - 86 });
 
     doc.end();
   });
