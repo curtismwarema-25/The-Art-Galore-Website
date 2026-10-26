@@ -207,7 +207,7 @@ function mapEventRecord(event: EventWithPublicRelations): SerializedEventRecord 
   };
 }
 
-function mapTicketTier(tier: TicketTierWithPerks): SerializedTicketTierRecord {
+function mapTicketTier(tier: TicketTierWithPerks, available = tier.availableQuantity): SerializedTicketTierRecord {
   return {
     id: tier.id,
     slug: tier.slug,
@@ -218,7 +218,7 @@ function mapTicketTier(tier: TicketTierWithPerks): SerializedTicketTierRecord {
     price: Number(tier.price),
     currency: "KES",
     perks: tier.perks.map((perk) => perk.label),
-    available: tier.availableQuantity,
+    available,
     saleStartAt: tier.saleStartAt?.toISOString(),
     saleEndAt: tier.saleEndAt?.toISOString(),
     maxPerOrder: tier.maxPerOrder ?? undefined,
@@ -252,10 +252,18 @@ export class EventsService {
     }
 
     const record = event as EventWithDetailRelations;
+    const now = new Date();
+    const reservedQuantities = await this.repository.getReservedTicketQuantities(
+      record.ticketTiers.map((tier) => tier.id),
+      now,
+    );
 
     return {
       ...mapEventRecord(record),
-      ticketTiers: record.ticketTiers.map((tier) => mapTicketTier(tier as TicketTierWithPerks)),
+      ticketTiers: record.ticketTiers.map((tier) => {
+        const available = Math.max(tier.availableQuantity - (reservedQuantities.get(tier.id) ?? 0), 0);
+        return mapTicketTier(tier as TicketTierWithPerks, available);
+      }),
       galleryImages: record.galleryImages.map(mapGalleryImage),
       approvedUploads: record.communityUploads.map(mapCommunityUpload),
     } satisfies PublicEventDetailRecord;

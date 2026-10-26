@@ -1,12 +1,18 @@
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { errorHandler } from "./common/middleware/errorHandler.js";
 import { env } from "./config/index.js";
 import { prisma } from "./lib/prisma.js";
 import { resolveMediaRootPath } from "./modules/media/storage/localStorage.js";
 import { registerRoutes } from "./routes.js";
+import { UploadsRepository } from "./modules/uploads/uploads.repository.js";
+import { mediaStorage } from "./modules/media/storage/provider.js";
+import { imageMediaResponse } from "./modules/media/mediaResponse.js";
+import { isCommunityMediaApproved, isPublicMediaTarget } from "./modules/media/mediaAccess.js";
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
@@ -32,6 +38,7 @@ function isLoopbackOrigin(origin: string) {
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
 
   const allowedOrigins = env.CORS_ORIGIN.split(",")
     .map((origin) => origin.trim())
@@ -67,9 +74,37 @@ export function createApp() {
 
   const mediaRoot = resolveMediaRootPath();
   mkdirSync(mediaRoot, { recursive: true });
-  app.use(`${env.API_PREFIX}${env.MEDIA_PUBLIC_BASE_PATH}`, express.static(mediaRoot));
-  // Backward-compatible alias for already persisted legacy `/uploads/...` URLs.
-  app.use("/uploads", express.static(mediaRoot));
+  const uploadsRepository = new UploadsRepository();
+  const serveMedia = (prefix: string) => app.use(prefix, async (req, res, next) => {
+    try {
+      const storageKey = decodeURIComponent(req.path.replace(/^\/+/, ""));
+      const target = storageKey.split("/")[0];
+      if (!storageKey || (!isPublicMediaTarget(target) && target !== "community")) {
+        res.status(404).json({ error: "Media not found" });
+        return;
+      }
+      if (target === "community") {
+        const approved = await uploadsRepository.findApprovedUploadByStorageKey(storageKey);
+        if (!isCommunityMediaApproved(approved ? "APPROVED" : undefined)) {
+          res.status(404).json({ error: "Media not found" });
+          return;
+        }
+      }
+      await imageMediaResponse(res, await mediaStorage.getExistingFilePath(storageKey));
+    } catch (error) {
+      if (error instanceof URIError) { res.status(404).json({ error: "Media not found" }); return; }
+      if (error && typeof error === "object" && "code" in error && (error as { code?: string }).code === "ENOENT") {
+        res.status(404).json({ error: "Media not found" }); return;
+      }
+      if (error instanceof Error && error.message === "Invalid storage key") {
+        res.status(404).json({ error: "Media not found" }); return;
+      }
+      next(error);
+    }
+  });
+  serveMedia(`${env.API_PREFIX}${env.MEDIA_PUBLIC_BASE_PATH}`);
+  // Backward-compatible alias, filtered by the same public access policy.
+  serveMedia("/uploads");
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
@@ -85,6 +120,29 @@ export function createApp() {
   });
 
   registerRoutes(app, env.API_PREFIX);
+
+  if (env.SERVE_FRONTEND) {
+    const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../");
+    const frontendDist = resolve(projectRoot, "frontend/dist");
+    const frontendIndex = resolve(frontendDist, "index.html");
+
+    if (!existsSync(frontendIndex)) {
+      throw new Error(`SERVE_FRONTEND is enabled, but the production frontend build is missing at ${frontendDist}`);
+    }
+
+    app.use(express.static(frontendDist, { index: false, fallthrough: true }));
+    app.get("*", (req, res, next) => {
+      const isApiRequest = req.path === env.API_PREFIX || req.path.startsWith(`${env.API_PREFIX}/`);
+      const isHealthRequest = req.path === "/health" || req.path.startsWith("/health/");
+      if (isApiRequest || isHealthRequest || !req.accepts("html")) {
+        next();
+        return;
+      }
+
+      res.sendFile(frontendIndex);
+    });
+  }
+
   app.use(errorHandler);
 
   return app;

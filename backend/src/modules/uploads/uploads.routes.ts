@@ -4,6 +4,7 @@ import { authenticate } from "../../common/middleware/authenticate.js";
 import { authorize } from "../../common/middleware/authorize.js";
 import { validateRequest } from "../../common/validation/validateRequest.js";
 import { UploadsService } from "./uploads.service.js";
+import { imageMediaResponse } from "../media/mediaResponse.js";
 import {
   createCommunityUploadSchema,
   listAdminUploadsQuerySchema,
@@ -52,6 +53,18 @@ uploadsRouter.post("/", validateRequest(createCommunityUploadSchema), async (req
 });
 
 adminUploadsRouter.use(authenticate);
+
+adminUploadsRouter.get(
+  "/:id/media",
+  authorize(UPLOADS_READ_ROLES),
+  validateRequest(uploadIdParamsSchema),
+  async (req, res, next) => {
+    try {
+      const { id } = uploadIdParamsSchema.shape.params.parse(req.params);
+      await imageMediaResponse(res, await uploadsService.getAdminUploadMediaPath(id));
+    } catch (error) { next(error); }
+  },
+);
 
 adminUploadsRouter.get(
   "/",

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { IScannerControls } from "@zxing/browser";
 import { QrCode, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/common/EmptyState";
@@ -11,16 +12,6 @@ import { useAdminTicketCheckInMutation } from "@/hooks/mutations/useAdminTicketC
 import { useAdminTicketSearchQuery } from "@/hooks/queries/useAdminTicketSearchQuery";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/features/auth/useAuth";
-
-type DetectedBarcode = {
-  rawValue: string;
-};
-
-type BarcodeDetectorInstance = {
-  detect: (source: HTMLVideoElement) => Promise<DetectedBarcode[]>;
-};
-
-type BarcodeDetectorConstructor = new (options?: { formats?: string[] }) => BarcodeDetectorInstance;
 
 function ticketTone(status: "active" | "checked_in" | "revoked" | "cancelled") {
   if (status === "checked_in") return "checked-in";
@@ -43,8 +34,7 @@ export default function AdminCheckInPage() {
     message: string;
   } | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const detectorRef = useRef<BarcodeDetectorInstance | null>(null);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
 
   const { data: matches = [], isLoading, isError, refetch } = useAdminTicketSearchQuery(
     {
@@ -54,10 +44,7 @@ export default function AdminCheckInPage() {
     Boolean(submittedQuery),
   );
   const checkInMutation = useAdminTicketCheckInMutation();
-  const barcodeDetectorConstructor = typeof window !== "undefined"
-    ? ((window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector)
-    : undefined;
-  const scannerSupported = Boolean(barcodeDetectorConstructor && navigator.mediaDevices?.getUserMedia);
+  const scannerSupported = typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
 
   const activeTicket = useMemo(
     () => matches.find((ticket) => ticket.publicTicketToken === activeTicketToken) ?? matches[0] ?? null,
@@ -112,47 +99,58 @@ export default function AdminCheckInPage() {
   }, [isError, isLoading, matches, submittedQuery]);
 
   useEffect(() => {
-    if (!scannerActive) return;
+    if (!scannerActive || !videoRef.current) return;
 
-    let stopped = false;
-    let timeoutId: number | undefined;
+    let cancelled = false;
+    const preview = videoRef.current;
 
-    const scan = async () => {
-      if (stopped || !detectorRef.current || !videoRef.current) return;
-
+    const startDecoding = async () => {
       try {
-        if (videoRef.current.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-          const codes = await detectorRef.current.detect(videoRef.current);
-          const rawValue = codes[0]?.rawValue?.trim();
-          if (rawValue) {
-            setQuery(rawValue);
-            setSubmittedQuery(rawValue);
-            setCheckInMethod("qr");
-            setActiveTicketToken(null);
-            setVerificationResult(null);
-            setScannerMessage("QR code captured.");
-            stopScanner();
-            return;
-          }
+        const { BrowserQRCodeReader } = await import("@zxing/browser");
+        if (cancelled) return;
+
+        const reader = new BrowserQRCodeReader();
+        const controls = await reader.decodeFromVideoDevice(undefined, preview, (result) => {
+          if (cancelled || !result) return;
+
+          const rawValue = result.getText().trim();
+          if (!rawValue) return;
+
+          setQuery(rawValue);
+          setSubmittedQuery(rawValue);
+          setCheckInMethod("qr");
+          setActiveTicketToken(null);
+          setVerificationResult(null);
+          setScannerMessage("QR code captured. Verifying ticket...");
+          stopScanner();
+        });
+
+        if (cancelled) {
+          controls.stop();
+        } else {
+          scannerControlsRef.current = controls;
         }
       } catch (error) {
-        setScannerMessage(error instanceof Error ? error.message : "Could not scan QR code.");
+        if (!cancelled) {
+          setScannerMessage(error instanceof Error ? error.message : "Could not start QR scanning.");
+          setScannerActive(false);
+        }
       }
-
-      timeoutId = window.setTimeout(scan, 700);
     };
 
-    timeoutId = window.setTimeout(scan, 500);
+    void startDecoding();
 
     return () => {
-      stopped = true;
-      if (timeoutId) window.clearTimeout(timeoutId);
+      cancelled = true;
+      scannerControlsRef.current?.stop();
+      scannerControlsRef.current = null;
+      preview.srcObject = null;
     };
   }, [scannerActive]);
 
   function stopScanner() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
@@ -160,29 +158,14 @@ export default function AdminCheckInPage() {
   }
 
   const startScanner = async () => {
-    if (!barcodeDetectorConstructor) {
-      setScannerMessage("QR scanning is not supported in this browser. Use manual search.");
+    if (!scannerSupported) {
+      setScannerMessage("Camera access is not available in this browser. Use manual search.");
       return;
     }
 
-    try {
-      detectorRef.current = new barcodeDetectorConstructor({ formats: ["qr_code"] });
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false,
-      });
-      streamRef.current = stream;
-      setScannerActive(true);
-      setScannerMessage("Point the camera at a ticket QR code.");
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-    } catch (error) {
-      setScannerMessage(error instanceof Error ? error.message : "Could not start camera.");
-      stopScanner();
-    }
+    setCheckInMethod("qr");
+    setScannerActive(true);
+    setScannerMessage("Point the camera at a ticket QR code.");
   };
 
   const searchTicket = () => {
@@ -242,13 +225,16 @@ export default function AdminCheckInPage() {
     }
   };
 
-  useEffect(() => stopScanner, []);
+  useEffect(() => () => {
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
+  }, []);
 
   return (
     <div className="space-y-5 md:space-y-6">
-      <SectionHeader title="Event Check-In" subtitle="Search tickets and validate entries through live backend check-in endpoints." />
+      <SectionHeader title="Check-In Guests" subtitle="Scan or search a ticket, confirm the guest, and mark them in with one action." />
 
-      <AdminSectionCard title="Scanner + Manual Search">
+      <AdminSectionCard title="Scanner + Manual Search" description="Start with the camera when a guest has a QR code. Otherwise search by ticket, order, phone, or buyer name.">
         <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr] gap-4">
           <div className="rounded-md border border-dashed border-border bg-secondary/20 p-4 text-center">
             {scannerActive ? (
@@ -260,7 +246,7 @@ export default function AdminCheckInPage() {
               {scannerActive ? "Scanning QR Code" : "QR Scanner"}
             </p>
             <p className="mt-1 text-xs text-foreground-secondary">
-              {scannerMessage || (scannerSupported ? "Use the camera to scan ticket QR payloads." : "This browser does not support camera QR detection.")}
+              {scannerMessage || (scannerSupported ? "Use the camera to scan ticket QR payloads." : "Camera access is unavailable. Use manual search instead.")}
             </p>
             <div className="mt-3 flex justify-center gap-2">
               <Button type="button" size="sm" variant="outline" disabled={!scannerSupported || scannerActive} onClick={() => void startScanner()}>
@@ -303,7 +289,7 @@ export default function AdminCheckInPage() {
         </div>
       </AdminSectionCard>
 
-      <AdminSectionCard title="Search Results">
+      <AdminSectionCard title="Search Results" description="Select the matching ticket to see its status and check-in action below.">
         {isLoading && <p className="text-sm text-foreground-secondary">Searching tickets...</p>}
         {isError && <EmptyState title="Search failed" description="Could not load ticket results from the backend." />}
         {!isLoading && !isError && submittedQuery && matches.length === 0 && (
@@ -337,7 +323,7 @@ export default function AdminCheckInPage() {
         )}
       </AdminSectionCard>
 
-      <AdminSectionCard title="Ticket Result">
+      <AdminSectionCard title="Ticket Result" description="Confirm the guest details, then mark the ticket checked-in once they are at the entrance.">
         {!activeTicket && <EmptyState title="No ticket selected" description="Search and select a ticket to check in." />}
         {activeTicket && (
           <div className="space-y-4">

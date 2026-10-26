@@ -85,6 +85,8 @@ function mapAdminCommunityUpload(upload: UploadWithReviews): SerializedAdminComm
     submitterEmail: upload.submitterEmail ?? undefined,
     submitterPhone: upload.submitterPhone ?? undefined,
     consentGiven: upload.consentGiven,
+    image: `/api/admin/community-uploads/${upload.id}/media`,
+    media: { ...mapped.media, url: `/api/admin/community-uploads/${upload.id}/media` },
     reviewHistory: mapReviewHistory(upload.reviews),
   } satisfies AdminCommunityUploadRecord;
 }
@@ -142,6 +144,13 @@ export class UploadsService {
     }
 
     return mapAdminCommunityUpload(upload as UploadWithReviews);
+  }
+
+  async getAdminUploadMediaPath(id: string) {
+    const upload = await this.repository.findUploadById(id);
+    if (!upload) throw new NotFoundError("Community upload not found");
+    const { mediaStorage } = await import("../media/storage/provider.js");
+    return mediaStorage.getExistingFilePath(upload.storageKey);
   }
 
   async moderateUpload(id: string, reviewerId: string, input: ModerateCommunityUploadInput) {

@@ -17,6 +17,7 @@ dist-ssr
 backend/.env
 backend/.env.*
 !backend/.env.example
+!backend/.env.production.example
 backend/prisma/schema.prisma
 
 # Editor directories and files

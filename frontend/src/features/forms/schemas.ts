@@ -76,6 +76,7 @@ export const communityUploadFormSchema = z.object({
   alias: z.string().trim().min(2),
   eventId: z.string().trim().min(1),
   file: z.instanceof(File),
+  consentGiven: z.literal(true),
 });
 
 export type EventFormInput = z.infer<typeof eventFormSchema>;

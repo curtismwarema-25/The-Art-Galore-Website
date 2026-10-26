@@ -1,7 +1,8 @@
-import { OrderStatus, PaymentStatus, PaymentVerificationStatus } from "@prisma/client";
+import { OrderStatus, PaymentProvider, PaymentStatus, PaymentVerificationStatus } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { env } from "../../config/index.js";
+import { AppError } from "../../common/errors/AppError.js";
 import { NotFoundError, ValidationError } from "../../common/errors/httpErrors.js";
 import { logger } from "../../common/utils/logger.js";
 import { TicketsService } from "../tickets/tickets.service.js";
@@ -77,6 +78,34 @@ type DarajaStkQueryResult = {
   PhoneNumber?: string | number;
 };
 
+export class DarajaRequestError extends AppError {
+  constructor(
+    readonly providerStatus: number,
+    message: string,
+    readonly retryAfterMs?: number,
+  ) {
+    super(
+      providerStatus === 429 ? 503 : 502,
+      providerStatus === 429 ? "M-Pesa is temporarily rate limiting status checks. Please wait and try again." : message,
+      providerStatus === 429 ? "PAYMENT_PROVIDER_RATE_LIMITED" : "PAYMENT_PROVIDER_ERROR",
+      { providerStatus },
+    );
+    this.name = "DarajaRequestError";
+  }
+}
+
+function parseRetryAfterMs(value: string | null) {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  const milliseconds = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(value) - Date.now();
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return undefined;
+  return Math.min(milliseconds, 60 * 60 * 1000);
+}
+
+export function isDefinitiveDarajaRejection(providerStatus: number) {
+  return providerStatus >= 400 && providerStatus < 500 && providerStatus !== 408;
+}
+
 export class PaymentsService {
   constructor(
     private readonly repository: PaymentsRepository = new PaymentsRepository(),
@@ -116,9 +145,13 @@ export class PaymentsService {
   }
 
   private getDarajaBaseUrl() {
-    return env.MPESA_DARAJA_ENV === "production"
+    return env.MPESA_DARAJA_ENV === "production" && env.MPESA_LIVE_PAYMENTS_ENABLED
       ? "https://api.safaricom.co.ke"
       : "https://sandbox.safaricom.co.ke";
+  }
+
+  private getStkPhone(phone: string) {
+    return toMpesaPhone(phone);
   }
 
   private async darajaRequest<T>(path: string, init: RequestInit): Promise<T> {
@@ -129,11 +162,39 @@ export class PaymentsService {
         ...init,
         signal: controller.signal,
       });
-      const json = (await response.json()) as T & { errorMessage?: string };
+      const responseText = await response.text();
+      let json: (T & { errorMessage?: string; errorCode?: string; requestId?: string }) | undefined;
+      try {
+        json = JSON.parse(responseText) as T & { errorMessage?: string; errorCode?: string; requestId?: string };
+      } catch {
+        logger.error("Daraja returned a non-JSON response", {
+          path,
+          httpStatus: response.status,
+          responseExcerpt: responseText.slice(0, 300),
+        });
+        throw new DarajaRequestError(response.status, `Daraja returned an unreadable response (HTTP ${response.status})`);
+      }
       if (!response.ok) {
-        throw new ValidationError(json.errorMessage ?? "Failed to complete Daraja request");
+        logger.error("Daraja API request failed", {
+          path,
+          httpStatus: response.status,
+          errorCode: json.errorCode,
+          requestId: json.requestId,
+          errorMessage: json.errorMessage,
+        });
+        throw new DarajaRequestError(
+          response.status,
+          json.errorMessage || `Daraja request failed (HTTP ${response.status})`,
+          parseRetryAfterMs(response.headers.get("retry-after")),
+        );
       }
       return json;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        logger.error("Daraja API request timed out", { path, timeoutSeconds: env.MPESA_TIMEOUT_SECONDS });
+        throw new ValidationError(`Daraja request timed out after ${env.MPESA_TIMEOUT_SECONDS} seconds`);
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -152,59 +213,127 @@ export class PaymentsService {
   async initiateStkPush(publicToken: string, input: InitiateStkPushInput, idempotencyKey?: string): Promise<InitiateStkPushResult> {
     this.assertDarajaConfigured();
     const now = new Date();
-    const normalizedPhone = toMpesaPhone(input.phoneNumber);
+    const normalizedPhone = this.getStkPhone(input.phoneNumber);
     const key = idempotencyKey?.trim() || randomUUID();
+    // Keep the database transaction short. Daraja is an external network call
+    // and can take longer than Prisma's interactive transaction timeout.
+    const order = await this.repository.findOrderByPublicToken(publicToken);
+    if (!order) throw new NotFoundError("Order not found");
+    if (order.status === OrderStatus.EXPIRED) throw new ValidationError("Order has expired");
+    if (order.status === OrderStatus.PAID || order.status === OrderStatus.PAYMENT_VERIFIED) {
+      throw new ValidationError("Order is already paid");
+    }
+    if (order.status !== OrderStatus.PENDING_PAYMENT && order.status !== OrderStatus.PAYMENT_REJECTED) {
+      throw new ValidationError("A payment has already been submitted for this order");
+    }
+    if (Number(order.totalAmount) <= 0) {
+      throw new ValidationError("Order amount is invalid for MPESA checkout");
+    }
+
+    const idempotentTransaction = await this.repository.findPaymentTransactionByIdempotencyKey(key);
+    if (idempotentTransaction) {
+      if (idempotentTransaction.orderId !== order.id) {
+        throw new ValidationError("This idempotency key is already associated with another order");
+      }
+      if (idempotentTransaction.reconciliationRequiresManualReview) {
+        throw new ValidationError("This payment attempt needs review before another prompt can be sent. Contact support.");
+      }
+      if (idempotentTransaction.externalRequestId) {
+        return {
+          orderNumber: order.orderNumber,
+          customerMessage: "Payment prompt already requested. Check your phone or payment status.",
+          responseCode: "0",
+          paymentStatus: "pending" as const,
+        };
+      }
+      throw new ValidationError("This payment attempt is still being prepared. Check the order status shortly.");
+    }
+
+    const hasActiveMpesaPayment = order.paymentTransactions.some((payment) =>
+      payment.provider === PaymentProvider.MPESA
+      && (payment.status === PaymentStatus.INITIATED
+        || payment.status === PaymentStatus.PENDING
+        || payment.status === PaymentStatus.AMBIGUOUS),
+    );
+    if (hasActiveMpesaPayment) {
+      throw new ValidationError("An M-Pesa payment is already being processed for this order.");
+    }
+
+    const cooldownSince = new Date(now.getTime() - env.MPESA_STK_INITIATE_COOLDOWN_SECONDS * 1000);
+    const hasRecent = await this.repository.hasRecentActiveMpesaTransaction(order.id, cooldownSince);
+    if (hasRecent) {
+      throw new ValidationError("A payment prompt was sent recently. Please wait before retrying.");
+    }
+
+    const latestMpesaTx = await this.repository.findLatestMpesaTransactionForOrder(order.id);
+    if (
+      latestMpesaTx?.status === PaymentStatus.INITIATED
+      || latestMpesaTx?.status === PaymentStatus.PENDING
+      || latestMpesaTx?.status === PaymentStatus.AMBIGUOUS
+    ) {
+      const oldestRetryAt = new Date(latestMpesaTx.createdAt.getTime() + env.MPESA_STK_PENDING_RETRY_MINUTES * 60 * 1000);
+      if (oldestRetryAt > now) {
+        throw new ValidationError("A payment is still pending confirmation. Try again shortly.");
+      }
+    }
+
+    const timestamp = getTimestamp(now);
+    const password = createDarajaPassword(env.MPESA_SHORTCODE, env.MPESA_PASSKEY, timestamp);
+    const accountReference = `AG${order.orderNumber.replace(/\D/g, "").slice(-10)}`;
+
+    const stkRequestBody = {
+      BusinessShortCode: env.MPESA_SHORTCODE,
+      Password: password,
+      Timestamp: timestamp,
+      TransactionType: "CustomerPayBillOnline",
+      Amount: Math.round(Number(order.totalAmount)),
+      PartyA: normalizedPhone,
+      PartyB: env.MPESA_SHORTCODE,
+      PhoneNumber: normalizedPhone,
+      CallBackURL: env.MPESA_CALLBACK_URL,
+      AccountReference: accountReference,
+      TransactionDesc: "Art Galore ticket",
+    };
+
     const accessToken = await this.getDarajaAccessToken();
+    const reservation = await this.repository.withTransaction((tx) =>
+      this.repository.reserveMpesaStkTransaction({
+        orderId: order.id,
+        amount: Number(order.totalAmount),
+        currency: order.currency,
+        idempotencyKey: key,
+        providerAccountKey: env.MPESA_SHORTCODE,
+        payerPhone: normalizedPhone,
+        rawRequest: stkRequestBody,
+      }, tx),
+    );
 
-    const result = await this.repository.withTransaction(async (tx) => {
-      const order = await this.repository.findOrderByPublicToken(publicToken, tx);
-      if (!order) throw new NotFoundError("Order not found");
-      if (order.status === OrderStatus.EXPIRED) throw new ValidationError("Order has expired");
-      if (order.status === OrderStatus.PAID || order.status === OrderStatus.PAYMENT_VERIFIED) {
-        throw new ValidationError("Order is already paid");
+    if (!reservation.created) {
+      const existing = reservation.transaction;
+      if (existing.idempotencyKey === key && existing.externalRequestId) {
+        return {
+          orderNumber: order.orderNumber,
+          customerMessage: "Payment prompt already requested. Check your phone or payment status.",
+          responseCode: "0",
+          paymentStatus: "pending" as const,
+        };
       }
-      if (Number(order.totalAmount) <= 0) {
-        throw new ValidationError("Order amount is invalid for MPESA checkout");
+      if (existing.idempotencyKey === key && existing.reconciliationRequiresManualReview) {
+        throw new ValidationError("This payment attempt needs review before another prompt can be sent. Contact support.");
       }
+      throw new ValidationError("A payment attempt is already being processed for this order.");
+    }
 
-      const cooldownSince = new Date(now.getTime() - env.MPESA_STK_INITIATE_COOLDOWN_SECONDS * 1000);
-      const hasRecent = await this.repository.hasRecentActiveMpesaTransaction(order.id, cooldownSince, tx);
-      if (hasRecent) {
-        throw new ValidationError("A payment prompt was sent recently. Please wait before retrying.");
-      }
-
-      const latestMpesaTx = await this.repository.findLatestMpesaTransactionForOrder(order.id, tx);
-      if (latestMpesaTx?.status === PaymentStatus.INITIATED || latestMpesaTx?.status === PaymentStatus.PENDING) {
-        const oldestRetryAt = new Date(latestMpesaTx.createdAt.getTime() + env.MPESA_STK_PENDING_RETRY_MINUTES * 60 * 1000);
-        if (oldestRetryAt > now) {
-          throw new ValidationError("A payment is still pending confirmation. Try again shortly.");
-        }
-      }
-
-      const timestamp = getTimestamp(now);
-      const password = createDarajaPassword(env.MPESA_SHORTCODE, env.MPESA_PASSKEY, timestamp);
-
-      const stkRequestBody = {
-        BusinessShortCode: env.MPESA_SHORTCODE,
-        Password: password,
-        Timestamp: timestamp,
-        TransactionType: "CustomerPayBillOnline",
-        Amount: Math.round(Number(order.totalAmount)),
-        PartyA: normalizedPhone,
-        PartyB: env.MPESA_SHORTCODE,
-        PhoneNumber: normalizedPhone,
-        CallBackURL: env.MPESA_CALLBACK_URL,
-        AccountReference: order.orderNumber,
-        TransactionDesc: `Ticket payment ${order.orderNumber}`,
-      };
-
-      const stkResponse = await this.darajaRequest<{
-        MerchantRequestID: string;
-        CheckoutRequestID: string;
-        ResponseCode: string;
-        ResponseDescription: string;
-        CustomerMessage: string;
-      }>("/mpesa/stkpush/v1/processrequest", {
+    const paymentTransactionId = reservation.transaction.id;
+    let stkResponse: {
+      MerchantRequestID: string;
+      CheckoutRequestID: string;
+      ResponseCode: string;
+      ResponseDescription: string;
+      CustomerMessage: string;
+    };
+    try {
+      stkResponse = await this.darajaRequest("/mpesa/stkpush/v1/processrequest", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${accessToken}`,
@@ -212,35 +341,77 @@ export class PaymentsService {
         },
         body: JSON.stringify(stkRequestBody),
       });
-
-      if (stkResponse.ResponseCode !== "0") {
-        throw new ValidationError(stkResponse.ResponseDescription || "M-Pesa STK request was not accepted");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof DarajaRequestError && isDefinitiveDarajaRejection(error.providerStatus)) {
+        await this.repository.markMpesaStkInitiationRejected(
+          paymentTransactionId,
+          `HTTP_${error.providerStatus}`,
+          error.message,
+        );
+        throw error;
       }
-
-      await this.repository.createMpesaStkTransaction(
-        {
-          orderId: order.id,
-          amount: Number(order.totalAmount),
-          currency: order.currency,
-          idempotencyKey: key,
-          externalRequestId: stkResponse.CheckoutRequestID,
-          providerReference: stkResponse.MerchantRequestID,
-          merchantRequestId: stkResponse.MerchantRequestID,
-          providerAccountKey: env.MPESA_SHORTCODE,
-          payerPhone: normalizedPhone,
-          rawRequest: stkRequestBody,
-          rawResponse: stkResponse,
-        },
-        tx,
-      );
-
-      return {
+      await this.repository.markMpesaStkInitiationUncertain(paymentTransactionId, message);
+      logger.error("M-Pesa STK initiation outcome is uncertain", {
+        paymentTransactionId,
         orderNumber: order.orderNumber,
-        customerMessage: stkResponse.CustomerMessage,
-        responseCode: stkResponse.ResponseCode,
-        paymentStatus: "pending" as const,
-      };
-    });
+        error: message,
+      });
+      throw new ValidationError("We could not confirm whether the payment prompt was sent. Check the order status or contact support before trying again.");
+    }
+
+    if (typeof stkResponse.ResponseCode !== "string" || !stkResponse.ResponseCode.trim()) {
+      await this.repository.markMpesaStkInitiationUncertain(paymentTransactionId, "Daraja response did not include a response code", {
+        externalRequestId: stkResponse.CheckoutRequestID,
+        merchantRequestId: stkResponse.MerchantRequestID,
+      });
+      throw new ValidationError("We could not confirm whether the payment prompt was sent. Check the order status or contact support before trying again.");
+    }
+
+    if (stkResponse.ResponseCode !== "0") {
+      await this.repository.markMpesaStkInitiationRejected(
+        paymentTransactionId,
+        stkResponse.ResponseCode || "REQUEST_REJECTED",
+        stkResponse.ResponseDescription || "M-Pesa did not accept the STK request",
+      );
+      throw new ValidationError(stkResponse.ResponseDescription || "M-Pesa STK request was not accepted");
+    }
+
+    if (!stkResponse.CheckoutRequestID?.trim() || !stkResponse.MerchantRequestID?.trim()) {
+      await this.repository.markMpesaStkInitiationUncertain(paymentTransactionId, "Daraja success response did not include request identifiers", {
+        externalRequestId: stkResponse.CheckoutRequestID,
+        merchantRequestId: stkResponse.MerchantRequestID,
+      });
+      throw new ValidationError("M-Pesa accepted the prompt, but its confirmation details were incomplete. Do not retry; contact support with your order number.");
+    }
+
+    try {
+      await this.repository.completeMpesaStkInitiation(paymentTransactionId, {
+        externalRequestId: stkResponse.CheckoutRequestID,
+        merchantRequestId: stkResponse.MerchantRequestID,
+        rawResponse: stkResponse,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this.repository.markMpesaStkInitiationUncertain(paymentTransactionId, message, {
+        externalRequestId: stkResponse.CheckoutRequestID,
+        merchantRequestId: stkResponse.MerchantRequestID,
+      });
+      logger.error("M-Pesa accepted STK request but transaction update failed", {
+        paymentTransactionId,
+        orderNumber: order.orderNumber,
+        checkoutRequestId: stkResponse.CheckoutRequestID,
+        error: message,
+      });
+      throw new ValidationError("M-Pesa accepted the prompt, but we could not finish recording it. Do not retry; contact support with your order number.");
+    }
+
+    const result = {
+      orderNumber: order.orderNumber,
+      customerMessage: stkResponse.CustomerMessage,
+      responseCode: stkResponse.ResponseCode,
+      paymentStatus: "pending" as const,
+    };
 
     return result;
   }
@@ -498,10 +669,13 @@ export class PaymentsService {
             },
             tx,
           );
-          if (transaction.order.status === OrderStatus.PENDING_PAYMENT) {
+          const hasPendingManualProof = await this.repository.hasPendingPaymentProof(transaction.orderId, tx);
+          const canRejectOrder = transaction.order.status === OrderStatus.PENDING_PAYMENT
+            || (transaction.order.status === OrderStatus.PAYMENT_SUBMITTED && !hasPendingManualProof);
+          if (canRejectOrder) {
             await this.repository.transitionOrderStatus(
               transaction.orderId,
-              [OrderStatus.PENDING_PAYMENT],
+              [OrderStatus.PENDING_PAYMENT, OrderStatus.PAYMENT_SUBMITTED],
               OrderStatus.PAYMENT_REJECTED,
               tx,
             );
@@ -610,12 +784,15 @@ export class PaymentsService {
       }
       await this.repository.completeCallbackInboxEvent(id, transaction?.id);
     } catch (error) {
-      const attempts = event.attemptCount + 1;
+      const rateLimited = error instanceof DarajaRequestError && error.providerStatus === 429;
+      const attempts = event.attemptCount + (rateLimited ? 0 : 1);
       const backoffMinutes = [0.5, 2, 5, 15, 30, 60][Math.min(attempts - 1, 5)] ?? 60;
+      const retryDelayMs = rateLimited ? (error.retryAfterMs ?? 5 * 60_000) : backoffMinutes * 60_000;
       await this.repository.failCallbackInboxEvent(id, {
-        nextAttemptAt: new Date(Date.now() + backoffMinutes * 60 * 1000),
+        nextAttemptAt: new Date(Date.now() + retryDelayMs),
         error: error instanceof Error ? error.message : String(error),
-        manualReview: attempts >= env.MPESA_RECONCILIATION_MAX_ATTEMPTS,
+        manualReview: !rateLimited && attempts >= env.MPESA_RECONCILIATION_MAX_ATTEMPTS,
+        countAttempt: !rateLimited,
       });
       throw error;
     }
@@ -630,6 +807,9 @@ export class PaymentsService {
     assertScreenshotAsset(screenshotAsset);
 
     const submission = await this.repository.withTransaction(async (tx) => {
+      // Serialize manual proof submission with M-Pesa reservation on the same
+      // order row, then re-read payment state while holding the lock.
+      await this.repository.lockOrderByPublicToken(publicToken, tx);
       const order = await this.repository.findOrderByPublicToken(publicToken, tx);
       if (!order) {
         throw new NotFoundError("Order not found");
@@ -645,6 +825,16 @@ export class PaymentsService {
 
       if (order.status === OrderStatus.PAYMENT_SUBMITTED) {
         throw new ValidationError("Payment proof is already under review");
+      }
+
+      const hasActiveMpesaPayment = order.paymentTransactions.some((payment) =>
+        payment.provider === PaymentProvider.MPESA
+        && (payment.status === PaymentStatus.INITIATED
+          || payment.status === PaymentStatus.PENDING
+          || payment.status === PaymentStatus.AMBIGUOUS),
+      );
+      if (hasActiveMpesaPayment) {
+        throw new ValidationError("An M-Pesa payment is already being processed for this order.");
       }
 
       if (input.amountPaid < Number(order.totalAmount)) {
@@ -710,7 +900,7 @@ export class PaymentsService {
       amountPaid: Number(record.amountPaid),
       currency: record.order.currency,
       transactionReference: record.transactionReference,
-      screenshotUrl: record.screenshotUrl ?? undefined,
+      screenshotUrl: record.screenshotStorageKey ? `/api/media/admin-payment-proof/${record.id}` : undefined,
       notes: record.notes ?? undefined,
       submittedAt: record.submittedAt.toISOString(),
       verificationStatus: mapPaymentVerificationStatus(record.verificationStatus),
@@ -914,6 +1104,9 @@ export class PaymentsService {
       resultCode: row.resultCode ?? undefined,
       resultDesc: row.resultMessage ?? undefined,
       status: this.mapPaymentStatusForAudit(row.status),
+      reconciliationAttemptCount: row.reconciliationAttemptCount,
+      reconciliationRequiresManualReview: row.reconciliationRequiresManualReview,
+      lastReconciliationError: row.lastReconciliationError ?? undefined,
       initiatedAt: row.initiatedAt.toISOString(),
       completedAt: row.completedAt?.toISOString(),
       callbackReceived: Boolean(row.rawCallback),

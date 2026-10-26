@@ -13,6 +13,7 @@ class MediaStorageProvider {
 
   save = this.provider.save.bind(this.provider);
   delete = this.provider.delete.bind(this.provider);
+  getExistingFilePath = this.provider.getExistingFilePath.bind(this.provider);
 }
 
 export const mediaStorage = new MediaStorageProvider();

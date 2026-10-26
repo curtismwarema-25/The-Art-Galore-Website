@@ -8,6 +8,7 @@ import { createSimpleRateLimit } from "../../common/middleware/simpleRateLimit.j
 import { validateRequest } from "../../common/validation/validateRequest.js";
 import { env } from "../../config/index.js";
 import { PaymentsService } from "./payments.service.js";
+import { isAllowedMpesaCallbackIp } from "./mpesaCallbackAuth.js";
 import {
   adminMpesaTransactionIdParamsSchema,
   mpesaStkCallbackSchema,
@@ -57,15 +58,9 @@ paymentsRouter.post("/mpesa/stk/:publicToken/initiate", publicPaymentRateLimit, 
 });
 
 function assertMpesaCallbackAuthorized(req: Request) {
-  if (!env.MPESA_CALLBACK_SECRET) return;
-
-  const headerSecret = req.header("x-mpesa-callback-secret");
-  const querySecret = typeof req.query.secret === "string" ? req.query.secret : undefined;
-  const bearerToken = req.header("authorization")?.replace(/^Bearer\s+/i, "");
-  const receivedSecret = headerSecret || querySecret || bearerToken;
-
-  if (receivedSecret !== env.MPESA_CALLBACK_SECRET) {
-    throw new UnauthorizedError("Invalid M-Pesa callback secret");
+  const allowedAddresses = env.MPESA_CALLBACK_ALLOWED_IPS.split(",").map((address) => address.trim()).filter(Boolean);
+  if (!isAllowedMpesaCallbackIp(req.ip, allowedAddresses)) {
+    throw new UnauthorizedError("M-Pesa callback source is not allowed");
   }
 }
 

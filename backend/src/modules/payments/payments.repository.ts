@@ -7,6 +7,7 @@ import {
   type PrismaClient,
 } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
+import { ValidationError } from "../../common/errors/httpErrors.js";
 import type { AdminManualPaymentQueueFilters, ManualPaymentMethod, MpesaTransactionAuditFilters } from "./payments.types.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
@@ -16,6 +17,13 @@ function getClient(tx?: Prisma.TransactionClient): DbClient {
 }
 
 export class PaymentsRepository {
+  async findPaymentProofMediaById(id: string) {
+    return prisma.paymentProofSubmission.findUnique({
+      where: { id },
+      select: { screenshotStorageKey: true },
+    });
+  }
+
   async withTransaction<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>) {
     return prisma.$transaction((tx) => callback(tx));
   }
@@ -57,6 +65,10 @@ export class PaymentsRepository {
         },
       },
     });
+  }
+
+  async lockOrderByPublicToken(publicToken: string, tx: Prisma.TransactionClient) {
+    await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT id FROM \`Order\` WHERE publicToken = ${publicToken} FOR UPDATE`);
   }
 
   async createPaymentProofSubmission(
@@ -125,37 +137,100 @@ export class PaymentsRepository {
     });
   }
 
-  async createMpesaStkTransaction(
+  async reserveMpesaStkTransaction(
     input: {
       orderId: string;
       amount: number;
       currency: string;
-      idempotencyKey?: string;
-      externalRequestId: string;
-      providerReference: string;
-      merchantRequestId: string;
+      idempotencyKey: string;
       providerAccountKey: string;
       payerPhone: string;
-      rawRequest?: Prisma.InputJsonValue;
-      rawResponse?: Prisma.InputJsonValue;
+      rawRequest: Prisma.InputJsonValue;
     },
     tx: Prisma.TransactionClient,
   ) {
-    return tx.paymentTransaction.create({
+    // Serialize payment initiation per order before contacting Daraja. The
+    // durable placeholder also gives delayed callbacks a transaction to match.
+    await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT id FROM \`Order\` WHERE id = ${input.orderId} FOR UPDATE`);
+
+    const lockedOrder = await tx.order.findUnique({ where: { id: input.orderId }, select: { status: true } });
+    if (!lockedOrder || (lockedOrder.status !== OrderStatus.PENDING_PAYMENT && lockedOrder.status !== OrderStatus.PAYMENT_REJECTED)) {
+      throw new ValidationError("The order is no longer eligible for an M-Pesa payment prompt");
+    }
+
+    const existing = await tx.paymentTransaction.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
+    if (existing) return { created: false as const, transaction: existing };
+
+    const active = await tx.paymentTransaction.findFirst({
+      where: {
+        orderId: input.orderId,
+        provider: PaymentProvider.MPESA,
+        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
+      },
+      orderBy: [{ createdAt: "desc" }],
+    });
+    if (active) return { created: false as const, transaction: active };
+
+    const transaction = await tx.paymentTransaction.create({
       data: {
         orderId: input.orderId,
         provider: PaymentProvider.MPESA,
         status: PaymentStatus.INITIATED,
         amount: input.amount,
         currency: input.currency,
-        payerPhone: input.payerPhone,
         idempotencyKey: input.idempotencyKey,
-        externalRequestId: input.externalRequestId,
-        providerReference: input.providerReference,
-        merchantRequestId: input.merchantRequestId,
         providerAccountKey: input.providerAccountKey,
+        payerPhone: input.payerPhone,
         rawRequest: input.rawRequest,
+      },
+    });
+    return { created: true as const, transaction };
+  }
+
+  async completeMpesaStkInitiation(
+    id: string,
+    input: { externalRequestId: string; merchantRequestId: string; rawResponse: Prisma.InputJsonValue },
+  ) {
+    return prisma.paymentTransaction.update({
+      where: { id },
+      data: {
+        externalRequestId: input.externalRequestId,
+        providerReference: input.merchantRequestId,
+        merchantRequestId: input.merchantRequestId,
         rawResponse: input.rawResponse,
+      },
+    });
+  }
+
+  async markMpesaStkInitiationUncertain(
+    id: string,
+    error: string,
+    providerIds?: { externalRequestId?: string; merchantRequestId?: string },
+  ) {
+    return prisma.paymentTransaction.update({
+      where: { id },
+      data: {
+        status: PaymentStatus.AMBIGUOUS,
+        externalRequestId: providerIds?.externalRequestId,
+        providerReference: providerIds?.merchantRequestId,
+        merchantRequestId: providerIds?.merchantRequestId,
+        resultCode: "INITIATION_UNCERTAIN",
+        resultMessage: "Daraja response was not conclusive; do not retry automatically",
+        lastReconciliationError: error.slice(0, 500),
+        reconciliationRequiresManualReview: true,
+        nextReconciliationAt: null,
+      },
+    });
+  }
+
+  async markMpesaStkInitiationRejected(id: string, resultCode: string, resultMessage: string) {
+    return prisma.paymentTransaction.update({
+      where: { id },
+      data: {
+        status: PaymentStatus.FAILED,
+        completedAt: new Date(),
+        resultCode,
+        resultMessage: resultMessage.slice(0, 255),
       },
     });
   }
@@ -245,12 +320,12 @@ export class PaymentsRepository {
     });
   }
 
-  async failCallbackInboxEvent(id: string, input: { nextAttemptAt: Date; error: string; manualReview: boolean }) {
+  async failCallbackInboxEvent(id: string, input: { nextAttemptAt: Date; error: string; manualReview: boolean; countAttempt?: boolean }) {
     return prisma.paymentCallbackInbox.update({
       where: { id },
       data: {
         status: input.manualReview ? "MANUAL_REVIEW" : "RETRYABLE_FAILED",
-        attemptCount: { increment: 1 },
+        attemptCount: input.countAttempt === false ? undefined : { increment: 1 },
         nextAttemptAt: input.nextAttemptAt,
         lastError: input.error.slice(0, 500),
         failedAt: new Date(),
@@ -261,13 +336,27 @@ export class PaymentsRepository {
     });
   }
 
+  async deferDueCallbackInboxEvents(now: Date, nextAttemptAt: Date) {
+    return prisma.paymentCallbackInbox.updateMany({
+      where: {
+        status: { in: ["RECEIVED", "PROCESSING", "RETRYABLE_FAILED"] },
+        requiresManualReview: false,
+        nextAttemptAt: { lte: now },
+        OR: [{ lockedAt: null }, { lockedAt: { lt: now } }],
+      },
+      data: {
+        status: "RETRYABLE_FAILED",
+        nextAttemptAt,
+        lastError: "Deferred because Daraja rate-limited status queries",
+        lockedAt: null,
+        lockedBy: null,
+      },
+    });
+  }
+
   async listDueMpesaTransactionIds(now: Date, limit = 20) {
     const rows = await prisma.paymentTransaction.findMany({
-      where: {
-        provider: PaymentProvider.MPESA,
-        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
-        OR: [{ nextReconciliationAt: null }, { nextReconciliationAt: { lte: now } }],
-      },
+      where: buildDueMpesaTransactionWhere(now),
       orderBy: [{ nextReconciliationAt: "asc" }, { updatedAt: "asc" }],
       take: limit,
       select: { id: true },
@@ -289,13 +378,32 @@ export class PaymentsRepository {
     return prisma.paymentTransaction.findUnique({ where: { id }, include: { order: true } });
   }
 
-  async recordReconciliationFailure(id: string, input: { nextAttemptAt: Date; error: string; manualReview: boolean }) {
+  async deferDueMpesaTransactions(now: Date, nextAttemptAt: Date) {
+    return prisma.paymentTransaction.updateMany({
+      where: {
+        provider: PaymentProvider.MPESA,
+        status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
+        reconciliationRequiresManualReview: false,
+        OR: [{ nextReconciliationAt: null }, { nextReconciliationAt: { lte: now } }],
+        AND: [{ OR: [{ reconciliationLockedAt: null }, { reconciliationLockedAt: { lt: now } }] }],
+      },
+      data: {
+        nextReconciliationAt: nextAttemptAt,
+        lastReconciliationError: "Deferred because Daraja rate-limited status queries",
+        reconciliationLockedAt: null,
+        reconciliationLockedBy: null,
+      },
+    });
+  }
+
+  async recordReconciliationFailure(id: string, input: { nextAttemptAt: Date; error: string; manualReview: boolean; countAttempt?: boolean }) {
     return prisma.paymentTransaction.updateMany({
       where: { id },
       data: {
-        status: input.manualReview ? PaymentStatus.AMBIGUOUS : PaymentStatus.AMBIGUOUS,
-        reconciliationAttemptCount: { increment: 1 },
-        nextReconciliationAt: input.nextAttemptAt,
+        status: PaymentStatus.AMBIGUOUS,
+        reconciliationAttemptCount: input.countAttempt === false ? undefined : { increment: 1 },
+        nextReconciliationAt: input.manualReview ? null : input.nextAttemptAt,
+        reconciliationRequiresManualReview: input.manualReview,
         lastReconciliationError: input.error.slice(0, 500),
         reconciliationLockedAt: null,
         reconciliationLockedBy: null,
@@ -346,6 +454,10 @@ export class PaymentsRepository {
     });
   }
 
+  async findPaymentTransactionByIdempotencyKey(idempotencyKey: string) {
+    return prisma.paymentTransaction.findUnique({ where: { idempotencyKey } });
+  }
+
   async findLatestMpesaTransactionForOrder(orderId: string, tx?: Prisma.TransactionClient) {
     const client = getClient(tx);
     return client.paymentTransaction.findFirst({
@@ -378,6 +490,16 @@ export class PaymentsRepository {
         verificationSubmittedAt: at,
       },
     });
+  }
+
+  async hasPendingPaymentProof(orderId: string, tx: Prisma.TransactionClient) {
+    const count = await tx.paymentProofSubmission.count({
+      where: {
+        orderId,
+        verificationStatus: PaymentVerificationStatus.PENDING,
+      },
+    });
+    return count > 0;
   }
 
   async listAdminManualPayments(filters: AdminManualPaymentQueueFilters) {
@@ -727,6 +849,18 @@ export class PaymentsRepository {
       take: filters.limit ?? 100,
     });
   }
+}
+
+export function buildDueMpesaTransactionWhere(now: Date): Prisma.PaymentTransactionWhereInput {
+  return {
+    provider: PaymentProvider.MPESA,
+    status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
+    // A reserved INITIATED row has no Daraja checkout identifier until the
+    // STK request response is persisted. It cannot be queried yet.
+    externalRequestId: { not: null },
+    reconciliationRequiresManualReview: false,
+    OR: [{ nextReconciliationAt: null }, { nextReconciliationAt: { lte: now } }],
+  };
 }
 
 export function mapPaymentMethodToProvider(method: ManualPaymentMethod): PaymentProvider {

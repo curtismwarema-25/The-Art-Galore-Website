@@ -7,20 +7,9 @@ export default function TermsOfUse() {
         <PageHeader
           eyebrow="Legal"
           title="Terms of Use"
-          description="Terms and conditions for using Art Galore International services."
+          description="These terms are being prepared for owner approval."
         />
-        <div className="text-body space-y-5">
-          <p>
-            This is a legal UI placeholder prepared for backend and policy integration.
-          </p>
-          <p>
-            Ticket availability, order verification, platform usage rights, and content submission
-            responsibilities should be finalized with your legal team.
-          </p>
-          <p>
-            Updated terms can be connected from admin-managed site settings links later.
-          </p>
-        </div>
+        <div className="text-body space-y-5"><p role="status">Terms of use content is pending review and approval by Art Galore International. No terms have been published on this page yet.</p></div>
       </div>
     </section>
   );

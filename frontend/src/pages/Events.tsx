@@ -14,7 +14,7 @@ export default function Events() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("all");
 
-  const { data: events = [], isLoading, isError } = useEventsQuery();
+  const { data: events = [], isLoading, isError, refetch, isFetching } = useEventsQuery();
 
   const filteredEvents = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -110,7 +110,8 @@ export default function Events() {
         {isError && (
           <EmptyState
             title="Could not load events"
-            description="This is an error placeholder. Wire this to backend/API error handling in production."
+            description="We could not load events from the server. Please refresh and try again."
+            action={<Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>{isFetching ? "Trying again..." : "Retry"}</Button>}
           />
         )}
 

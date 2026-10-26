@@ -31,6 +31,7 @@ export default function ShareMoment() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
   const [uploadState, setUploadState] = useState<UploadState>("idle");
+  const [consentGiven, setConsentGiven] = useState(false);
 
   useEffect(() => {
     if (!eventId && events[0]) {
@@ -51,10 +52,10 @@ export default function ShareMoment() {
       return;
     }
 
-    const parsed = communityUploadFormSchema.safeParse({ alias, eventId, file });
+    const parsed = communityUploadFormSchema.safeParse({ alias, eventId, file, consentGiven });
     if (!parsed.success) {
       setUploadState("failed");
-      toast.error("Add alias, event, and image before submitting.");
+      toast.error("Add alias, event, image, and consent before submitting.");
       return;
     }
 
@@ -69,7 +70,7 @@ export default function ShareMoment() {
       await submitUploadMutation.mutateAsync({
         eventId,
         alias,
-        consentGiven: true,
+        consentGiven: parsed.data.consentGiven,
         media: {
           storageKey: uploadedMedia.storageKey,
           mimeType: uploadedMedia.mimeType,
@@ -179,7 +180,12 @@ export default function ShareMoment() {
                 Upload policy notice: offensive, unrelated, or copyrighted content may be rejected.
               </p>
 
-              <Button variant="accent" size="lg" className="w-full" onClick={submitUpload}>
+              <label className="flex items-start gap-3 text-sm text-foreground-secondary">
+                <input type="checkbox" checked={consentGiven} onChange={(event) => setConsentGiven(event.target.checked)} className="mt-1" />
+                <span>I consent to this image being reviewed and, if approved, displayed in the public community archive.</span>
+              </label>
+
+              <Button variant="accent" size="lg" className="w-full" onClick={submitUpload} disabled={!consentGiven || uploadState === "uploading"}>
                 {uploadState === "uploading" || submitUploadMutation.isPending || uploadMediaMutation.isPending ? "Uploading..." : "Submit Your Moment"}
               </Button>
             </div>

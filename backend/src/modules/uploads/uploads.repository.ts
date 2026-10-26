@@ -125,6 +125,13 @@ export class UploadsRepository {
     });
   }
 
+  async findApprovedUploadByStorageKey(storageKey: string) {
+    return prisma.communityUpload.findFirst({
+      where: { storageKey, status: "APPROVED" },
+      select: { id: true },
+    });
+  }
+
   async findEventById(eventId: string) {
     return prisma.event.findUnique({
       where: { id: eventId },

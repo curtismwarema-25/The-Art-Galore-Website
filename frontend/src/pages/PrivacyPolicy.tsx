@@ -7,22 +7,9 @@ export default function PrivacyPolicy() {
         <PageHeader
           eyebrow="Legal"
           title="Privacy Policy"
-          description="How Art Galore International collects, uses, and protects user data."
+          description="This policy is being prepared for owner approval."
         />
-        <div className="text-body space-y-5">
-          <p>
-            This page is a backend-ready legal placeholder. Replace this copy with your approved
-            legal privacy text before launch.
-          </p>
-          <p>
-            The Art Galore International may collect contact and transaction details to process ticket
-            purchases, event participation, and communication requests.
-          </p>
-          <p>
-            Data retention, third-party processing, and consent management details should be updated
-            when backend services are connected.
-          </p>
-        </div>
+        <div className="text-body space-y-5"><p role="status">Privacy policy content is pending review and approval by Art Galore International. Please contact the organization with privacy questions before submitting personal information.</p></div>
       </div>
     </section>
   );

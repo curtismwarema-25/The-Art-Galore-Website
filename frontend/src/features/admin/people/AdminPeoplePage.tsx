@@ -498,6 +498,14 @@ export default function AdminPeoplePage() {
   const selectedPerson = personQuery.data;
 
   useEffect(() => {
+    if (!selectedPersonId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-person-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedPersonId]);
+
+  useEffect(() => {
     if (!selectedPerson) return;
     setEditForm(mapPersonToForm(selectedPerson));
     setEditImageMeta(selectedPerson.imageMeta);
@@ -636,11 +644,11 @@ export default function AdminPeoplePage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="People Manager"
-        subtitle="Admin and staff can create/update records. Moderators have read-only access."
+        title="People & Artists"
+        subtitle="Keep public profiles, roles, and artist information accurate and ready to publish."
       />
 
-      <AdminSectionCard title="Create Person">
+      <AdminSectionCard title="Create Person" description="Add the profile details first, then choose whether it is ready to appear publicly.">
         {!canWrite && (
           <p className="text-sm text-foreground-secondary mb-4">
             Your role is read-only for People management.
@@ -757,7 +765,7 @@ export default function AdminPeoplePage() {
         </form>
       </AdminSectionCard>
 
-      <AdminSectionCard title="People Directory">
+      <AdminSectionCard title="People Directory" description="Select a profile row to edit it. The Edit button is also available for keyboard and touch access.">
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -798,7 +806,22 @@ export default function AdminPeoplePage() {
               minWidthClassName="min-w-[760px] md:min-w-[900px]"
             >
               {people.map((person) => (
-                <tr key={person.id} className="bg-background border border-border">
+                <tr
+                  key={person.id}
+                  className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${selectedPersonId === person.id ? "bg-accent/10" : "bg-background"}`}
+                  aria-selected={selectedPersonId === person.id}
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                    setSelectedPersonId(person.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedPersonId(person.id);
+                    }
+                  }}
+                >
                   <td className="px-3 py-3 text-sm text-foreground">{person.name}</td>
                   <td className="px-3 py-3 text-sm text-foreground-secondary">{person.role}</td>
                   <td className="px-3 py-3">
@@ -841,7 +864,7 @@ export default function AdminPeoplePage() {
       </AdminSectionCard>
 
       {selectedPersonId && (
-        <AdminSectionCard title="Edit Person">
+        <AdminSectionCard title="Edit Person" description="Update the profile, confirm its status, then save. Close this section when you are done." id="admin-person-editor">
           {personQuery.isLoading ? (
             <p className="text-sm text-foreground-secondary">Loading person detail...</p>
           ) : personQuery.isError || !selectedPerson ? (

@@ -10,6 +10,9 @@ import { createSimpleRateLimit } from "../../common/middleware/simpleRateLimit.j
 import { mediaValidationByTarget } from "./media.config.js";
 import { deleteMediaQuerySchema, mediaTargetSchema } from "./media.schema.js";
 import { MediaService } from "./media.service.js";
+import { imageMediaResponse } from "./mediaResponse.js";
+import { mediaStorage } from "./storage/provider.js";
+import { canReviewPrivateMedia } from "./mediaAccess.js";
 
 const uploadParser = multer({
   storage: multer.memoryStorage(),
@@ -50,6 +53,23 @@ function assertWriteMediaRole(role: UserRole | undefined) {
 }
 
 export const mediaRouter = Router();
+
+mediaRouter.get("/admin-payment-proof/:id", async (req, res, next) => {
+  try {
+    const context = await resolveAuthContext(req);
+    if (!context) throw new UnauthorizedError("Authentication required");
+    if (!canReviewPrivateMedia(context.user.role)) {
+      throw new ForbiddenError("Insufficient permissions");
+    }
+    const { PaymentsRepository } = await import("../payments/payments.repository.js");
+    const proof = await new PaymentsRepository().findPaymentProofMediaById(req.params.id);
+    if (!proof?.screenshotStorageKey) {
+      res.status(404).json({ error: "Media not found" });
+      return;
+    }
+    await imageMediaResponse(res, await mediaStorage.getExistingFilePath(proof.screenshotStorageKey));
+  } catch (error) { next(error); }
+});
 
 mediaRouter.get("/targets", (_req, res) => {
   res.status(200).json({ data: mediaValidationByTarget });

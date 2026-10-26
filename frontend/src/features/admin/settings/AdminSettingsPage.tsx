@@ -141,11 +141,11 @@ export default function AdminSettingsPage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Site Settings"
-        subtitle="Manage global content, contact details, links, and SEO defaults. Moderators are read-only."
+        title="Settings"
+        subtitle="Update the public site’s words, contact details, links, and ticket-support information."
       />
 
-      <AdminSectionCard title="Configuration Form">
+      <AdminSectionCard title="Configuration Form" description="Make one change or several, then save once. The saved values are what visitors and buyers will see.">
         {!canWrite && <p className="mb-4 text-sm text-foreground-secondary">Your role is read-only for site settings.</p>}
         <form onSubmit={save} className="space-y-5">
           {saved && <ConfirmationBanner title="Settings Saved" message="Public site content now reflects backend-managed settings." tone="approved" />}

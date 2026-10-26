@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
-import { dirname, extname, isAbsolute, resolve } from "node:path";
+import { mkdir, realpath, stat, unlink, writeFile } from "node:fs/promises";
+import { dirname, extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { imageSize } from "image-size";
 import { env } from "../../../config/env.js";
 import type { MediaAssetRecord, MediaTarget } from "../media.types.js";
+import { resolveMediaAbsolutePath } from "./mediaPath.js";
 
 const mimeToExtensionMap: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -11,10 +12,6 @@ const mimeToExtensionMap: Record<string, string> = {
   "image/webp": ".webp",
   "image/svg+xml": ".svg",
 };
-
-function toForwardSlashes(value: string) {
-  return value.replace(/\\/g, "/");
-}
 
 export function resolveMediaRootPath() {
   if (isAbsolute(env.MEDIA_LOCAL_ROOT)) {
@@ -25,20 +22,7 @@ export function resolveMediaRootPath() {
 }
 
 function resolveMediaPath(storageKey: string) {
-  const normalized = toForwardSlashes(storageKey).replace(/^\/+/, "");
-
-  if (!normalized || normalized.includes("..")) {
-    throw new Error("Invalid storage key");
-  }
-
-  const root = resolveMediaRootPath();
-  const absolute = resolve(root, normalized);
-
-  if (!absolute.startsWith(root)) {
-    throw new Error("Invalid storage key");
-  }
-
-  return { absolute, normalized };
+  return resolveMediaAbsolutePath(resolveMediaRootPath(), storageKey);
 }
 
 function getFileExtension(mimeType: string, originalName: string) {
@@ -59,6 +43,18 @@ export type SaveMediaInput = {
 };
 
 class LocalMediaStorage {
+  async getExistingFilePath(storageKey: string) {
+    const { absolute } = resolveMediaPath(storageKey);
+    const [realRoot, realFile] = await Promise.all([realpath(resolveMediaRootPath()), realpath(absolute)]);
+    const fromRoot = relative(realRoot, realFile);
+    if (!fromRoot || fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+      throw new Error("Invalid storage key");
+    }
+    const fileStats = await stat(realFile);
+    if (!fileStats.isFile()) throw new Error("Invalid media file");
+    return realFile;
+  }
+
   async save(input: SaveMediaInput): Promise<MediaAssetRecord> {
     const now = new Date();
     const extension = getFileExtension(input.mimeType, input.originalName);

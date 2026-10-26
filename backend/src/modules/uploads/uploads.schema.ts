@@ -25,7 +25,7 @@ export const createCommunityUploadSchema = z.object({
     alias: z.string().trim().min(2).max(120),
     submitterEmail: z.string().trim().email().optional(),
     submitterPhone: z.string().trim().min(7).max(32).optional(),
-    consentGiven: z.boolean().optional(),
+    consentGiven: z.literal(true),
     media: uploadMediaSchema,
   }),
 });

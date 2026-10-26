@@ -5,13 +5,14 @@ import EmptyState from "@/components/common/EmptyState";
 import LoadingSkeleton from "@/components/common/LoadingSkeleton";
 import ArtistCard from "@/components/cards/ArtistCard";
 import { usePeopleQuery } from "@/hooks/queries/usePeopleQuery";
+import { Button } from "@/components/ui/button";
 
 export default function Artists() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [mediumFilter, setMediumFilter] = useState("all");
 
-  const { data: people = [], isLoading, isError } = usePeopleQuery();
+  const { data: people = [], isLoading, isError, refetch, isFetching } = usePeopleQuery();
   const artists = useMemo(() => people.filter((person) => person.isArtist), [people]);
   const mediumOptions = useMemo(() => {
     const uniqueMediums = Array.from(new Set(artists.map((artist) => artist.medium).filter(Boolean))).sort((a, b) =>
@@ -89,7 +90,8 @@ export default function Artists() {
         {isError && (
           <EmptyState
             title="Could not load artists"
-            description="Artist listing error placeholder. Connect this state to backend/API failures."
+            description="We could not load artist profiles from the server. Please refresh and try again."
+            action={<Button variant="outline" onClick={() => void refetch()} disabled={isFetching}>{isFetching ? "Trying again..." : "Retry"}</Button>}
           />
         )}
 

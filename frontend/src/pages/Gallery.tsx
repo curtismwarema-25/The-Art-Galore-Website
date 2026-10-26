@@ -7,14 +7,15 @@ import EmptyState from "@/components/common/EmptyState";
 import LoadingSkeleton from "@/components/common/LoadingSkeleton";
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
 import { useGalleryQuery } from "@/hooks/queries/useGalleryQuery";
+import { Button } from "@/components/ui/button";
 
 export default function Gallery() {
   const [search, setSearch] = useState("");
   const [eventFilter, setEventFilter] = useState("all");
   const [lightboxId, setLightboxId] = useState<string | null>(null);
 
-  const { data: events = [], isLoading: isEventsLoading, isError: hasEventsError } = useEventsQuery();
-  const { data: galleryImages = [], isLoading: isGalleryLoading, isError: hasGalleryError } = useGalleryQuery();
+  const { data: events = [], isLoading: isEventsLoading, isError: hasEventsError, refetch: refetchEvents, isFetching: isEventsFetching } = useEventsQuery();
+  const { data: galleryImages = [], isLoading: isGalleryLoading, isError: hasGalleryError, refetch: refetchGallery, isFetching: isGalleryFetching } = useGalleryQuery();
   const isLoading = isEventsLoading || isGalleryLoading;
   const hasError = hasEventsError || hasGalleryError;
 
@@ -68,7 +69,8 @@ export default function Gallery() {
         {hasError && (
           <EmptyState
             title="Gallery unavailable"
-            description="Error state placeholder. Wire to backend image request failures."
+            description="We could not load gallery images from the server. Please refresh and try again."
+            action={<Button variant="outline" disabled={isEventsFetching || isGalleryFetching} onClick={() => void Promise.all([hasEventsError ? refetchEvents() : Promise.resolve(), hasGalleryError ? refetchGallery() : Promise.resolve()])}>Retry</Button>}
           />
         )}
 

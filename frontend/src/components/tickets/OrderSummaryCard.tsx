@@ -38,9 +38,7 @@ export default function OrderSummaryCard({ tiers, quantities, phoneNumber }: Ord
         <span className="font-display text-foreground">Total</span>
         <span className="font-display text-foreground">KES {total.toLocaleString()}</span>
       </div>
-      <p className="text-[11px] text-foreground-secondary mt-3">
-        Buyer phone: {phoneNumber || "Not provided"}
-      </p>
+      {phoneNumber && <p className="text-[11px] text-foreground-secondary mt-3">M-Pesa number: {phoneNumber}</p>}
     </aside>
   );
 }

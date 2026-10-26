@@ -7,21 +7,9 @@ export default function TicketRefundPolicy() {
         <PageHeader
           eyebrow="Legal"
           title="Ticket Refund Policy"
-          description="Refund and cancellation guidance for event ticket purchases."
+          description="Refund and cancellation terms are being prepared for owner approval."
         />
-        <div className="text-body space-y-5">
-          <p>
-            This placeholder page is ready for backend-linked policy management.
-          </p>
-          <p>
-            Include cut-off timelines, transfer rules, no-show handling, and approved refund
-            channels when final policy language is available.
-          </p>
-          <p>
-            Once payments are integrated, order-level refund actions can be linked from the admin
-            ticket management workflow.
-          </p>
-        </div>
+        <div className="text-body space-y-5"><p role="status">Ticket refund and cancellation policy content is pending review and approval by Art Galore International. Contact the event team before purchasing if you need clarification.</p></div>
       </div>
     </section>
   );

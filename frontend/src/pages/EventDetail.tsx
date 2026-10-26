@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useState } from "react";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Handshake, Share2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,6 @@ import EmptyState from "@/components/common/EmptyState";
 import PageHeader from "@/components/common/PageHeader";
 import StatusBadge from "@/components/common/StatusBadge";
 import OrderSummaryCard from "@/components/tickets/OrderSummaryCard";
-import PaymentStatusPanel from "@/components/tickets/PaymentStatusPanel";
 import TicketTierSelector from "@/components/tickets/TicketTierSelector";
 import { ApiError } from "@/api/client";
 import { communityUploadFormSchema, ticketPurchaseFormSchema } from "@/features/forms/schemas";
@@ -15,14 +14,40 @@ import { useCreateOrderMutation } from "@/hooks/mutations/useCreateOrderMutation
 import { useUploadMediaMutation } from "@/hooks/mutations/useUploadMediaMutation";
 import { useSubmitCommunityUploadMutation } from "@/hooks/mutations/useUploadMutations";
 import { useEventQuery } from "@/hooks/queries/useEventQuery";
-import type { PaymentStatus } from "@/types/models";
 import { toast } from "@/components/ui/sonner";
+import type { EventRecord } from "@/types/models";
 import {
   formFileInputClassName,
   formHelperTextClassName,
   formInputClassName,
   formLabelClassName,
 } from "@/lib/formStyles";
+
+function canShareEvent() {
+  return typeof navigator !== "undefined" && (typeof navigator.share === "function" || Boolean(navigator.clipboard?.writeText));
+}
+
+async function shareEvent(event: EventRecord, invite: boolean) {
+  const url = window.location.href;
+  const title = invite ? `Join me at ${event.title}` : event.title;
+  const shareData = { title, text: invite ? `Come with me to ${event.title}.` : `Event details for ${event.title}.`, url };
+  try {
+    if (typeof navigator.share === "function") {
+      await navigator.share(shareData);
+      toast.success(invite ? "Invite shared." : "Event shared.");
+      return;
+    }
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(`${shareData.text} ${url}`);
+      toast.success("Event link copied.");
+      return;
+    }
+    toast.error("Sharing is unavailable in this browser.");
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    toast.error("Could not share the event. Please try again.");
+  }
+}
 
 export default function EventDetail() {
   const { slug = "" } = useParams();
@@ -31,23 +56,33 @@ export default function EventDetail() {
   const createOrderMutation = useCreateOrderMutation();
   const submitUploadMutation = useSubmitCommunityUploadMutation();
   const uploadMediaMutation = useUploadMediaMutation();
+  const orderRequestRef = useRef<{ fingerprint: string; key: string } | null>(null);
 
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("idle");
 
   const [alias, setAlias] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadPreview, setUploadPreview] = useState("");
   const [uploadMessage, setUploadMessage] = useState("");
+  const [uploadConsent, setUploadConsent] = useState(false);
 
   useEffect(() => {
     return () => {
       revokePreviewUrl(uploadPreview);
     };
   }, [uploadPreview]);
+
+  useEffect(() => {
+    const firstAvailableTier = event?.ticketTiers?.find((tier) => tier.available > 0);
+    if (!firstAvailableTier) return;
+
+    setQuantities((current) => (
+      Object.keys(current).length > 0 ? current : { [firstAvailableTier.id]: 1 }
+    ));
+  }, [event]);
 
   if (isLoading) {
     return (
@@ -76,6 +111,14 @@ export default function EventDetail() {
   const tiers = event.ticketTiers ?? [];
   const approvedUploads = event.approvedUploads ?? [];
   const gallery = event.galleryImages ?? [];
+  const selectedTicketCount = tiers.reduce((total, tier) => total + (quantities[tier.id] ?? 0), 0);
+  const selectedTotal = tiers.reduce((total, tier) => total + (quantities[tier.id] ?? 0) * tier.price, 0);
+  const selectedCurrency = tiers.find((tier) => (quantities[tier.id] ?? 0) > 0)?.currency ?? "KES";
+  const ticketingAvailable = event.lifecycle !== "past" && tiers.some((tier) => tier.available > 0);
+
+  const scrollToTicketPurchase = () => {
+    document.getElementById("ticket-purchase")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   const increaseTier = (tierId: string) => setQuantities((current) => ({ ...current, [tierId]: (current[tierId] ?? 0) + 1 }));
   const decreaseTier = (tierId: string) => setQuantities((current) => ({ ...current, [tierId]: Math.max((current[tierId] ?? 0) - 1, 0) }));
@@ -106,28 +149,31 @@ export default function EventDetail() {
       return;
     }
 
-    setPaymentStatus("initiating");
-
     try {
-      const idempotencyKey =
-        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-          ? crypto.randomUUID()
-          : `order-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const buyer = {
+        buyerName: parsed.data.buyerName.trim(),
+        buyerPhone: parsed.data.buyerPhone.trim(),
+        buyerEmail: parsed.data.buyerEmail.trim(),
+      };
+      const fingerprint = JSON.stringify({ eventId: event.id, buyer, items: selectedItems });
+      if (orderRequestRef.current?.fingerprint !== fingerprint) {
+        orderRequestRef.current = {
+          fingerprint,
+          key: typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `order-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        };
+      }
 
       const result = await createOrderMutation.mutateAsync({
         input: {
           eventId: event.id,
-          buyer: {
-            buyerName: parsed.data.buyerName.trim(),
-            buyerPhone: parsed.data.buyerPhone.trim(),
-            buyerEmail: parsed.data.buyerEmail.trim(),
-          },
+          buyer,
           items: selectedItems,
         },
-        idempotencyKey,
+        idempotencyKey: orderRequestRef.current.key,
       });
-
-      setPaymentStatus(result.order.status === "paid" ? "paid" : result.order.status === "expired" ? "failed" : "pending");
+      orderRequestRef.current = null;
 
       if (result.idempotentReplay) {
         toast.success(`Loaded existing order ${result.order.orderNumber}. Redirecting to tracking page.`);
@@ -138,7 +184,6 @@ export default function EventDetail() {
       const phoneForStk = parsed.data.buyerPhone.trim();
       navigate(`/orders/track/${result.order.publicToken}?autostk=1&phone=${encodeURIComponent(phoneForStk)}`);
     } catch (error) {
-      setPaymentStatus("failed");
       const message = error instanceof ApiError || error instanceof Error ? error.message : "Could not create order.";
       toast.error(message);
     }
@@ -170,10 +215,11 @@ export default function EventDetail() {
       alias,
       eventId: event.id,
       file: uploadFile,
+      consentGiven: uploadConsent,
     });
 
     if (!parsed.success) {
-      setUploadMessage("Add an alias and image before submitting.");
+      setUploadMessage("Add an alias and image, and provide consent before submitting.");
       return;
     }
 
@@ -186,7 +232,7 @@ export default function EventDetail() {
       await submitUploadMutation.mutateAsync({
         eventId: event.id,
         alias: parsed.data.alias.trim(),
-        consentGiven: true,
+        consentGiven: parsed.data.consentGiven,
         media: {
           storageKey: uploadedMedia.storageKey,
           mimeType: uploadedMedia.mimeType,
@@ -209,7 +255,7 @@ export default function EventDetail() {
 
   return (
     <>
-      <section className="relative h-[56vh] min-h-[380px] overflow-hidden">
+      <section className="relative h-[42vh] min-h-[300px] overflow-hidden md:h-[56vh] md:min-h-[380px]">
         <img src={event.heroImage} alt={event.title} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/55 to-transparent" />
         <div className="absolute bottom-0 left-0 right-0 p-4 md:p-8 lg:p-14">
@@ -222,11 +268,16 @@ export default function EventDetail() {
               <Handshake size={14} className="text-accent" />
               Supported By {supportedByText}
             </p>
+            {ticketingAvailable && (
+              <Button type="button" variant="accent" size="lg" className="mt-5" onClick={scrollToTicketPurchase}>
+                Get Your Ticket
+              </Button>
+            )}
           </div>
         </div>
       </section>
 
-      <section className="section-padding">
+      <section className={`section-padding ${ticketingAvailable ? "pb-28 md:pb-24" : ""}`}>
         <div className="container-narrow grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-8 md:gap-12">
           <div className="space-y-8">
             <div className="border border-border bg-card p-5 md:p-6">
@@ -236,34 +287,30 @@ export default function EventDetail() {
                 <p><span className="text-foreground">Date:</span> {event.date}</p>
                 <p><span className="text-foreground">Time:</span> {event.time}</p>
                 <p><span className="text-foreground">Venue:</span> {event.venue}</p>
-                <p><span className="text-foreground">Capacity:</span> {event.capacity} guests</p>
+                {event.capacity > 0 && <p><span className="text-foreground">Capacity:</span> {event.capacity} guests</p>}
               </div>
             </div>
 
             <div className="border border-border bg-card p-5 md:p-6">
               <h3 className="font-display text-xl text-foreground mb-3">Share & Invite</h3>
               <div className="flex flex-wrap gap-3">
-                <Button variant="outline" size="sm" onClick={() => toast.success("Share flow placeholder ready for backend deep links.")}>
+                <Button variant="outline" size="sm" onClick={() => void shareEvent(event, false)} disabled={!canShareEvent()}>
                   <Share2 size={14} /> Share Event
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => toast.success("Bring-a-friend referral placeholder triggered.")}>
+                <Button variant="outline" size="sm" onClick={() => void shareEvent(event, true)} disabled={!canShareEvent()}>
                   <UserPlus size={14} /> Bring a Friend
                 </Button>
               </div>
             </div>
 
-            <div className="border border-border bg-card p-5 md:p-6">
+            {event.highlights.length > 0 && <div className="border border-border bg-card p-5 md:p-6">
               <h3 className="font-display text-xl text-foreground mb-3">Event Highlights</h3>
-              {event.highlights.length === 0 ? (
-                <p className="text-sm text-foreground-secondary">Highlights will be added soon.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {event.highlights.map((item) => (
-                    <li key={item} className="text-sm text-foreground-secondary">- {item}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
+              <ul className="space-y-2">
+                {event.highlights.map((item) => (
+                  <li key={item} className="text-sm text-foreground-secondary">- {item}</li>
+                ))}
+              </ul>
+            </div>}
 
             <div className="border border-border bg-card p-5 md:p-6">
               <h3 className="font-display text-xl text-foreground mb-4">Community Upload</h3>
@@ -285,6 +332,10 @@ export default function EventDetail() {
                   <p className={formHelperTextClassName}>
                     Upload policy notice: only event-relevant content will be approved for the public archive.
                   </p>
+                  <label className="flex items-start gap-2 text-xs text-foreground-secondary">
+                    <input type="checkbox" checked={uploadConsent} onChange={(eventInput) => setUploadConsent(eventInput.target.checked)} className="mt-0.5" />
+                    <span>I consent to this image being reviewed and, if approved, displayed in the public community archive.</span>
+                  </label>
                   <Button variant="accent" size="sm" onClick={submitCommunityUpload} disabled={submitUploadMutation.isPending}>
                     {submitUploadMutation.isPending || uploadMediaMutation.isPending ? "Submitting..." : "Submit Upload"}
                   </Button>
@@ -339,9 +390,13 @@ export default function EventDetail() {
             )}
           </div>
 
-          <aside className="space-y-4 lg:sticky lg:top-20 self-start">
-            <div className="border border-border bg-card p-5 md:p-6">
-              <h3 className="font-display text-lg text-foreground mb-4">Select Tickets</h3>
+          <aside className="order-first space-y-4 self-start lg:order-last lg:sticky lg:top-20">
+            <div id="ticket-purchase" className="scroll-mt-24 border border-accent/35 bg-card p-5 md:p-6 shadow-sm">
+              <div className="mb-4">
+                <p className="font-display text-xs uppercase tracking-[0.2em] text-accent">Reserve your place</p>
+                <h3 className="mt-2 font-display text-2xl text-foreground">Get Your Ticket</h3>
+                <p className="mt-1 text-sm text-foreground-secondary">Choose your ticket, enter your details, and pay securely with M-Pesa.</p>
+              </div>
               {tiers.length === 0 ? (
                 <p className="text-xs text-foreground-secondary mb-4">
                   Ticket tiers are not available for this event yet. Check back soon or contact support.
@@ -358,6 +413,7 @@ export default function EventDetail() {
                   value={fullName}
                   onChange={(eventInput) => setFullName(eventInput.target.value)}
                   placeholder="Your full name"
+                  autoComplete="name"
                   className={formInputClassName}
                   required
                 />
@@ -370,7 +426,10 @@ export default function EventDetail() {
                 <input
                   value={phone}
                   onChange={(eventInput) => setPhone(eventInput.target.value)}
-                  placeholder="07XXXXXXXX"
+                  placeholder="07XXXXXXXX or 2547XXXXXXXX"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
                   className={formInputClassName}
                   required
                 />
@@ -385,14 +444,14 @@ export default function EventDetail() {
                   value={email}
                   onChange={(eventInput) => setEmail(eventInput.target.value)}
                   placeholder="you@example.com"
+                  autoComplete="email"
                   className={formInputClassName}
                   required
                 />
               </div>
 
-              <div className="mt-4 space-y-3">
+              <div className="mt-4">
                 <OrderSummaryCard tiers={tiers} quantities={quantities} phoneNumber={phone} />
-                <PaymentStatusPanel status={paymentStatus} />
               </div>
 
               <Button
@@ -400,10 +459,15 @@ export default function EventDetail() {
                 size="lg"
                 className="w-full mt-4"
                 onClick={() => void initiatePayment()}
-                disabled={createOrderMutation.isPending || tiers.length === 0}
+                disabled={createOrderMutation.isPending || selectedTicketCount === 0}
               >
-                {createOrderMutation.isPending ? "Creating Order..." : "Initiate Payment"}
+                {createOrderMutation.isPending
+                  ? "Creating Order..."
+                  : `Pay ${selectedCurrency} ${selectedTotal.toLocaleString()} with M-Pesa`}
               </Button>
+              <p className="mt-3 text-center text-[11px] text-foreground-secondary">
+                No account required · Your ticket is delivered after payment
+              </p>
             </div>
 
             <div className="border border-border bg-secondary/15 p-4">
@@ -414,6 +478,20 @@ export default function EventDetail() {
           </aside>
         </div>
       </section>
+
+      {ticketingAvailable && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 px-4 py-3 shadow-[0_-8px_24px_rgba(20,23,56,0.12)] backdrop-blur md:hidden">
+          <div className="mx-auto flex max-w-6xl items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-display uppercase tracking-[0.12em] text-foreground-secondary">Your ticket</p>
+              <p className="font-display text-base text-foreground">{selectedCurrency} {selectedTotal.toLocaleString()}</p>
+            </div>
+            <Button type="button" variant="accent" onClick={scrollToTicketPurchase}>
+              Get Ticket
+            </Button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -55,7 +55,7 @@ export type AdminManualPaymentQueueFilters = {
   search?: string;
 };
 
-export type AdminMpesaTransactionStatus = "initiated" | "pending" | "paid" | "failed" | "cancelled" | "refunded";
+export type AdminMpesaTransactionStatus = "initiated" | "pending" | "ambiguous" | "paid" | "failed" | "cancelled" | "refunded";
 
 export type AdminMpesaTransactionAuditRecord = {
   id: string;
@@ -70,6 +70,9 @@ export type AdminMpesaTransactionAuditRecord = {
   resultCode?: string;
   resultDesc?: string;
   status: AdminMpesaTransactionStatus;
+  reconciliationAttemptCount: number;
+  reconciliationRequiresManualReview: boolean;
+  lastReconciliationError?: string;
   initiatedAt: string;
   completedAt?: string;
   callbackReceived: boolean;

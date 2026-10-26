@@ -151,6 +151,14 @@ export default function AdminGalleriesPage() {
   const selectedImage = selectedImageQuery.data;
 
   useEffect(() => {
+    if (!selectedImageId) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById("admin-gallery-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedImageId]);
+
+  useEffect(() => {
     if (!createForm.eventId && events[0]) {
       setCreateForm((current) => ({ ...current, eventId: events[0].id }));
     }
@@ -342,11 +350,11 @@ export default function AdminGalleriesPage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Gallery Manager"
-        subtitle="Admin/staff can manage gallery metadata, event assignment, featured flags, and sort order. Moderators are read-only."
+        title="Gallery"
+        subtitle="Add event images, write useful captions, and choose what appears first on the public site."
       />
 
-      <AdminSectionCard title="Create Gallery Image Record">
+      <AdminSectionCard title="Create Gallery Image Record" description="Upload an image, add its event and caption, then create the record for the public gallery.">
         {!canWrite && <p className="text-sm text-foreground-secondary mb-4">Your role is read-only for this section.</p>}
         <form onSubmit={handleCreateImage} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <select
@@ -403,7 +411,7 @@ export default function AdminGalleriesPage() {
         </form>
       </AdminSectionCard>
 
-      <AdminSectionCard title="Gallery Images">
+      <AdminSectionCard title="Gallery Images" description="Select an image row to edit it. Use Feature to control which image leads the public gallery.">
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -449,7 +457,22 @@ export default function AdminGalleriesPage() {
           ) : (
             <DataTable headers={["Preview", "Event", "Caption", "Sort", "Featured", "Actions"]} minWidthClassName="min-w-[760px] md:min-w-[980px]">
               {images.map((image) => (
-                <tr key={image.id} className="bg-background border border-border">
+                <tr
+                  key={image.id}
+                  className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${selectedImageId === image.id ? "bg-accent/10" : "bg-background"}`}
+                  aria-selected={selectedImageId === image.id}
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+                    setSelectedImageId(image.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedImageId(image.id);
+                    }
+                  }}
+                >
                   <td className="px-3 py-3">
                     <img src={image.image} alt={image.caption} className="h-14 w-14 object-cover rounded-sm" />
                   </td>
@@ -483,7 +506,7 @@ export default function AdminGalleriesPage() {
       </AdminSectionCard>
 
       {selectedImageId && (
-        <AdminSectionCard title="Edit Gallery Image">
+        <AdminSectionCard title="Edit Gallery Image" description="Make the change, then save. The public gallery uses the saved caption, order, and featured status." id="admin-gallery-editor">
           {selectedImageQuery.isLoading ? (
             <p className="text-sm text-foreground-secondary">Loading gallery image details...</p>
           ) : selectedImageQuery.isError || !selectedImage ? (

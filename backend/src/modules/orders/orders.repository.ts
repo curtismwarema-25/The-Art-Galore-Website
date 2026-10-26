@@ -233,7 +233,7 @@ export class OrdersRepository {
             },
             {
               status: {
-                in: [OrderStatus.PAYMENT_SUBMITTED, OrderStatus.PAYMENT_REJECTED, OrderStatus.PAYMENT_VERIFIED],
+                in: [OrderStatus.PAYMENT_SUBMITTED, OrderStatus.PAYMENT_VERIFIED],
               },
             },
             {

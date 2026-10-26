@@ -3,12 +3,12 @@ import { ArrowRight, Calendar, Clock, MapPin, Ticket } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import PageHeader from "@/components/common/PageHeader";
 import ScrollReveal from "@/components/ScrollReveal";
-import { Button } from "@/components/ui/button";
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
 import { useEventQuery } from "@/hooks/queries/useEventQuery";
 import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSettingsQuery";
 import type { EventRecord } from "@/types/models";
 import { hasActiveTicketTier } from "@/lib/homepageState";
+import { Button } from "@/components/ui/button";
 
 type SiteSettingsPreview = { heroTitle?: string; heroSubtitle?: string; whatsappLink?: string };
 type EventDetail = NonNullable<ReturnType<typeof useEventQuery>["data"]>;
@@ -114,5 +114,6 @@ export default function Index() {
   const activeEvent = eventDetailQuery.data && isTicketedEvent(eventDetailQuery.data) ? eventDetailQuery.data : undefined;
   const evaluatingEvent = Boolean(upcomingEvent && eventDetailQuery.isLoading);
   if (eventsQuery.isLoading || evaluatingEvent) return <BrandHero title={settingsQuery.data?.heroTitle || "A Free Space to Connect Us All"} subtitle="Discover the next Art Galore experience." />;
+  if (eventsQuery.isError) return <><BrandHero title={settingsQuery.data?.heroTitle || "A Free Space to Connect Us All"} subtitle="Discover the next Art Galore experience." /><section className="section-padding"><div className="container-narrow"><div role="alert" className="border border-border bg-card p-6 text-center"><h2 className="font-display text-xl">Events are temporarily unavailable</h2><p className="my-3 text-sm text-foreground-secondary">We could not reach the events service. Please retry shortly.</p><Button variant="outline" onClick={() => void eventsQuery.refetch()} disabled={eventsQuery.isFetching}>{eventsQuery.isFetching ? "Trying again..." : "Retry"}</Button></div></div></section></>;
   return activeEvent ? <ActiveEventState event={activeEvent} /> : <NoActiveEventState events={eventsQuery.data ?? []} settings={settingsQuery.data} />;
 }

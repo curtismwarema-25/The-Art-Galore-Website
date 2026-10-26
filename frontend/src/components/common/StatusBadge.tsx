@@ -8,7 +8,8 @@ type StatusBadgeTone =
   | "checked-in"
   | "idle"
   | "initiating"
-  | "failed";
+  | "failed"
+  | "refunded";
 
 const badgeClassByTone: Record<StatusBadgeTone, string> = {
   published: "bg-accent/18 border-accent/35 text-accent",
@@ -21,6 +22,7 @@ const badgeClassByTone: Record<StatusBadgeTone, string> = {
   idle: "bg-accent/8 border-accent/22 text-foreground-secondary",
   initiating: "bg-accent/12 border-accent/28 text-accent",
   failed: "bg-accent/6 border-accent/18 text-foreground-secondary",
+  refunded: "bg-accent/8 border-accent/22 text-foreground-secondary",
 };
 
 type StatusBadgeProps = {

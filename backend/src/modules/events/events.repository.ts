@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import { EventStatus, PartnerPlacementContext, TicketTierStatus } from "@prisma/client";
+import { EventStatus, OrderStatus, PartnerPlacementContext, TicketTierStatus } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
 
 export type EventsListFilters = {
@@ -59,6 +59,27 @@ export type TicketTierWriteInput = {
 };
 
 export class EventsRepository {
+  async getReservedTicketQuantities(ticketTierIds: string[], now = new Date()) {
+    if (ticketTierIds.length === 0) return new Map<string, number>();
+
+    const grouped = await prisma.orderItem.groupBy({
+      by: ["ticketTierId"],
+      where: {
+        ticketTierId: { in: ticketTierIds },
+        order: {
+          OR: [
+            { status: OrderStatus.PAID },
+            { status: { in: [OrderStatus.PAYMENT_SUBMITTED, OrderStatus.PAYMENT_VERIFIED] } },
+            { status: OrderStatus.PENDING_PAYMENT, reservationExpiresAt: { gt: now } },
+          ],
+        },
+      },
+      _sum: { quantity: true },
+    });
+
+    return new Map(grouped.map((entry) => [entry.ticketTierId, entry._sum.quantity ?? 0]));
+  }
+
   async listPublicEvents(filters: EventsListFilters) {
     const now = new Date();
 

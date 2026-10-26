@@ -1,6 +1,6 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { Clock3, ReceiptText, Smartphone, Upload } from "lucide-react";
+import { Clock3, LoaderCircle, ReceiptText, Smartphone, Upload } from "lucide-react";
 import EmptyState from "@/components/common/EmptyState";
 import PageHeader from "@/components/common/PageHeader";
 import StatusBadge from "@/components/common/StatusBadge";
@@ -43,15 +43,41 @@ function createStkIdempotencyKey() {
     : `stk-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const PAYMENT_BLOCKING_OVERLAY_MS = 10_000;
+
 export default function OrderTracking() {
   const { publicToken = "" } = useParams();
   const [searchParams] = useSearchParams();
   const [stkRequested, setStkRequested] = useState(false);
-  const { data: order, isLoading, isError } = useTrackOrderQuery(publicToken, stkRequested ? 5_000 : 30_000);
+  const [pollPaymentStatus, setPollPaymentStatus] = useState(false);
+  const [paymentWaitStartedAt, setPaymentWaitStartedAt] = useState<number | null>(null);
+  const [paymentWaitClock, setPaymentWaitClock] = useState(() => Date.now());
+  const autoStkAttempted = useRef(false);
+  const { data: order, isLoading, isError, refetch: refetchOrder } = useTrackOrderQuery(publicToken, stkRequested || pollPaymentStatus ? 5_000 : 30_000);
   const { data: settings } = usePublicSiteSettingsQuery();
   const uploadMediaMutation = useUploadMediaMutation();
   const submitProofMutation = useSubmitManualPaymentProofMutation(publicToken);
   const initiateStkMutation = useInitiateMpesaStkPushMutation(publicToken);
+  const orderCanStillBeWaitingForStk = order?.status === "pending_payment" || order?.status === "payment_submitted";
+  const awaitingTicketIssue = order?.paymentStatus === "paid" && order.tickets.length === 0;
+  const paymentProcessing = initiateStkMutation.isPending
+    || Boolean(order?.mpesaPaymentPending)
+    || (stkRequested && Boolean(orderCanStillBeWaitingForStk))
+    || Boolean(awaitingTicketIssue);
+  const showBlockingPaymentScreen = paymentProcessing
+    && paymentWaitStartedAt !== null
+    && paymentWaitClock - paymentWaitStartedAt < PAYMENT_BLOCKING_OVERLAY_MS;
+
+  useEffect(() => {
+    if (!paymentProcessing) {
+      setPaymentWaitStartedAt(null);
+      return;
+    }
+
+    setPaymentWaitStartedAt((startedAt) => startedAt ?? Date.now());
+    const timer = window.setInterval(() => setPaymentWaitClock(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [paymentProcessing]);
 
   const [paymentMethod, setPaymentMethod] = useState<"bank" | "mpesa" | "manual">("mpesa");
   const [payerName, setPayerName] = useState("");
@@ -72,8 +98,15 @@ export default function OrderTracking() {
   }, [order, phoneNumber, searchParams]);
 
   useEffect(() => {
-    if (!order || !stkRequested) return;
-    if (order.status === "paid" || order.status === "expired" || order.status === "payment_rejected") {
+    if (!order) return;
+    const awaitingMpesaVerification = order.status === "payment_submitted"
+      && order.paymentStatus === "pending"
+      && order.verificationStatus === "not_submitted";
+    const awaitingTicketFulfillment = order.paymentStatus === "paid"
+      && (order.tickets.length === 0 || (order.ticketEmailDeliveryEnabled && order.ticketDeliveryStatus === "pending"));
+    setPollPaymentStatus(order.mpesaPaymentPending || awaitingMpesaVerification || awaitingTicketFulfillment);
+
+    if (stkRequested && (order.status === "paid" || order.status === "expired" || order.status === "payment_rejected")) {
       setStkRequested(false);
     }
   }, [order, stkRequested]);
@@ -85,12 +118,13 @@ export default function OrderTracking() {
   }, [screenshotPreview]);
 
   useEffect(() => {
-    if (!order || stkRequested || !order.canSubmitPaymentProof) return;
+    if (!order || stkRequested || autoStkAttempted.current || !order.canSubmitPaymentProof) return;
     if (searchParams.get("autostk") !== "1") return;
 
     const phone = searchParams.get("phone")?.trim() || "";
     if (!phone) return;
 
+    autoStkAttempted.current = true;
     setStkRequested(true);
     initiateStkMutation
       .mutateAsync({
@@ -101,9 +135,12 @@ export default function OrderTracking() {
         toast.success(result.customerMessage || "M-Pesa prompt sent.");
       })
       .catch((error) => {
+        void refetchOrder().then((refreshed) => {
+          if (!refreshed.data?.mpesaPaymentPending) setStkRequested(false);
+        });
         toast.error(error instanceof Error ? error.message : "Could not send STK push.");
       });
-  }, [order, searchParams, stkRequested, initiateStkMutation]);
+  }, [order, searchParams, stkRequested, initiateStkMutation, refetchOrder]);
 
   if (isLoading) {
     return (
@@ -146,6 +183,11 @@ export default function OrderTracking() {
 
   const submitPaymentProof = async (eventInput: FormEvent<HTMLFormElement>) => {
     eventInput.preventDefault();
+
+    if (order.mpesaPaymentPending || stkRequested || initiateStkMutation.isPending) {
+      toast.error("An M-Pesa payment is already processing for this order.");
+      return;
+    }
 
     if (!order.canSubmitPaymentProof) {
       toast.error("This order is not accepting payment proof submissions.");
@@ -195,12 +237,14 @@ export default function OrderTracking() {
   };
 
   const triggerStkPush = async () => {
+    if (order.mpesaPaymentPending || stkRequested || initiateStkMutation.isPending) return;
     const phone = phoneNumber.trim() || searchParams.get("phone")?.trim() || "";
     if (!phone) {
       toast.error("Enter a valid phone number for the M-Pesa prompt.");
       return;
     }
 
+    setStkRequested(true);
     try {
       const result = await initiateStkMutation.mutateAsync({
         input: { phoneNumber: phone },
@@ -208,6 +252,8 @@ export default function OrderTracking() {
       });
       toast.success(result.customerMessage || "M-Pesa prompt sent.");
     } catch (error) {
+      const refreshed = await refetchOrder();
+      if (!refreshed.data?.mpesaPaymentPending) setStkRequested(false);
       toast.error(error instanceof Error ? error.message : "Could not send STK push.");
     }
   };
@@ -218,19 +264,36 @@ export default function OrderTracking() {
     initiateStkMutation.error instanceof Error ? initiateStkMutation.error.message : "Could not send STK push.";
   const manualPaymentEnabled = settings?.manualPaymentEnabled ?? true;
   const hasIssuedTickets = order.tickets.length > 0;
+  const canStartPayment = order.canSubmitPaymentProof
+    && !paymentProcessing
+    && !stkRequested;
+  const paymentProcessingMessage = initiateStkMutation.isPending
+    ? "Sending your M-Pesa payment prompt"
+    : awaitingTicketIssue
+      ? "Payment confirmed. We’re preparing your tickets"
+      : "Check your phone and complete the M-Pesa prompt";
   const ticketDeliveryMessage =
     order.ticketDeliveryStatus === "sent"
       ? "Ticket email sent. You can also open tickets from this page."
       : order.ticketDeliveryStatus === "failed"
         ? "Ticket email needs attention. Your tickets remain available below."
         : hasIssuedTickets
-          ? "Tickets are ready. Email delivery is pending."
+          ? order.ticketEmailDeliveryEnabled
+            ? "Tickets are ready below. Email delivery is still being attempted."
+            : "Tickets are ready below. Email delivery is not configured on this server yet."
           : order.paymentStatus === "paid"
-            ? "Payment is confirmed. Tickets are being prepared."
-            : "Payment is pending. Complete the STK prompt or submit proof if needed.";
+            ? "Payment is confirmed. We’re preparing your tickets now; this page will update automatically."
+            : order.status === "payment_submitted" && order.verificationStatus === "not_submitted"
+              ? "M-Pesa response received. We’re verifying the payment automatically; keep this page open while we prepare your tickets."
+              : order.verificationStatus === "pending_review"
+                ? "Payment proof submitted. Our team is reviewing it and will update this page."
+                : order.status === "payment_rejected"
+              ? "The payment was not completed. You can send another STK prompt or submit payment proof."
+                  : "Payment is pending. Complete the STK prompt or submit proof if needed.";
 
   return (
-    <section className="section-padding">
+    <>
+    <section className="section-padding" aria-hidden={showBlockingPaymentScreen}>
       <div className="container-narrow space-y-6">
         <PageHeader
           eyebrow="Order Tracking"
@@ -274,13 +337,22 @@ export default function OrderTracking() {
           <div className="rounded-md border border-border bg-secondary/15 p-3 text-sm text-foreground-secondary">
             <p className="text-foreground">Fulfillment Status</p>
             <p className="mt-1">{ticketDeliveryMessage}</p>
-            {stkRequested && order.paymentStatus === "pending" && (
-              <p className="mt-1 text-xs">Refreshing more often while the M-Pesa prompt is active.</p>
+            {paymentProcessing && (
+              <p className="mt-2 rounded-sm border border-accent/30 bg-background/70 p-3 text-foreground" aria-live="polite">
+                {initiateStkMutation.isPending
+                  ? "Sending the M-Pesa prompt. Please keep this order page open for now."
+                  : awaitingTicketIssue
+                    ? "Payment is confirmed; ticket creation is still in progress. You can leave and return to this link later."
+                    : "We’re still checking with M-Pesa. You can leave and return to this order link later. Don’t start another payment while this one is pending."}
+              </p>
+            )}
+            {(stkRequested || pollPaymentStatus) && order.paymentStatus === "pending" && (
+              <p className="mt-1 text-xs">Refreshing every few seconds while the M-Pesa payment is being verified.</p>
             )}
           </div>
         </article>
 
-        {order.canSubmitPaymentProof && (
+        {canStartPayment && (
           <article className="border border-border bg-card p-5 md:p-6 space-y-5">
             <div className="flex items-start gap-3">
               <span className="mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-accent/35 bg-accent/12 text-accent">
@@ -324,7 +396,7 @@ export default function OrderTracking() {
           </article>
         )}
 
-        {order.canSubmitPaymentProof && manualPaymentEnabled && (
+        {canStartPayment && manualPaymentEnabled && (
           <article className="border border-border bg-card p-5 md:p-6 space-y-5">
             <div className="flex items-start gap-3">
               <span className="mt-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border text-foreground-secondary">
@@ -459,7 +531,7 @@ export default function OrderTracking() {
           </article>
         )}
 
-        {!order.canSubmitPaymentProof && (
+        {!order.canSubmitPaymentProof && order.status !== "payment_submitted" && (
           <article className="border border-border bg-card p-5 md:p-6">
             <p className="text-sm text-foreground-secondary">
               Payment actions are currently unavailable for this order status.
@@ -487,6 +559,20 @@ export default function OrderTracking() {
         )}
       </div>
     </section>
+    {showBlockingPaymentScreen && (
+      <div className="fixed inset-0 z-[100] flex min-h-screen items-center justify-center bg-background px-6 text-center" role="status" aria-live="polite">
+        <div className="mx-auto flex max-w-md flex-col items-center">
+          <LoaderCircle className="h-12 w-12 animate-spin text-accent" aria-hidden="true" />
+          <p className="mt-6 font-display text-xs uppercase tracking-[0.24em] text-accent">Payment in progress</p>
+          <h1 className="mt-3 font-display text-2xl text-foreground">{paymentProcessingMessage}</h1>
+          <p className="mt-3 text-sm leading-6 text-foreground-secondary">
+            We’re checking the payment with M-Pesa. Keep this page open and don’t start another payment. This screen will update when payment is confirmed or declined.
+          </p>
+          <p className="mt-5 text-xs text-foreground-secondary">Order {order.orderNumber}</p>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

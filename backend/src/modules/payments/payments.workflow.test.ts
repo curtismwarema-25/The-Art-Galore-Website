@@ -47,8 +47,8 @@ function withWorkflowEnv() {
     MPESA_SHORTCODE: env.MPESA_SHORTCODE,
     MPESA_PASSKEY: env.MPESA_PASSKEY,
     MPESA_CALLBACK_URL: env.MPESA_CALLBACK_URL,
+    MPESA_CALLBACK_ALLOWED_IPS: env.MPESA_CALLBACK_ALLOWED_IPS,
     MPESA_LATE_PAYMENT_POLICY: env.MPESA_LATE_PAYMENT_POLICY,
-    MPESA_CALLBACK_SECRET: env.MPESA_CALLBACK_SECRET,
   };
 
   env.EMAIL_DELIVERY_ENABLED = true;
@@ -57,6 +57,7 @@ function withWorkflowEnv() {
   env.MPESA_SHORTCODE = "174379";
   env.MPESA_PASSKEY = "test-passkey";
   env.MPESA_CALLBACK_URL = "https://example.test/api/payments/mpesa/stk/callback";
+  env.MPESA_CALLBACK_ALLOWED_IPS = "127.0.0.1,::1";
   env.MPESA_LATE_PAYMENT_POLICY = "reject";
 
   return () => {
@@ -379,9 +380,9 @@ test("late M-Pesa success after grace requires review and issues no tickets", as
   }
 });
 
-test("M-Pesa callback route rejects missing or invalid callback secret", async () => {
+test("M-Pesa callback route rejects sources outside Safaricom's configured IP allowlist", async () => {
   const restoreEnv = withWorkflowEnv();
-  env.MPESA_CALLBACK_SECRET = `secret-${randomUUID()}`;
+  env.MPESA_CALLBACK_ALLOWED_IPS = "192.0.2.10";
 
   const app = createApp();
   const server = http.createServer(app);
@@ -403,19 +404,12 @@ test("M-Pesa callback route rejects missing or invalid callback secret", async (
       },
     };
 
-    const missingSecret = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback`, {
+    const disallowedSource = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(callbackPayload),
     });
-    const invalidSecret = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-mpesa-callback-secret": "wrong" },
-      body: JSON.stringify(callbackPayload),
-    });
-
-    assert.equal(missingSecret.status, 401);
-    assert.equal(invalidSecret.status, 401);
+    assert.equal(disallowedSource.status, 401);
   } finally {
     restoreEnv();
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
@@ -455,7 +449,6 @@ test("M-Pesa callback ingestion is durable and idempotent", async (t) => {
 test("callback is persisted before the HTTP 200 response", async (t) => {
   if (!(await ensureDbAvailable(t))) return;
   const restoreEnv = withWorkflowEnv();
-  env.MPESA_CALLBACK_SECRET = `secret-${randomUUID()}`;
   const checkoutRequestId = `checkout-${randomUUID()}`;
   const payload = { Body: { stkCallback: { MerchantRequestID: `merchant-${randomUUID()}`, CheckoutRequestID: checkoutRequestId, ResultCode: 1032, ResultDesc: "Cancelled" } } };
   const server = http.createServer(createApp());
@@ -465,7 +458,7 @@ test("callback is persisted before the HTTP 200 response", async (t) => {
     const address = server.address() as AddressInfo;
     const response = await fetch(`http://127.0.0.1:${address.port}/api/payments/mpesa/stk/callback`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-mpesa-callback-secret": env.MPESA_CALLBACK_SECRET },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
     assert.equal(response.status, 200);
