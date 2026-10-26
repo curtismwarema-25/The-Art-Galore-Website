@@ -195,6 +195,7 @@ function mapPublicTrackedOrderRecord(order: OrderWithRelations): PublicTrackedOr
     orderNumber: order.orderNumber,
     status: mappedStatus,
     paymentStatus: deriveOrderPaymentStatus(order),
+    paymentResultCode: latestPayment?.resultCode ?? undefined,
     verificationStatus,
     currency: order.currency,
     amountDue: Number(order.totalAmount),

@@ -102,6 +102,7 @@ export type PublicTrackedOrderRecord = {
   orderNumber: string;
   status: OrderLifecycleStatus;
   paymentStatus: PaymentLifecycleStatus;
+  paymentResultCode?: string;
   verificationStatus: VerificationStatus;
   currency: string;
   amountDue: number;

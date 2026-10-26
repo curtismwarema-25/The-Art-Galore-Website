@@ -288,7 +288,7 @@ export default function OrderTracking() {
               : order.verificationStatus === "pending_review"
                 ? "Payment proof submitted. Our team is reviewing it and will update this page."
                 : order.status === "payment_rejected"
-                  ? order.payment?.resultCode === "2001"
+                  ? order.paymentResultCode === "2001"
                     ? "M-Pesa returned error 2001 (initiator information invalid). No payment was confirmed. Avoid repeated retries; contact support so the Daraja sandbox setup can be checked."
                     : "The payment was not completed. You can send another STK prompt or submit payment proof."
                   : "Payment is pending. Complete the STK prompt or submit proof if needed.";
