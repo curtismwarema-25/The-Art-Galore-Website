@@ -23,19 +23,31 @@ import { useAuth } from "@/features/auth/useAuth";
 const navItems: Array<{ label: string; path: string; icon: LucideIcon; end?: boolean }> = [
   { label: "Dashboard", path: "/admin", icon: LayoutDashboard, end: true },
   { label: "Events", path: "/admin/events", icon: Calendar },
-  { label: "Tickets", path: "/admin/orders", icon: Ticket },
+  { label: "Orders", path: "/admin/orders", icon: Ticket },
   { label: "People", path: "/admin/people", icon: Users },
-  { label: "Galleries", path: "/admin/gallery", icon: Image },
-  { label: "Community Uploads", path: "/admin/uploads", icon: Upload },
+  { label: "Gallery", path: "/admin/gallery", icon: Image },
+  { label: "Community uploads", path: "/admin/uploads", icon: Upload },
   { label: "Partners", path: "/admin/partners", icon: Handshake },
-  { label: "Site Settings", path: "/admin/settings", icon: Settings },
+  { label: "Site settings", path: "/admin/settings", icon: Settings },
 ];
 
 function getTitle(pathname: string) {
-  if (pathname.startsWith("/admin/checkin")) return "Check-In";
+  if (pathname.startsWith("/admin/checkin")) return "Guest check-in";
   const matched = navItems.find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
   if (!matched) return "Admin";
   return matched.label;
+}
+
+function getPageDescription(pathname: string) {
+  if (pathname.startsWith("/admin/events")) return "Create events, update event details, and manage ticket tiers.";
+  if (pathname.startsWith("/admin/orders")) return "Review orders, payment submissions, and ticket delivery.";
+  if (pathname.startsWith("/admin/checkin")) return "Find tickets and record guest entry.";
+  if (pathname.startsWith("/admin/people")) return "Manage artist and team profiles shown on the public site.";
+  if (pathname.startsWith("/admin/gallery")) return "Manage images displayed in the public gallery.";
+  if (pathname.startsWith("/admin/uploads")) return "Review and moderate community-submitted images.";
+  if (pathname.startsWith("/admin/partners")) return "Manage partner details and homepage visibility.";
+  if (pathname.startsWith("/admin/settings")) return "Update public site content, contact details, and links.";
+  return "Review event activity and items that need follow-up.";
 }
 
 export default function AdminLayout() {
@@ -159,7 +171,7 @@ export default function AdminLayout() {
                         disabled={isLoggingOut}
                         className="bg-accent text-accent-foreground px-5 py-3 font-display text-sm tracking-widest uppercase text-center mt-2 disabled:opacity-70"
                       >
-                        {isLoggingOut ? "Signing out..." : "Sign Out"}
+                        {isLoggingOut ? "Signing out…" : "Sign out"}
                       </button>
                     </div>
                   </motion.div>
@@ -180,10 +192,10 @@ export default function AdminLayout() {
                 className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs tracking-[0.12em] uppercase text-foreground-secondary hover:text-foreground disabled:opacity-60"
               >
                 <LogOut size={14} />
-                {isLoggingOut ? "Signing out..." : "Sign out"}
+                {isLoggingOut ? "Signing out…" : "Sign out"}
               </button>
             </div>
-            <PageHeader compact eyebrow="Admin" title={title} description="Operational center for Art Galore International." />
+            <PageHeader compact eyebrow="Admin" title={title} description={getPageDescription(location.pathname)} />
             <Outlet />
           </div>
         </main>

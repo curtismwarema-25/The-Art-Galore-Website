@@ -53,9 +53,9 @@ export default function AdminLogin() {
   return (
     <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-md rounded-xl border border-border bg-secondary/25 p-6 md:p-8">
-        <p className="font-display text-[11px] tracking-[0.25em] uppercase text-accent mb-3">Admin Access</p>
+        <p className="font-display text-[11px] tracking-[0.25em] uppercase text-accent mb-3">Admin sign-in</p>
         <h1 className="font-display text-3xl text-foreground mb-2">Sign in</h1>
-        <p className="text-sm text-foreground-secondary mb-6">Use your admin, staff, or moderator account to continue.</p>
+        <p className="text-sm text-foreground-secondary mb-6">Sign in with your administrator, staff, or moderator account.</p>
 
         <form className="space-y-4" onSubmit={onSubmit}>
           <div className="space-y-2">
@@ -71,9 +71,9 @@ export default function AdminLogin() {
                 if (loginError) clearLoginError();
               }}
               className={adminInputClassName}
-              placeholder="admin@local.test"
+              placeholder="you@example.com"
             />
-            <p className={formHelperTextClassName}>Use the email assigned to your staff account.</p>
+            <p className={formHelperTextClassName}>Use the email assigned to your account.</p>
           </div>
 
           <div className="space-y-2">
@@ -96,12 +96,12 @@ export default function AdminLogin() {
           {(validationError || loginError) && <p className={formErrorTextClassName}>{validationError ?? loginError}</p>}
 
           <Button type="submit" variant="accent" size="default" className="w-full" disabled={isLoggingIn}>
-            {isLoggingIn ? "Signing in..." : "Sign in"}
+            {isLoggingIn ? "Signing in…" : "Sign in"}
           </Button>
         </form>
 
         <div className="mt-5 text-sm text-foreground-secondary">
-          <Link to="/" className="hover:text-foreground transition-colors">Back to website</Link>
+          <Link to="/" className="hover:text-foreground transition-colors">Return to website</Link>
         </div>
       </div>
     </div>

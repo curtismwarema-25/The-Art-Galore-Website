@@ -21,7 +21,7 @@ import { validateFile } from "@/features/uploads/uploadService";
 import { useAuth } from "@/features/auth/useAuth";
 import type { EventLifecycle, EventRecord, RecordStatus, TicketTier } from "@/types/models";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { adminFileInputClassName, adminInputClassName, adminTextareaClassName } from "@/features/admin/shared/utils";
+import { adminFileInputClassName, adminInputClassName, adminTextareaClassName, formatAdminStatus } from "@/features/admin/shared/utils";
 
 type EventFormState = {
   title: string;
@@ -257,7 +257,7 @@ export default function AdminEventsPage() {
     const parsed = eventFormSchema.safeParse(createForm);
 
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete all event fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Add the event title, type, venue, and dates before saving.");
       return;
     }
 
@@ -306,7 +306,7 @@ export default function AdminEventsPage() {
 
     const parsed = eventFormSchema.safeParse(editForm);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete required edit fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Add the event title, type, venue, and dates before saving.");
       return;
     }
 
@@ -353,7 +353,7 @@ export default function AdminEventsPage() {
 
     const parsed = tierFormSchema.safeParse(tierForm);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete ticket tier fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Add a tier name, price, currency, and ticket quantity.");
       return;
     }
 
@@ -413,14 +413,14 @@ export default function AdminEventsPage() {
   }
 
   if (eventsQuery.isLoading) {
-    return <p className="text-sm text-foreground-secondary">Loading events...</p>;
+    return <p className="text-sm text-foreground-secondary">Loading events…</p>;
   }
 
   if (eventsQuery.isError) {
     return (
       <EmptyState
-        title="Could not load admin events"
-        description="Verify backend admin events endpoints and your current session."
+        title="Events could not be loaded"
+        description="Check your connection and try again."
       />
     );
   }
@@ -428,11 +428,11 @@ export default function AdminEventsPage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Events Manager"
-        subtitle="Create, update, and archive events with real backend CRUD."
+        title="Events"
+        subtitle="Create events, update event details, and manage ticket tiers."
       />
 
-      <AdminSectionCard title="Create Event">
+      <AdminSectionCard title="Create event">
         <form onSubmit={handleCreateEvent} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <input
             value={createForm.title}
@@ -444,6 +444,7 @@ export default function AdminEventsPage() {
             value={createForm.type}
             onChange={(event) => setCreateForm((current) => ({ ...current, type: event.target.value }))}
             className={adminInputClassName}
+            aria-label="Event type"
           >
             <option value="Sip & Paint">Sip & Paint</option>
             <option value="Art Night">Art Night</option>
@@ -452,12 +453,14 @@ export default function AdminEventsPage() {
           </select>
           <input
             type="datetime-local"
+            aria-label="Event start date and time"
             value={createForm.startAt}
             onChange={(event) => setCreateForm((current) => ({ ...current, startAt: event.target.value }))}
             className={adminInputClassName}
           />
           <input
             type="datetime-local"
+            aria-label="Event end date and time"
             value={createForm.endAt}
             onChange={(event) => setCreateForm((current) => ({ ...current, endAt: event.target.value }))}
             className={adminInputClassName}
@@ -474,6 +477,7 @@ export default function AdminEventsPage() {
               setCreateForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))
             }
             className={adminInputClassName}
+            aria-label="Event stage"
           >
             <option value="draft">Draft</option>
             <option value="upcoming">Upcoming</option>
@@ -491,6 +495,7 @@ export default function AdminEventsPage() {
           <div className="md:col-span-2">
             <input
               type="file"
+              aria-label="Event hero image"
               accept="image/jpeg,image/png,image/webp"
               className={adminFileInputClassName}
               disabled={!canManageMedia || uploadMediaMutation.isPending}
@@ -502,7 +507,7 @@ export default function AdminEventsPage() {
             />
             <p className="mt-1 text-xs text-foreground-secondary">
               {uploadMediaMutation.isPending
-                ? "Uploading hero image..."
+                ? "Uploading hero image…"
                 : createHeroMeta?.storageKey
                   ? "Hero image upload ready."
                   : "Optional hero image (JPG/PNG/WEBP)."}
@@ -510,19 +515,19 @@ export default function AdminEventsPage() {
           </div>
           <div className="md:col-span-2 flex justify-end">
             <Button type="submit" variant="accent" disabled={createEventMutation.isPending}>
-              {createEventMutation.isPending ? "Saving..." : "Add Event"}
+              {createEventMutation.isPending ? "Creating event…" : "Create event"}
             </Button>
           </div>
         </form>
       </AdminSectionCard>
 
-      <AdminSectionCard title="Event List">
+      <AdminSectionCard title="Event list">
         <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className={adminInputClassName}
-            placeholder="Search title, venue, slug..."
+            placeholder="Search by title, venue, or page address"
           />
           <select
             value={statusFilter}
@@ -538,10 +543,10 @@ export default function AdminEventsPage() {
         </div>
 
         {records.length === 0 ? (
-          <EmptyState title="No events found" description="Create an event or adjust your filters." />
+          <EmptyState title="No matching events" description="Change your search or status filter, or create an event." />
         ) : (
           <DataTable
-            headers={["Title", "Date", "Venue", "Lifecycle", "Status", "Actions"]}
+            headers={["Event", "Date and time", "Venue", "Event stage", "Listing status", "Actions"]}
             minWidthClassName="min-w-[760px] md:min-w-[980px]"
           >
             {records.map((record) => (
@@ -578,17 +583,17 @@ export default function AdminEventsPage() {
                           ? "draft"
                           : "failed"
                     }
-                    label={record.status}
+                    label={formatAdminStatus(record.status)}
                   />
                 </td>
                 <td className="px-3 py-3">
                   <div className="flex items-center gap-2">
                     <Button size="sm" variant="outline" asChild>
-                      <Link to={`/admin/events/${record.id}`}>Manage</Link>
+                      <Link to={`/admin/events/${record.id}`}>Manage event</Link>
                     </Button>
                     <Button size="sm" variant="outline" asChild>
                       <Link to={`/events/${record.slug}`}>
-                        Public <ExternalLink size={12} />
+                        View public page <ExternalLink size={12} />
                       </Link>
                     </Button>
                     <Button
@@ -597,7 +602,7 @@ export default function AdminEventsPage() {
                       onClick={() => handleArchiveEvent(record.id)}
                       disabled={deleteEventMutation.isPending}
                     >
-                      <Trash2 size={12} /> Archive
+                      <Trash2 size={12} /> Archive event
                     </Button>
                   </div>
                 </td>
@@ -608,7 +613,7 @@ export default function AdminEventsPage() {
       </AdminSectionCard>
 
       {!selectedEvent && (
-        <AdminSectionCard title="Ticket Tiers">
+        <AdminSectionCard title="Ticket tiers">
           <p className="text-sm text-foreground-secondary">
             Select an event using the <span className="font-medium text-foreground">Manage</span> action to create or update
             ticket tiers.
@@ -618,7 +623,7 @@ export default function AdminEventsPage() {
 
       {selectedEvent && (
         <>
-          <AdminSectionCard title="Edit Event">
+          <AdminSectionCard title="Edit event">
             <form onSubmit={handleSaveEvent} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input
                 value={editForm.title}
@@ -634,12 +639,14 @@ export default function AdminEventsPage() {
               />
               <input
                 type="datetime-local"
+                aria-label="Event start date and time"
                 value={editForm.startAt}
                 onChange={(event) => setEditForm((current) => ({ ...current, startAt: event.target.value }))}
                 className={adminInputClassName}
               />
               <input
                 type="datetime-local"
+                aria-label="Event end date and time"
                 value={editForm.endAt}
                 onChange={(event) => setEditForm((current) => ({ ...current, endAt: event.target.value }))}
                 className={adminInputClassName}
@@ -654,6 +661,7 @@ export default function AdminEventsPage() {
                 value={editForm.lifecycle}
                 onChange={(event) => setEditForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))}
                 className={adminInputClassName}
+                aria-label="Event stage"
               >
                 <option value="draft">Draft</option>
                 <option value="upcoming">Upcoming</option>
@@ -671,6 +679,7 @@ export default function AdminEventsPage() {
               <div className="md:col-span-2">
                 <input
                   type="file"
+                  aria-label="Event hero image"
                   accept="image/jpeg,image/png,image/webp"
                   className={adminFileInputClassName}
                   disabled={!canManageMedia || uploadMediaMutation.isPending}
@@ -682,7 +691,7 @@ export default function AdminEventsPage() {
                 />
                 <p className="mt-1 text-xs text-foreground-secondary">
                   {uploadMediaMutation.isPending
-                    ? "Uploading hero image..."
+                    ? "Uploading hero image…"
                     : editHeroMeta?.storageKey
                       ? "Hero image upload ready."
                       : "Upload hero image to attach/replace."}
@@ -690,13 +699,13 @@ export default function AdminEventsPage() {
               </div>
               <div className="md:col-span-2 flex justify-end">
                 <Button type="submit" variant="accent" disabled={updateEventMutation.isPending}>
-                  <PencilLine size={14} /> {updateEventMutation.isPending ? "Saving..." : "Save Changes"}
+                  <PencilLine size={14} /> {updateEventMutation.isPending ? "Saving changes…" : "Save changes"}
                 </Button>
               </div>
             </form>
           </AdminSectionCard>
 
-          <AdminSectionCard title="Ticket Tiers">
+          <AdminSectionCard title="Ticket tiers">
             <p className="mb-3 text-xs text-foreground-secondary">
               Public checkout only shows tiers with status <span className="text-foreground font-medium">Published</span>.
             </p>
@@ -736,7 +745,7 @@ export default function AdminEventsPage() {
                 value={tierForm.maxPerOrder}
                 onChange={(event) => setTierForm((current) => ({ ...current, maxPerOrder: event.target.value }))}
                 className={adminInputClassName}
-                placeholder="Max per order (optional)"
+                placeholder="Maximum tickets per order (optional)"
               />
               <input
                 value={tierForm.currency}
@@ -747,12 +756,14 @@ export default function AdminEventsPage() {
               />
               <input
                 type="datetime-local"
+                aria-label="Ticket sales start date and time"
                 value={tierForm.saleStartAt}
                 onChange={(event) => setTierForm((current) => ({ ...current, saleStartAt: event.target.value }))}
                 className={adminInputClassName}
               />
               <input
                 type="datetime-local"
+                aria-label="Ticket sales end date and time"
                 value={tierForm.saleEndAt}
                 onChange={(event) => setTierForm((current) => ({ ...current, saleEndAt: event.target.value }))}
                 className={adminInputClassName}
@@ -763,6 +774,7 @@ export default function AdminEventsPage() {
                   setTierForm((current) => ({ ...current, status: event.target.value as TicketTierFormState["status"] }))
                 }
                 className={adminInputClassName}
+                aria-label="Ticket tier status"
               >
                 <option value="draft">Draft</option>
                 <option value="published">Published</option>
@@ -773,7 +785,7 @@ export default function AdminEventsPage() {
                   value={tierForm.perks}
                   onChange={(event) => setTierForm((current) => ({ ...current, perks: event.target.value }))}
                   className={adminTextareaClassName}
-                  placeholder="Perks (comma or newline separated)"
+                  placeholder="Ticket benefits (separate with commas or new lines)"
                 />
               </div>
               <div className="md:col-span-2 flex justify-end gap-2">
@@ -786,7 +798,7 @@ export default function AdminEventsPage() {
                       setTierForm(defaultTicketTierForm);
                     }}
                   >
-                    Cancel Edit
+                    Cancel edit
                   </Button>
                 )}
                 <Button type="submit" variant="accent" disabled={createTierMutation.isPending || updateTierMutation.isPending}>
@@ -796,13 +808,13 @@ export default function AdminEventsPage() {
             </form>
 
             {ticketTiersQuery.isLoading ? (
-              <p className="text-sm text-foreground-secondary">Loading ticket tiers...</p>
+              <p className="text-sm text-foreground-secondary">Loading ticket tiers…</p>
             ) : ticketTiersQuery.isError ? (
-              <EmptyState title="Could not load ticket tiers" description="Verify ticket tier admin endpoints." />
+              <EmptyState title="Ticket tiers could not be loaded" description="Check your connection and try again." />
             ) : tiers.length === 0 ? (
               <EmptyState title="No ticket tiers yet" description="Add a tier for this event." />
             ) : (
-              <DataTable headers={["Name", "Price", "Available", "Status", "Actions"]} minWidthClassName="min-w-[720px] md:min-w-[860px]">
+              <DataTable headers={["Ticket type", "Price", "Tickets available", "Status", "Actions"]} minWidthClassName="min-w-[720px] md:min-w-[860px]">
                 {tiers.map((tier) => (
                   <tr key={tier.id} className="bg-background border border-border">
                     <td className="px-3 py-3">
@@ -819,7 +831,7 @@ export default function AdminEventsPage() {
                     <td className="px-3 py-3">
                       <StatusBadge
                         tone={tier.status === "published" ? "published" : tier.status === "draft" ? "draft" : "failed"}
-                        label={tier.status}
+                        label={formatAdminStatus(tier.status)}
                       />
                     </td>
                     <td className="px-3 py-3">
@@ -833,7 +845,7 @@ export default function AdminEventsPage() {
                           onClick={() => handleArchiveTier(tier.id)}
                           disabled={deleteTierMutation.isPending}
                         >
-                          <Trash2 size={12} /> Archive
+                          <Trash2 size={12} /> Archive tier
                         </Button>
                       </div>
                     </td>

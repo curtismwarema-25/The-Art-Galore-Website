@@ -54,13 +54,13 @@ export default function AdminSettingsPage() {
     if (!settings) return;
 
     if (!canWrite) {
-      toast.error("Your role has read-only access to site settings.");
+      toast.error("You do not have permission to change site settings.");
       return;
     }
 
     const parsed = siteSettingsFormSchema.safeParse(settings);
     if (!parsed.success) {
-      toast.error("Please complete required settings fields.");
+      toast.error("Check the required settings fields and try again.");
       return;
     }
 
@@ -98,7 +98,7 @@ export default function AdminSettingsPage() {
       setSaved(true);
       toast.success("Settings saved.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save settings.");
+      toast.error(error instanceof Error ? error.message : "Settings could not be saved. Try again.");
     }
   };
 
@@ -131,24 +131,24 @@ export default function AdminSettingsPage() {
   }
 
   if (isLoading || !settings) {
-    return <p className="text-sm text-foreground-secondary">Loading settings...</p>;
+    return <p className="text-sm text-foreground-secondary">Loading site settings…</p>;
   }
 
   if (isError) {
-    return <EmptyState title="Could not load settings" description="Verify admin site settings endpoint and active session." />;
+    return <EmptyState title="Site settings could not be loaded" description="Check your connection and try again." />;
   }
 
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Site Settings"
-        subtitle="Manage global content, contact details, links, and SEO defaults. Moderators are read-only."
+        title="Site settings"
+        subtitle="Update public site content, contact details, links, and search and social previews. Moderators can view settings but cannot change them."
       />
 
-      <AdminSectionCard title="Configuration Form">
-        {!canWrite && <p className="mb-4 text-sm text-foreground-secondary">Your role is read-only for site settings.</p>}
+      <AdminSectionCard title="Public site content">
+        {!canWrite && <p className="mb-4 text-sm text-foreground-secondary">You can view these settings, but your role cannot change them.</p>}
         <form onSubmit={save} className="space-y-5">
-          {saved && <ConfirmationBanner title="Settings Saved" message="Public site content now reflects backend-managed settings." tone="approved" />}
+          {saved && <ConfirmationBanner title="Settings saved" message="Your changes are now in effect on the public site." tone="approved" />}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input className={adminInputClassName} value={settings.siteName} onChange={updateField("siteName")} placeholder="Site name" disabled={!canWrite} />
@@ -165,13 +165,13 @@ export default function AdminSettingsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <input className={adminInputClassName} value={settings.instagram} onChange={updateField("instagram")} placeholder="Instagram" disabled={!canWrite} />
             <input className={adminInputClassName} value={settings.tiktok} onChange={updateField("tiktok")} placeholder="TikTok" disabled={!canWrite} />
-            <input className={adminInputClassName} value={settings.x} onChange={updateField("x")} placeholder="X/Twitter" disabled={!canWrite} />
+            <input className={adminInputClassName} value={settings.x} onChange={updateField("x")} placeholder="X profile URL" disabled={!canWrite} />
             <input className={adminInputClassName} value={settings.facebook} onChange={updateField("facebook")} placeholder="Facebook" disabled={!canWrite} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input className={adminInputClassName} value={settings.heroTitle} onChange={updateField("heroTitle")} placeholder="Hero title" disabled={!canWrite} />
-            <select className={adminInputClassName} value={settings.featuredEventId} onChange={updateField("featuredEventId")} disabled={!canWrite}>
+            <select className={adminInputClassName} value={settings.featuredEventId} onChange={updateField("featuredEventId")} disabled={!canWrite} aria-label="Featured event">
               <option value="">No featured event</option>
               {events.map((event) => (
                 <option key={event.id} value={event.id}>{event.title}</option>
@@ -180,14 +180,14 @@ export default function AdminSettingsPage() {
             <textarea className={`${adminTextareaClassName} md:col-span-2`} value={settings.heroSubtitle} onChange={updateField("heroSubtitle")} placeholder="Hero subtitle" disabled={!canWrite} />
           </div>
 
-          <input className={adminInputClassName} value={settings.defaultMetaTitle} onChange={updateField("defaultMetaTitle")} placeholder="Default meta title" disabled={!canWrite} />
-          <textarea className={adminTextareaClassName} value={settings.defaultMetaDescription} onChange={updateField("defaultMetaDescription")} placeholder="Default description" disabled={!canWrite} />
+          <input className={adminInputClassName} value={settings.defaultMetaTitle} onChange={updateField("defaultMetaTitle")} placeholder="Search preview title" disabled={!canWrite} />
+          <textarea className={adminTextareaClassName} value={settings.defaultMetaDescription} onChange={updateField("defaultMetaDescription")} placeholder="Search preview description" disabled={!canWrite} />
           <div className="space-y-2">
             <input
               className={adminInputClassName}
               value={settings.defaultSocialPreviewImage}
               readOnly
-              placeholder="Default social preview image path"
+              placeholder="Social preview image (set by upload)"
               disabled
             />
             <input
@@ -203,7 +203,7 @@ export default function AdminSettingsPage() {
             />
             <p className="text-xs text-foreground-secondary">
               {uploadMediaMutation.isPending
-                ? "Uploading preview image..."
+                ? "Uploading preview image…"
                 : settings.defaultSocialPreviewImage
                   ? "Preview image ready."
                   : "Upload an image to set social preview metadata."}
@@ -248,7 +248,7 @@ export default function AdminSettingsPage() {
 
           <div className="flex justify-end">
             <Button type="submit" variant="accent" disabled={!canWrite || mutation.isPending}>
-              {mutation.isPending ? "Saving..." : "Save Settings"}
+              {mutation.isPending ? "Saving changes…" : "Save changes"}
             </Button>
           </div>
         </form>

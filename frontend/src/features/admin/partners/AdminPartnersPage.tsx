@@ -144,13 +144,13 @@ export default function AdminPartnersPage() {
   async function handleCreatePartner(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canWrite) {
-      toast.error("You have read-only access for Partner management.");
+      toast.error("You do not have permission to edit partner records.");
       return;
     }
 
     const parsed = partnerFormSchema.safeParse(createForm);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete all required partner fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Add a partner name, description, and partnership type before saving.");
       return;
     }
 
@@ -178,7 +178,7 @@ export default function AdminPartnersPage() {
   async function handleUpdatePartner(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canWrite) {
-      toast.error("You have read-only access for Partner management.");
+      toast.error("You do not have permission to edit partner records.");
       return;
     }
 
@@ -186,7 +186,7 @@ export default function AdminPartnersPage() {
 
     const parsed = partnerFormSchema.safeParse(editForm);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete all required partner fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Add a partner name, description, and partnership type before saving.");
       return;
     }
 
@@ -213,7 +213,7 @@ export default function AdminPartnersPage() {
 
   async function handleArchivePartner(id: string) {
     if (!canWrite) {
-      toast.error("You have read-only access for Partner management.");
+      toast.error("You do not have permission to edit partner records.");
       return;
     }
 
@@ -234,11 +234,11 @@ export default function AdminPartnersPage() {
   }
 
   if (partnersQuery.isLoading) {
-    return <p className="text-sm text-foreground-secondary">Loading partners...</p>;
+    return <p className="text-sm text-foreground-secondary">Loading partners…</p>;
   }
 
   if (partnersQuery.isError) {
-    return <EmptyState title="Could not load partners" description="Verify admin partner endpoints and active session." />;
+    return <EmptyState title="Partners could not be loaded" description="Check your connection and try again." />;
   }
 
   const visiblePartners = partners.filter((partner) => partner.showOnHomepage).length;
@@ -246,15 +246,15 @@ export default function AdminPartnersPage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Partners Manager"
-        subtitle="Admin/staff can manage partner profiles and homepage visibility. Moderators are read-only."
+        title="Partners"
+        subtitle="Manage partner details and choose which partners appear on the homepage. Moderators can view records but cannot edit them."
       />
 
-      <AdminSectionCard title="Add Partner">
-        {!canWrite && <p className="text-sm text-foreground-secondary mb-4">Your role is read-only for this section.</p>}
+      <AdminSectionCard title="Add partner">
+        {!canWrite && <p className="text-sm text-foreground-secondary mb-4">You can view partner records, but your account cannot edit them.</p>}
         <form onSubmit={handleCreatePartner} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} className={adminInputClassName} placeholder="Partner name" />
-          <input value={createForm.logoText} onChange={(event) => setCreateForm((current) => ({ ...current, logoText: event.target.value }))} className={adminInputClassName} placeholder="Logo shortcode" />
+          <input value={createForm.logoText} onChange={(event) => setCreateForm((current) => ({ ...current, logoText: event.target.value }))} className={adminInputClassName} placeholder="Logo text (optional)" />
           <div className="md:col-span-2">
             <input
               type="file"
@@ -269,21 +269,21 @@ export default function AdminPartnersPage() {
             />
             <p className="mt-1 text-xs text-foreground-secondary">
               {uploadMediaMutation.isPending
-                ? "Uploading logo..."
+                ? "Uploading logo…"
                 : createLogoMeta?.url
                   ? "Logo upload ready."
                   : "Optional logo image (JPG/PNG/WEBP/SVG)."}
             </p>
           </div>
-          <select value={createForm.partnershipType} onChange={(event) => setCreateForm((current) => ({ ...current, partnershipType: event.target.value }))} className={adminInputClassName}>
+          <select value={createForm.partnershipType} onChange={(event) => setCreateForm((current) => ({ ...current, partnershipType: event.target.value }))} className={adminInputClassName} aria-label="Partnership type">
             <option value="Program Sponsor">Program Sponsor</option>
             <option value="Creative Collaboration">Creative Collaboration</option>
             <option value="Venue Partner">Venue Partner</option>
             <option value="Media Partner">Media Partner</option>
             <option value="Network Partner">Network Partner</option>
           </select>
-          <input value={createForm.website} onChange={(event) => setCreateForm((current) => ({ ...current, website: event.target.value }))} className={adminInputClassName} placeholder="https://partner.org" />
-          <select value={createForm.status} onChange={(event) => setCreateForm((current) => ({ ...current, status: event.target.value as PartnerFormState["status"] }))} className={adminInputClassName}>
+          <input value={createForm.website} onChange={(event) => setCreateForm((current) => ({ ...current, website: event.target.value }))} className={adminInputClassName} placeholder="Partner website (https://…)" aria-label="Partner website" />
+          <select value={createForm.status} onChange={(event) => setCreateForm((current) => ({ ...current, status: event.target.value as PartnerFormState["status"] }))} className={adminInputClassName} aria-label="Listing status">
             <option value="draft">Draft</option>
             <option value="published">Published</option>
             <option value="archived">Archived</option>
@@ -293,18 +293,18 @@ export default function AdminPartnersPage() {
             Show on homepage
           </label>
           <div className="md:col-span-2">
-            <textarea value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} className={adminTextareaClassName} placeholder="Partner contribution and collaboration scope" />
+            <textarea value={createForm.description} onChange={(event) => setCreateForm((current) => ({ ...current, description: event.target.value }))} className={adminTextareaClassName} placeholder="Describe the partnership and its contribution" aria-label="Partner description" />
           </div>
           <div className="md:col-span-2 flex justify-end">
             <Button type="submit" variant="accent" disabled={!canWrite || createPartnerMutation.isPending}>
-              {createPartnerMutation.isPending ? "Saving..." : "Add Partner"}
+              {createPartnerMutation.isPending ? "Creating partner…" : "Create partner"}
             </Button>
           </div>
         </form>
       </AdminSectionCard>
 
-      <AdminSectionCard title="Partner Directory">
-        <p className="mb-4 text-xs text-foreground-secondary">{visiblePartners} shown on homepage / {partners.length} total</p>
+      <AdminSectionCard title="Partner directory">
+        <p className="mb-4 text-xs text-foreground-secondary">{visiblePartners} shown on the homepage · {partners.length} total</p>
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -338,7 +338,7 @@ export default function AdminPartnersPage() {
 
         <div className="mt-4">
           {partners.length === 0 ? (
-            <EmptyState title="No partners added" description="Create the first partner record to populate this directory." />
+            <EmptyState title="No partners yet" description="Add a partner to start building the directory." />
           ) : (
             <div className="space-y-3">
               {partners.map((partner) => (
@@ -369,7 +369,7 @@ export default function AdminPartnersPage() {
                     </Button>
                     {canWrite && (
                       <Button type="button" size="sm" variant="outline" onClick={() => handleArchivePartner(partner.id)} disabled={archivePartnerMutation.isPending}>
-                        <Trash2 size={12} /> Archive
+                      <Trash2 size={12} /> Archive partner
                       </Button>
                     )}
                   </div>
@@ -381,15 +381,15 @@ export default function AdminPartnersPage() {
       </AdminSectionCard>
 
       {selectedPartnerId && (
-        <AdminSectionCard title="Edit Partner">
+        <AdminSectionCard title="Edit partner">
           {selectedPartnerQuery.isLoading ? (
-            <p className="text-sm text-foreground-secondary">Loading partner details...</p>
+            <p className="text-sm text-foreground-secondary">Loading partner details…</p>
           ) : selectedPartnerQuery.isError || !selectedPartner ? (
-            <EmptyState title="Could not load partner details" description="Select another partner and retry." />
+            <EmptyState title="Partner details could not be loaded" description="Select another partner to try again." />
           ) : (
             <form onSubmit={handleUpdatePartner} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input value={editForm.name} onChange={(event) => setEditForm((current) => ({ ...current, name: event.target.value }))} className={adminInputClassName} placeholder="Partner name" />
-              <input value={editForm.logoText} onChange={(event) => setEditForm((current) => ({ ...current, logoText: event.target.value }))} className={adminInputClassName} placeholder="Logo shortcode" />
+              <input value={editForm.logoText} onChange={(event) => setEditForm((current) => ({ ...current, logoText: event.target.value }))} className={adminInputClassName} placeholder="Logo text (optional)" />
               <div className="md:col-span-2">
                 <input
                   type="file"
@@ -404,21 +404,21 @@ export default function AdminPartnersPage() {
                 />
                 <p className="mt-1 text-xs text-foreground-secondary">
                   {uploadMediaMutation.isPending
-                    ? "Uploading logo..."
+                ? "Uploading logo…"
                     : editLogoMeta?.url
                       ? "Logo upload ready."
                       : "Optional logo image (JPG/PNG/WEBP/SVG)."}
                 </p>
               </div>
-              <select value={editForm.partnershipType} onChange={(event) => setEditForm((current) => ({ ...current, partnershipType: event.target.value }))} className={adminInputClassName}>
+              <select value={editForm.partnershipType} onChange={(event) => setEditForm((current) => ({ ...current, partnershipType: event.target.value }))} className={adminInputClassName} aria-label="Partnership type">
                 <option value="Program Sponsor">Program Sponsor</option>
                 <option value="Creative Collaboration">Creative Collaboration</option>
                 <option value="Venue Partner">Venue Partner</option>
                 <option value="Media Partner">Media Partner</option>
                 <option value="Network Partner">Network Partner</option>
               </select>
-              <input value={editForm.website} onChange={(event) => setEditForm((current) => ({ ...current, website: event.target.value }))} className={adminInputClassName} placeholder="https://partner.org" />
-              <select value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as PartnerFormState["status"] }))} className={adminInputClassName}>
+              <input value={editForm.website} onChange={(event) => setEditForm((current) => ({ ...current, website: event.target.value }))} className={adminInputClassName} placeholder="Partner website (https://…)" aria-label="Partner website" />
+              <select value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as PartnerFormState["status"] }))} className={adminInputClassName} aria-label="Listing status">
                 <option value="draft">Draft</option>
                 <option value="published">Published</option>
                 <option value="archived">Archived</option>
@@ -428,12 +428,12 @@ export default function AdminPartnersPage() {
                 Show on homepage
               </label>
               <div className="md:col-span-2">
-                <textarea value={editForm.description} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} className={adminTextareaClassName} placeholder="Partner contribution and collaboration scope" />
+                <textarea value={editForm.description} onChange={(event) => setEditForm((current) => ({ ...current, description: event.target.value }))} className={adminTextareaClassName} placeholder="Describe the partnership and its contribution" aria-label="Partner description" />
               </div>
               <div className="md:col-span-2 flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => { setSelectedPartnerId(""); setEditLogoMeta(undefined); }}>Cancel</Button>
                 <Button type="submit" variant="accent" disabled={!canWrite || updatePartnerMutation.isPending}>
-                  {updatePartnerMutation.isPending ? "Saving..." : "Save Changes"}
+                  {updatePartnerMutation.isPending ? "Saving changes…" : "Save changes"}
                 </Button>
               </div>
             </form>
