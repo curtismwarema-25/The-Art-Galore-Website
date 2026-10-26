@@ -1,6 +1,17 @@
 function normalizeBaseUrl(value?: string) {
   if (!value) return "/api";
-  return value.endsWith("/") ? value.slice(0, -1) : value;
+
+  const normalized = value.replace(/\/+$/, "");
+  if (normalized.startsWith("/")) return normalized;
+
+  try {
+    const url = new URL(normalized);
+    if (url.pathname === "/") return `${url.origin}/api`;
+  } catch {
+    // Keep the configured value intact so a malformed URL remains visible at request time.
+  }
+
+  return normalized;
 }
 
 export const env = {
