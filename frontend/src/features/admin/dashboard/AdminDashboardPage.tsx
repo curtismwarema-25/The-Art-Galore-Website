@@ -73,7 +73,7 @@ export default function AdminDashboardPage() {
     return (
       <EmptyState
         title="Dashboard unavailable"
-        description="We could not load your ticket and event overview. Please refresh and try again."
+        description="Your ticket and event overview could not be loaded. Refresh the page to try again."
       />
     );
   }
@@ -99,8 +99,8 @@ export default function AdminDashboardPage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title={`Welcome back, ${firstName}`}
-        subtitle={eventsUnavailable ? "Event data is unavailable. Refresh to see what needs attention." : nextEvent ? `${nextEvent.title} is the next event on your calendar.` : "Get your next event ready to sell tickets."}
+        title={`Welcome, ${firstName}`}
+        subtitle={eventsUnavailable ? "Event details are unavailable. Refresh to try again." : nextEvent ? `Next on your calendar: ${nextEvent.title}.` : "Create an event to start preparing its ticket tiers."}
         action={
           eventsUnavailable ? (
             <Button variant="accent" onClick={() => void eventsQuery.refetch()}>
@@ -125,10 +125,10 @@ export default function AdminDashboardPage() {
             {eventsUnavailable ? (
               <>
                 <h2 id="next-event-heading" className="mt-2 font-display text-2xl text-foreground md:text-3xl">
-                  Event data unavailable
+                  Event details unavailable
                 </h2>
                 <p className="mt-2 max-w-xl text-sm text-foreground-secondary">
-                  We could not load the event list from the server, so no event details are being shown here.
+                  Event details could not be loaded, so there is no event information to show.
                 </p>
               </>
             ) : nextEvent ? (
@@ -150,10 +150,10 @@ export default function AdminDashboardPage() {
             ) : (
               <>
                 <h2 id="next-event-heading" className="mt-2 font-display text-2xl text-foreground md:text-3xl">
-                  No upcoming event yet
+                  No upcoming events
                 </h2>
                 <p className="mt-2 max-w-xl text-sm text-foreground-secondary">
-                  Create the event first, then add ticket tiers and publish the page when it is ready for buyers.
+                  Create an event, add its ticket tiers, then publish it when the details are ready.
                 </p>
               </>
             )}
@@ -167,7 +167,7 @@ export default function AdminDashboardPage() {
             ) : nextEvent ? (
               <>
                 <Button variant="accent" asChild>
-                  <Link to="/admin/events">Manage tickets <ArrowRight aria-hidden="true" /></Link>
+                  <Link to="/admin/events">Manage event <ArrowRight aria-hidden="true" /></Link>
                 </Button>
                 <Button variant="outline" asChild>
                   <Link to={`/events/${nextEvent.slug}`} target="_blank" rel="noreferrer">
@@ -188,9 +188,9 @@ export default function AdminDashboardPage() {
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 id="attention-heading" className="font-display text-xl text-foreground">Needs your attention</h2>
-            <p className="mt-1 text-sm text-foreground-secondary">Resolve these items before they slow down a buyer or guest.</p>
+            <p className="mt-1 text-sm text-foreground-secondary">Review pending orders and community uploads that need a decision.</p>
           </div>
-          {hasAttention && <span className="text-xs font-display uppercase tracking-[0.14em] text-accent">{attentionItems.filter((item) => item.count > 0).length} open areas</span>}
+          {hasAttention && <span className="text-xs font-display uppercase tracking-[0.14em] text-accent">{attentionItems.filter((item) => item.count > 0).length} items</span>}
         </div>
 
         {hasAttention ? (
@@ -218,7 +218,7 @@ export default function AdminDashboardPage() {
         ) : (
           <div className="mt-5 flex items-center gap-3 rounded-md border border-border bg-secondary/20 p-4 text-sm text-foreground-secondary">
             <CheckCircle2 size={20} className="shrink-0 text-accent" aria-hidden="true" />
-            <span>You're clear. No orders or uploads need a decision right now.</span>
+            <span>No orders or community uploads need a decision right now.</span>
           </div>
         )}
       </section>
@@ -226,8 +226,8 @@ export default function AdminDashboardPage() {
       <section aria-labelledby="snapshot-heading">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <h2 id="snapshot-heading" className="font-display text-xl text-foreground">Ticket snapshot</h2>
-            <p className="mt-1 text-sm text-foreground-secondary">A quick read on the business of the site.</p>
+            <h2 id="snapshot-heading" className="font-display text-xl text-foreground">Ticket overview</h2>
+            <p className="mt-1 text-sm text-foreground-secondary">Totals across all events.</p>
           </div>
           <Link to="/admin/orders" className="inline-flex items-center gap-1 text-xs font-display uppercase tracking-[0.12em] text-accent hover:opacity-80">
             Open orders <ArrowRight size={14} aria-hidden="true" />
@@ -235,21 +235,21 @@ export default function AdminDashboardPage() {
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 md:gap-4">
           <StatCard label="Tickets sold" value={stats.ticketsSold.toLocaleString()} detail="Across all events" />
-          <StatCard label="Paid orders" value={stats.paidOrders.toLocaleString()} detail="Ready for fulfilment" />
-          <StatCard label="People and artists" value={stats.artistsCount.toLocaleString()} detail="Published profiles" />
+          <StatCard label="Paid orders" value={stats.paidOrders.toLocaleString()} detail="Payment confirmed" />
+          <StatCard label="Published artists" value={stats.artistsCount.toLocaleString()} detail="Public profiles" />
         </div>
       </section>
 
-      <AdminSectionCard title="Quick actions" description="Open the tools you need when the next task is clear.">
+      <AdminSectionCard title="Quick actions" description="Open a tool to manage events, guests, or profiles.">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Button variant="accent" size="lg" className="justify-start" asChild>
-            <Link to="/admin/events"><Ticket aria-hidden="true" /> Manage tickets</Link>
+            <Link to="/admin/events"><Ticket aria-hidden="true" /> Manage events</Link>
           </Button>
           <Button variant="outline" size="lg" className="justify-start" asChild>
             <Link to="/admin/checkin"><ClipboardCheck aria-hidden="true" /> Check in guests</Link>
           </Button>
           <Button variant="outline" size="lg" className="justify-start" asChild>
-            <Link to="/admin/people"><Users aria-hidden="true" /> Update people</Link>
+            <Link to="/admin/people"><Users aria-hidden="true" /> Update profiles</Link>
           </Button>
         </div>
       </AdminSectionCard>
