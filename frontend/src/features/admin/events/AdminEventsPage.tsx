@@ -502,7 +502,8 @@ export default function AdminEventsPage() {
             className={adminInputClassName}
             placeholder="Venue"
           />
-          <select
+          <AdminField label="Publishing status">
+            <select
             value={createForm.lifecycle}
             onChange={(event) =>
               setCreateForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))
@@ -706,7 +707,8 @@ export default function AdminEventsPage() {
                 className={adminInputClassName}
                 placeholder="Venue"
               />
-              <select
+              <AdminField label="Publishing status">
+                <select
                 value={editForm.lifecycle}
                 onChange={(event) => setEditForm((current) => ({ ...current, lifecycle: event.target.value as EventLifecycle }))}
                 className={adminInputClassName}
@@ -821,7 +823,8 @@ export default function AdminEventsPage() {
                 onChange={(event) => setTierForm((current) => ({ ...current, saleEndAt: event.target.value }))}
                 className={adminInputClassName}
               />
-              <select
+              <AdminField label="Ticket visibility">
+                <select
                 value={tierForm.status}
                 onChange={(event) =>
                   setTierForm((current) => ({ ...current, status: event.target.value as TicketTierFormState["status"] }))

@@ -54,7 +54,6 @@ function verificationTone(status: "not_submitted" | "pending_review" | "approved
   if (status === "not_submitted") return "pending" as const;
   if (status === "approved") return "approved";
   if (status === "rejected") return "rejected";
-  if (status === "not_submitted") return "draft";
   return "pending";
 }
 
@@ -291,6 +290,8 @@ export default function AdminOrdersPage() {
         }
       />
 
+      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] xl:items-start">
+      <div className="xl:col-start-1 xl:row-start-1">
       <AdminSectionCard title="Orders">
         <FilterBar
           searchValue={search}
@@ -365,6 +366,7 @@ export default function AdminOrdersPage() {
       </AdminSectionCard>
       </div>
 
+      <div className="xl:col-start-1 xl:row-start-2">
       <AdminSectionCard title="Payment proof review">
         {isManualPaymentsLoading ? (
           <p className="text-sm text-foreground-secondary">Loading payment proofs…</p>
@@ -412,6 +414,7 @@ export default function AdminOrdersPage() {
       </AdminSectionCard>
       </div>
 
+      <div className="xl:col-start-1 xl:row-start-3">
       <AdminSectionCard title="M-Pesa transactions">
         <FilterBar
           searchValue={mpesaSearch}
@@ -561,6 +564,7 @@ export default function AdminOrdersPage() {
       </div>
 
       {routeOrderId && (
+        <div className="order-first xl:order-none xl:col-start-2 xl:row-start-1 xl:row-span-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
         <AdminSectionCard title="Order details">
           {isSelectedLoading ? (
             <p className="text-sm text-foreground-secondary">Loading order details…</p>

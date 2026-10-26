@@ -17,7 +17,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { LucideIcon } from "lucide-react";
 import PageHeader from "@/components/common/PageHeader";
 import { useAuth } from "@/features/auth/useAuth";
 
@@ -35,8 +34,7 @@ const navItems: Array<{ label: string; path: string; icon: LucideIcon; end?: boo
 function getTitle(pathname: string) {
   if (pathname.startsWith("/admin/checkin")) return "Guest check-in";
   const matched = navItems.find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
-  if (!matched) return { title: "Admin", description: "Manage the public site and keep every event moving." };
-  return { title: matched.label, description: matched.description };
+  return matched?.label ?? "Admin";
 }
 
 function getPageDescription(pathname: string) {
@@ -58,7 +56,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const { user, logout, isLoggingOut } = useAuth();
 
-  const pageMeta = useMemo(() => getPageMeta(location.pathname), [location.pathname]);
+  const title = useMemo(() => getTitle(location.pathname), [location.pathname]);
 
   useEffect(() => {
     setMobileMenuOpen(false);
