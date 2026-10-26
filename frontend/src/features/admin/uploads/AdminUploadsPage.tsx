@@ -61,7 +61,7 @@ export default function AdminUploadsPage() {
 
   async function handleModerate(uploadId: string, decision: Exclude<ModerationStatus, "pending">) {
     if (!canModerate) {
-      toast.error("You do not have permission to moderate uploads.");
+      toast.error("You do not have permission to review community uploads.");
       return;
     }
 
@@ -74,7 +74,7 @@ export default function AdminUploadsPage() {
           notes: notes || undefined,
         },
       });
-      toast.success(`Upload ${decision}.`);
+      toast.success(`Upload ${decision === "approved" ? "approved" : "rejected"}.`);
     } catch (error) {
       toast.error(formatError(error));
     }
@@ -82,11 +82,11 @@ export default function AdminUploadsPage() {
 
   async function handleDelete(uploadId: string) {
     if (!canDelete) {
-      toast.error("Only admin/staff can delete uploads.");
+      toast.error("Only administrators and staff can delete uploads.");
       return;
     }
 
-    if (!window.confirm("Delete this upload and its moderation history?")) return;
+    if (!window.confirm("Delete this upload and its review history? This cannot be undone.")) return;
 
     try {
       await deleteMutation.mutateAsync(uploadId);
@@ -100,21 +100,21 @@ export default function AdminUploadsPage() {
   }
 
   if (uploadsQuery.isLoading) {
-    return <p className="text-sm text-foreground-secondary">Loading moderation queue...</p>;
+    return <p className="text-sm text-foreground-secondary">Loading community uploads…</p>;
   }
 
   if (uploadsQuery.isError) {
-    return <EmptyState title="Could not load uploads" description="Verify admin community upload endpoints and active session." />;
+    return <EmptyState title="Community uploads could not be loaded" description="Check your connection and try again." />;
   }
 
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Community Uploads"
-        subtitle="Review what the community submitted, approve the right images, and keep the public archive clean."
+        title="Community uploads"
+        subtitle="Review and moderate submitted images. Administrators and staff can also delete uploads."
       />
 
-      <AdminSectionCard title="Moderation Queue" description="Select a submission to open its review details, or use Approve/Reject for the quickest decision.">
+      <AdminSectionCard title="Review queue">
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -145,7 +145,7 @@ export default function AdminUploadsPage() {
         />
 
         <div className="mt-4 space-y-3">
-          {uploads.length === 0 && <EmptyState title="Queue is empty" description="No uploads match current filters." />}
+          {uploads.length === 0 && <EmptyState title="No matching uploads" description="Change the search or filters, or check back when new images are submitted." />}
 
           {uploads.map((upload) => (
             <article
@@ -182,7 +182,7 @@ export default function AdminUploadsPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <StatusBadge tone={upload.status} />
                   <Button type="button" size="sm" variant="outline" onClick={() => setSelectedUploadId(upload.id)}>
-                    <Eye size={14} /> Details
+                    <Eye size={14} /> View details
                   </Button>
                   <Button
                     type="button"
@@ -224,7 +224,7 @@ export default function AdminUploadsPage() {
                     [upload.id]: event.target.value,
                   }))
                 }
-                placeholder="Optional moderation note/reason"
+                placeholder="Add a review note (optional)"
                 className={adminInputClassName}
               />
             </article>
@@ -233,11 +233,11 @@ export default function AdminUploadsPage() {
       </AdminSectionCard>
 
       {selectedUploadId && (
-        <AdminSectionCard title="Upload Review Detail" description="Confirm the submission details and review history before approving or rejecting it." id="admin-upload-detail">
+        <AdminSectionCard title="Upload details">
           {uploadDetailQuery.isLoading ? (
-            <p className="text-sm text-foreground-secondary">Loading upload details...</p>
+            <p className="text-sm text-foreground-secondary">Loading upload details…</p>
           ) : uploadDetailQuery.isError || !uploadDetailQuery.data ? (
-            <EmptyState title="Could not load upload detail" description="Select another upload and retry." />
+            <EmptyState title="Upload details could not be loaded" description="Select another upload to try again." />
           ) : (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">

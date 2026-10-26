@@ -8,7 +8,7 @@ import FilterBar from "@/components/common/FilterBar";
 import SectionHeader from "@/components/common/SectionHeader";
 import StatusBadge from "@/components/common/StatusBadge";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { formatDateTime, formatMoney } from "@/features/admin/shared/utils";
+import { formatAdminStatus, formatDateTime, formatMoney } from "@/features/admin/shared/utils";
 import { useIssueTicketsMutation } from "@/hooks/mutations/useIssueTicketsMutation";
 import { useApproveManualPaymentMutation, useRejectManualPaymentMutation, useReverifyMpesaTransactionMutation } from "@/hooks/mutations/usePaymentMutations";
 import { useResendTicketEmailDeliveryMutation } from "@/hooks/mutations/useTicketEmailDeliveryMutation";
@@ -25,10 +25,10 @@ import { canReverifyMpesaTransaction, isMpesaManualReview, mpesaStatusTone } fro
 
 const ORDER_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | OrderLifecycleStatus }> = [
   { label: "All", value: "all" },
-  { label: "Pending Payment", value: "pending_payment" },
-  { label: "Payment Submitted", value: "payment_submitted" },
-  { label: "Payment Verified", value: "payment_verified" },
-  { label: "Payment Rejected", value: "payment_rejected" },
+  { label: "Awaiting payment", value: "pending_payment" },
+  { label: "Proof submitted", value: "payment_submitted" },
+  { label: "Payment verified", value: "payment_verified" },
+  { label: "Payment rejected", value: "payment_rejected" },
   { label: "Paid", value: "paid" },
   { label: "Expired", value: "expired" },
 ];
@@ -50,7 +50,8 @@ function orderStatusTone(status: OrderLifecycleStatus) {
   return "pending";
 }
 
-function verificationTone(status: VerificationStatus) {
+function verificationTone(status: "not_submitted" | "pending_review" | "approved" | "rejected") {
+  if (status === "not_submitted") return "pending" as const;
   if (status === "approved") return "approved";
   if (status === "rejected") return "rejected";
   if (status === "not_submitted") return "draft";
@@ -99,7 +100,7 @@ function buildOrderTimeline(
   for (const transaction of mpesaTransactions ?? []) {
     events.push({
       at: transaction.initiatedAt,
-      label: "M-Pesa STK attempt",
+      label: "M-Pesa payment prompt",
       detail: `${transaction.status}${transaction.resultCode ? ` (${transaction.resultCode})` : ""}`,
     });
     if (transaction.completedAt) {
@@ -236,9 +237,9 @@ export default function AdminOrdersPage() {
   const reverifyMpesaTransaction = async (transactionId: string) => {
     try {
       const result = await reverifyMpesaMutation.mutateAsync(transactionId);
-      toast.success(`M-Pesa verification refreshed for ${result.orderNumber}: ${result.status}.`);
+      toast.success(`Payment status checked for ${result.orderNumber}: ${formatAdminStatus(result.status)}.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not reverify M-Pesa transaction.");
+      toast.error(error instanceof Error ? error.message : "Payment status could not be checked. Try again.");
     }
   };
 
@@ -247,9 +248,10 @@ export default function AdminOrdersPage() {
 
     try {
       const result = await issueTicketsMutation.mutateAsync(selectedOrder.id);
-      toast.success(`Issued ${result.ticketsIssued} ticket(s) for ${result.orderNumber}.`);
+      const ticketLabel = result.ticketsIssued === 1 ? "ticket" : "tickets";
+      toast.success(`${result.ticketsIssued} ${ticketLabel} issued for ${result.orderNumber}.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not issue tickets.");
+      toast.error(error instanceof Error ? error.message : "Tickets could not be issued. Try again.");
     }
   };
 
@@ -259,39 +261,37 @@ export default function AdminOrdersPage() {
     try {
       const result = await resendTicketEmailMutation.mutateAsync(selectedOrder.id);
       if (result.ticketDeliveryStatus === "sent") {
-        toast.success(`Ticket email sent for ${result.orderNumber}.`);
+        toast.success(`Ticket email sent for order ${result.orderNumber}.`);
         return;
       }
 
       toast.error(result.lastError ?? "Ticket email delivery failed.");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not resend ticket email.");
+      toast.error(error instanceof Error ? error.message : "Ticket email could not be resent. Try again.");
     }
   };
 
   if (isLoading) {
-    return <p className="text-sm text-foreground-secondary">Loading orders...</p>;
+    return <p className="text-sm text-foreground-secondary">Loading orders…</p>;
   }
 
   if (isError) {
-    return <EmptyState title="Could not load orders" description="Check backend order endpoints and admin auth session." />;
+    return <EmptyState title="Orders could not be loaded" description="Check your connection and try again." />;
   }
 
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Orders & Payments"
-        subtitle="Resolve payment questions, issue tickets, and help every buyer reach a successful entry."
+        title="Orders and payments"
+        subtitle="Review orders, payment submissions, and ticket delivery."
         action={
           <Button size="sm" variant="outline" asChild>
-            <Link to="/admin/checkin">Open Check-In</Link>
+            <Link to="/admin/checkin">Open guest check-in</Link>
           </Button>
         }
       />
 
-      <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] xl:items-start">
-      <div className="xl:col-start-1 xl:row-start-1">
-      <AdminSectionCard title="Orders List" description="Select an order to open its full record beside this list.">
+      <AdminSectionCard title="Orders">
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -316,9 +316,9 @@ export default function AdminOrdersPage() {
 
         <div className="mt-4">
           {orders.length === 0 ? (
-            <EmptyState title="No orders match filters" description="Try changing filters or search terms." />
+            <EmptyState title="No matching orders" description="Change your search or filters to see more orders." />
           ) : (
-            <DataTable headers={["Order", "Buyer", "Event", "Items", "Amount", "Order Status", "Verification", "Actions"]} minWidthClassName="min-w-[820px] md:min-w-[1080px]">
+            <DataTable headers={["Order", "Buyer", "Event", "Items", "Amount", "Order status", "Payment review", "Actions"]} minWidthClassName="min-w-[820px] md:min-w-[1080px]">
               {orders.map((order) => (
                 <tr
                   key={order.id}
@@ -347,16 +347,14 @@ export default function AdminOrdersPage() {
                   </td>
                   <td className="px-3 py-3 text-sm text-foreground-secondary">{formatMoney(order.currency, order.totalAmount)}</td>
                   <td className="px-3 py-3">
-                    <StatusBadge tone={orderStatusTone(order.status)} label={order.status} />
+                    <StatusBadge tone={orderStatusTone(order.status)} label={formatAdminStatus(order.status)} />
                   </td>
                   <td className="px-3 py-3">
-                    <StatusBadge tone={verificationTone(order.verificationStatus)} label={order.verificationStatus} />
+                    <StatusBadge tone={verificationTone(order.verificationStatus)} label={formatAdminStatus(order.verificationStatus)} />
                   </td>
                   <td className="px-3 py-3">
                     <Button size="sm" variant="outline" asChild>
-                      <Link to={`/admin/orders/${order.id}`} aria-label={`Open details for order ${order.orderNumber}`}>
-                        {routeOrderId === order.id ? "Open" : "Details"}
-                      </Link>
+                      <Link to={`/admin/orders/${order.id}`}>View order</Link>
                     </Button>
                   </td>
                 </tr>
@@ -367,15 +365,14 @@ export default function AdminOrdersPage() {
       </AdminSectionCard>
       </div>
 
-      <div className="xl:col-start-1 xl:row-start-2">
-      <AdminSectionCard title="Manual Payment Verification Queue">
+      <AdminSectionCard title="Payment proof review">
         {isManualPaymentsLoading ? (
-          <p className="text-sm text-foreground-secondary">Loading manual payment submissions...</p>
+          <p className="text-sm text-foreground-secondary">Loading payment proofs…</p>
         ) : manualPayments.length === 0 ? (
-          <EmptyState title="No pending manual payments" description="New payment proof submissions will appear here for review." />
+          <EmptyState title="No payment proofs to review" description="New submissions will appear here when customers send payment proof." />
         ) : (
           <DataTable
-            headers={["Order", "Payer", "Event", "Amount", "Transaction Ref", "Screenshot", "Submitted", "Actions"]}
+            headers={["Order", "Payer", "Event", "Amount", "Transaction reference", "Payment proof", "Submitted", "Actions"]}
             minWidthClassName="min-w-[900px] md:min-w-[1180px]"
           >
             {manualPayments.map((submission) => (
@@ -415,8 +412,7 @@ export default function AdminOrdersPage() {
       </AdminSectionCard>
       </div>
 
-      <div className="xl:col-start-1 xl:row-start-3">
-      <AdminSectionCard title="M-Pesa Transactions">
+      <AdminSectionCard title="M-Pesa transactions">
         <FilterBar
           searchValue={mpesaSearch}
           onSearchChange={setMpesaSearch}
@@ -440,14 +436,14 @@ export default function AdminOrdersPage() {
 
         <div className="mt-4">
           {isMpesaTransactionsLoading ? (
-            <p className="text-sm text-foreground-secondary">Loading M-Pesa transactions...</p>
+            <p className="text-sm text-foreground-secondary">Loading M-Pesa transactions…</p>
           ) : isMpesaTransactionsError ? (
-            <EmptyState title="Could not load M-Pesa transactions" description="Check the admin payment audit endpoint and auth session." />
+            <EmptyState title="M-Pesa transactions could not be loaded" description="Check your connection and try again." />
           ) : mpesaTransactions.length === 0 ? (
-            <EmptyState title="No M-Pesa transactions match filters" description="New STK payment attempts will appear here." />
+            <EmptyState title="No matching M-Pesa transactions" description="Change the filters or check back when there is a new payment attempt." />
           ) : (
             <DataTable
-              headers={["Order", "Buyer Phone", "Amount", "Status", "Checkout Request", "M-Pesa Receipt", "Result", "Timeline", "Details"]}
+              headers={["Order", "Buyer phone", "Amount", "Status", "Payment request", "M-Pesa receipt", "Result", "Activity", "Details"]}
               minWidthClassName="min-w-[980px] md:min-w-[1240px]"
             >
               {mpesaTransactions.map((transaction) => {
@@ -462,10 +458,7 @@ export default function AdminOrdersPage() {
                         {formatMoney(transaction.currency, transaction.amount)}
                       </td>
                       <td className="px-3 py-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <StatusBadge tone={mpesaStatusTone(transaction.status)} label={transaction.status} />
-                          {requiresManualReview && <StatusBadge tone="pending" label="manual review" />}
-                        </div>
+                        <StatusBadge tone={mpesaStatusTone(transaction.status)} label={formatAdminStatus(transaction.status)} />
                       </td>
                       <td className="px-3 py-3 text-sm text-foreground-secondary" title={transaction.checkoutRequestId}>
                         {compactReference(transaction.checkoutRequestId)}
@@ -568,10 +561,9 @@ export default function AdminOrdersPage() {
       </div>
 
       {routeOrderId && (
-        <div className="order-first xl:order-none xl:col-start-2 xl:row-start-1 xl:row-span-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">
-        <AdminSectionCard title="Order Details" description="Confirm the buyer and payment status, then issue or reconcile tickets when the order is paid.">
+        <AdminSectionCard title="Order details">
           {isSelectedLoading ? (
-            <p className="text-sm text-foreground-secondary">Loading order details...</p>
+            <p className="text-sm text-foreground-secondary">Loading order details…</p>
           ) : !selectedOrder ? (
             <EmptyState title="Order not found" description="The selected order could not be loaded." />
           ) : (
@@ -590,19 +582,19 @@ export default function AdminOrdersPage() {
                   }
                 >
                   {issueTicketsMutation.isPending
-                    ? "Issuing..."
+                    ? "Issuing tickets…"
                     : selectedOrder.tickets.length > 0
-                      ? "Reconcile Tickets"
-                      : "Issue Tickets"}
+                      ? "Reconcile tickets"
+                      : "Issue tickets"}
                 </Button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <p className="text-foreground-secondary">
-                  <span className="text-foreground">Order Number:</span> {selectedOrder.orderNumber}
+                  <span className="text-foreground">Order number:</span> {selectedOrder.orderNumber}
                 </p>
                 <p className="text-foreground-secondary">
-                  <span className="text-foreground">Tracking Token:</span> {selectedOrder.publicToken}
+                  <span className="text-foreground">Tracking token:</span> {selectedOrder.publicToken}
                 </p>
                 <p className="text-foreground-secondary">
                   <span className="text-foreground">Buyer:</span> {selectedOrder.buyer.buyerName}
@@ -620,13 +612,13 @@ export default function AdminOrdersPage() {
                   <span className="text-foreground">Amount:</span> {formatMoney(selectedOrder.currency, selectedOrder.totalAmount)}
                 </p>
                 <p className="text-foreground-secondary">
-                  <span className="text-foreground">Order Status:</span> {selectedOrder.status}
+                  <span className="text-foreground">Order status:</span> {formatAdminStatus(selectedOrder.status)}
                 </p>
                 <p className="text-foreground-secondary">
-                  <span className="text-foreground">Verification:</span> {selectedOrder.verificationStatus}
+                  <span className="text-foreground">Payment review:</span> {formatAdminStatus(selectedOrder.verificationStatus)}
                 </p>
                 <p className="text-foreground-secondary">
-                  <span className="text-foreground">Reservation Expires:</span> {formatDateTime(selectedOrder.reservationExpiresAt)}
+                  <span className="text-foreground">Reservation expires:</span> {formatDateTime(selectedOrder.reservationExpiresAt)}
                 </p>
               </div>
 
@@ -635,12 +627,12 @@ export default function AdminOrdersPage() {
                   <div>
                     <p className="text-foreground mb-2 flex items-center gap-2">
                       <Mail size={15} />
-                      Ticket Email Delivery
+                      Ticket email delivery
                     </p>
                     {ticketDelivery && (
                       <StatusBadge
                         tone={ticketDeliveryTone(ticketDelivery.ticketDeliveryStatus)}
-                        label={ticketDelivery.ticketDeliveryStatus}
+                        label={formatAdminStatus(ticketDelivery.ticketDeliveryStatus)}
                       />
                     )}
                   </div>
@@ -655,14 +647,14 @@ export default function AdminOrdersPage() {
                     }
                   >
                     <RefreshCw size={14} />
-                    {resendTicketEmailMutation.isPending ? "Resending..." : "Resend Email"}
+                    {resendTicketEmailMutation.isPending ? "Resending…" : "Resend email"}
                   </Button>
                 </div>
 
                 {isTicketDeliveryLoading ? (
-                  <p>Loading ticket email delivery...</p>
+                  <p>Loading ticket email delivery…</p>
                 ) : isTicketDeliveryError ? (
-                  <p>Could not load ticket email delivery.</p>
+                  <p>Ticket email delivery details could not be loaded.</p>
                 ) : ticketDelivery ? (
                   <>
                     <div className="grid gap-3 md:grid-cols-2">
@@ -710,7 +702,7 @@ export default function AdminOrdersPage() {
                                 <td className="py-2 pr-3">
                                   <StatusBadge
                                     tone={attempt.status === "sent" ? "paid" : attempt.status === "failed" ? "failed" : "pending"}
-                                    label={attempt.status}
+                                    label={formatAdminStatus(attempt.status)}
                                   />
                                 </td>
                                 <td className="py-2 pr-3">{attempt.recipient ?? "-"}</td>
@@ -788,7 +780,7 @@ export default function AdminOrdersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/75 px-4">
           <div className="w-full max-w-lg rounded-md border border-border bg-card p-5 shadow-lg">
             <p className="font-display text-lg text-foreground">
-              {reviewModal.action === "approve" ? "Approve Payment" : "Reject Payment"}
+              {reviewModal.action === "approve" ? "Approve payment" : "Reject payment"}
             </p>
             <p className="mt-1 text-sm text-foreground-secondary">
               Order {reviewModal.orderNumber}
@@ -807,7 +799,7 @@ export default function AdminOrdersPage() {
                 Cancel
               </Button>
               <Button type="button" size="sm" variant={reviewModal.action === "approve" ? "accent" : "outline"} disabled={reviewPending} onClick={() => void submitReview()}>
-                {reviewPending ? "Saving..." : reviewModal.action === "approve" ? "Approve" : "Reject"}
+                {reviewPending ? "Saving…" : reviewModal.action === "approve" ? "Approve payment" : "Reject payment"}
               </Button>
             </div>
           </div>

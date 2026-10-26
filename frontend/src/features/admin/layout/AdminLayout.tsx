@@ -17,30 +17,38 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import type { LucideIcon } from "lucide-react";
 import PageHeader from "@/components/common/PageHeader";
 import { useAuth } from "@/features/auth/useAuth";
 
-type AdminNavItem = { label: string; path: string; icon: LucideIcon; end: boolean; description: string };
+const navItems: Array<{ label: string; path: string; icon: LucideIcon; end?: boolean }> = [
+  { label: "Dashboard", path: "/admin", icon: LayoutDashboard, end: true },
+  { label: "Events", path: "/admin/events", icon: Calendar },
+  { label: "Orders", path: "/admin/orders", icon: Ticket },
+  { label: "People", path: "/admin/people", icon: Users },
+  { label: "Gallery", path: "/admin/gallery", icon: Image },
+  { label: "Community uploads", path: "/admin/uploads", icon: Upload },
+  { label: "Partners", path: "/admin/partners", icon: Handshake },
+  { label: "Site settings", path: "/admin/settings", icon: Settings },
+];
 
-const navItems: AdminNavItem[] = [
-  { label: "Today", path: "/admin", icon: LayoutDashboard, end: true, description: "See what needs attention and open the next task." },
-  { label: "Events & Tickets", path: "/admin/events", icon: Calendar, end: false, description: "Create the event, publish it, and set the tickets people can buy." },
-  { label: "Orders & Payments", path: "/admin/orders", icon: Ticket, end: false, description: "Resolve payment questions and get paid orders ready for entry." },
-  { label: "Check-In", path: "/admin/checkin", icon: Ticket, end: false, description: "Scan or search a ticket, then confirm the guest in one step." },
-  { label: "People & Artists", path: "/admin/people", icon: Users, end: false, description: "Keep public profiles accurate, useful, and ready to publish." },
-  { label: "Gallery", path: "/admin/gallery", icon: Image, end: false, description: "Add event images, captions, and the visual story visitors will see." },
-  { label: "Community", path: "/admin/uploads", icon: Upload, end: false, description: "Review community submissions and approve the right images." },
-  { label: "Partners", path: "/admin/partners", icon: Handshake, end: false, description: "Keep partner information current and decide what is public." },
-  { label: "Settings", path: "/admin/settings", icon: Settings, end: false, description: "Update public copy, contact details, links, and ticket support." },
-] as const;
-
-function getPageMeta(pathname: string) {
-  if (pathname.startsWith("/admin/checkin")) {
-    return { title: "Check-In", description: "Scan or search a ticket, then confirm the guest in one step." };
-  }
+function getTitle(pathname: string) {
+  if (pathname.startsWith("/admin/checkin")) return "Guest check-in";
   const matched = navItems.find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`));
   if (!matched) return { title: "Admin", description: "Manage the public site and keep every event moving." };
   return { title: matched.label, description: matched.description };
+}
+
+function getPageDescription(pathname: string) {
+  if (pathname.startsWith("/admin/events")) return "Create events, update event details, and manage ticket tiers.";
+  if (pathname.startsWith("/admin/orders")) return "Review orders, payment submissions, and ticket delivery.";
+  if (pathname.startsWith("/admin/checkin")) return "Find tickets and record guest entry.";
+  if (pathname.startsWith("/admin/people")) return "Manage artist and team profiles shown on the public site.";
+  if (pathname.startsWith("/admin/gallery")) return "Manage images displayed in the public gallery.";
+  if (pathname.startsWith("/admin/uploads")) return "Review and moderate community-submitted images.";
+  if (pathname.startsWith("/admin/partners")) return "Manage partner details and homepage visibility.";
+  if (pathname.startsWith("/admin/settings")) return "Update public site content, contact details, and links.";
+  return "Review event activity and items that need follow-up.";
 }
 
 export default function AdminLayout() {
@@ -170,7 +178,7 @@ export default function AdminLayout() {
                         disabled={isLoggingOut}
                         className="bg-accent text-accent-foreground px-5 py-3 font-display text-sm tracking-widest uppercase text-center mt-2 disabled:opacity-70"
                       >
-                        {isLoggingOut ? "Signing out..." : "Sign Out"}
+                        {isLoggingOut ? "Signing out…" : "Sign out"}
                       </button>
                     </div>
                   </motion.div>
@@ -191,10 +199,10 @@ export default function AdminLayout() {
                 className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-xs tracking-[0.12em] uppercase text-foreground-secondary hover:text-foreground disabled:opacity-60"
               >
                 <LogOut size={14} />
-                {isLoggingOut ? "Signing out..." : "Sign out"}
+                {isLoggingOut ? "Signing out…" : "Sign out"}
               </button>
             </div>
-            <PageHeader compact eyebrow="Admin" title={pageMeta.title} description={pageMeta.description} />
+            <PageHeader compact eyebrow="Admin" title={title} description={getPageDescription(location.pathname)} />
             <Outlet />
           </div>
         </main>

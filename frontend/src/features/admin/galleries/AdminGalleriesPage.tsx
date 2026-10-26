@@ -203,13 +203,13 @@ export default function AdminGalleriesPage() {
   async function handleCreateImage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canWrite) {
-      toast.error("You have read-only access for Gallery management.");
+      toast.error("You do not have permission to edit gallery images.");
       return;
     }
 
     const parsed = galleryFormSchema.safeParse(createForm);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete required gallery fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Select an event and add a caption before saving.");
       return;
     }
 
@@ -251,7 +251,7 @@ export default function AdminGalleriesPage() {
   async function handleUpdateImage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canWrite) {
-      toast.error("You have read-only access for Gallery management.");
+      toast.error("You do not have permission to edit gallery images.");
       return;
     }
 
@@ -259,7 +259,7 @@ export default function AdminGalleriesPage() {
 
     const parsed = galleryFormSchema.safeParse(editForm);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete required gallery fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Select an event and add a caption before saving.");
       return;
     }
 
@@ -300,7 +300,7 @@ export default function AdminGalleriesPage() {
 
   async function handleArchiveImage(id: string) {
     if (!canWrite) {
-      toast.error("You have read-only access for Gallery management.");
+      toast.error("You do not have permission to edit gallery images.");
       return;
     }
 
@@ -322,7 +322,7 @@ export default function AdminGalleriesPage() {
 
   async function handleToggleFeatured(image: GalleryImage) {
     if (!canWrite) {
-      toast.error("You have read-only access for Gallery management.");
+      toast.error("You do not have permission to edit gallery images.");
       return;
     }
 
@@ -333,34 +333,35 @@ export default function AdminGalleriesPage() {
           featured: !image.featured,
         },
       });
-      toast.success("Featured state updated.");
+      toast.success(image.featured ? "Image removed from featured content." : "Image added to featured content.");
     } catch (error) {
       toast.error(formatError(error));
     }
   }
 
   if (galleryQuery.isLoading) {
-    return <p className="text-sm text-foreground-secondary">Loading gallery assets...</p>;
+    return <p className="text-sm text-foreground-secondary">Loading gallery images…</p>;
   }
 
   if (galleryQuery.isError) {
-    return <EmptyState title="Could not load gallery" description="Verify admin gallery endpoints and active session." />;
+    return <EmptyState title="Gallery images could not be loaded" description="Check your connection and try again." />;
   }
 
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
         title="Gallery"
-        subtitle="Add event images, write useful captions, and choose what appears first on the public site."
+        subtitle="Manage images displayed in the public gallery. Moderators can view images but cannot edit them."
       />
 
-      <AdminSectionCard title="Create Gallery Image Record" description="Upload an image, add its event and caption, then create the record for the public gallery.">
-        {!canWrite && <p className="text-sm text-foreground-secondary mb-4">Your role is read-only for this section.</p>}
+      <AdminSectionCard title="Add a gallery image">
+        {!canWrite && <p className="text-sm text-foreground-secondary mb-4">You can view gallery images, but your account cannot edit them.</p>}
         <form onSubmit={handleCreateImage} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <select
             className={adminInputClassName}
             value={createForm.eventId}
             onChange={(event) => setCreateForm((current) => ({ ...current, eventId: event.target.value }))}
+            aria-label="Event"
           >
             {events.map((event) => (
               <option key={event.id} value={event.id}>{event.title}</option>
@@ -381,37 +382,37 @@ export default function AdminGalleriesPage() {
             />
             <p className="mt-1 text-xs text-foreground-secondary">
               {uploadMediaMutation.isPending
-                ? "Uploading image..."
+                    ? "Uploading image…"
                 : createMedia?.storageKey
                   ? "Image upload ready."
                   : "Upload image before creating gallery record."}
             </p>
           </div>
           <input value={createMedia?.url ?? ""} readOnly className={adminInputClassName} placeholder="Image URL (auto)" />
-          <input value={createMedia?.storageKey ?? ""} readOnly className={adminInputClassName} placeholder="Storage key (auto)" />
-          <input value={createMedia?.mimeType ?? ""} readOnly className={adminInputClassName} placeholder="Mime type (auto)" />
+          <input value={createMedia?.storageKey ?? ""} readOnly className={adminInputClassName} placeholder="Storage location (automatic)" aria-label="Storage location" />
+          <input value={createMedia?.mimeType ?? ""} readOnly className={adminInputClassName} placeholder="File type (automatic)" aria-label="File type" />
           <input value={createForm.alt} onChange={(event) => setCreateForm((current) => ({ ...current, alt: event.target.value }))} className={adminInputClassName} placeholder="Alt text (optional)" />
           <input value={createForm.sortOrder} onChange={(event) => setCreateForm((current) => ({ ...current, sortOrder: event.target.value }))} className={adminInputClassName} placeholder="Sort order" />
-          <select value={createForm.status} onChange={(event) => setCreateForm((current) => ({ ...current, status: event.target.value as GalleryFormState["status"] }))} className={adminInputClassName}>
+          <select value={createForm.status} onChange={(event) => setCreateForm((current) => ({ ...current, status: event.target.value as GalleryFormState["status"] }))} className={adminInputClassName} aria-label="Image status">
             <option value="published">Published</option>
             <option value="archived">Archived</option>
           </select>
-          <input value={createMedia?.sizeBytes ? String(createMedia.sizeBytes) : ""} readOnly className={adminInputClassName} placeholder="Size bytes (auto)" />
-          <input value={createMedia?.width ? String(createMedia.width) : ""} readOnly className={adminInputClassName} placeholder="Width (auto)" />
-          <input value={createMedia?.height ? String(createMedia.height) : ""} readOnly className={adminInputClassName} placeholder="Height (auto)" />
+          <input value={createMedia?.sizeBytes ? String(createMedia.sizeBytes) : ""} readOnly className={adminInputClassName} placeholder="File size in bytes (automatic)" aria-label="File size in bytes" />
+          <input value={createMedia?.width ? String(createMedia.width) : ""} readOnly className={adminInputClassName} placeholder="Image width in pixels (automatic)" aria-label="Image width in pixels" />
+          <input value={createMedia?.height ? String(createMedia.height) : ""} readOnly className={adminInputClassName} placeholder="Image height in pixels (automatic)" aria-label="Image height in pixels" />
           <label className={adminCheckboxFieldClassName}>
             <input type="checkbox" checked={createForm.featured} onChange={(event) => setCreateForm((current) => ({ ...current, featured: event.target.checked }))} className={adminCheckboxClassName} />
             Featured image
           </label>
           <div className="md:col-span-2 flex justify-end">
             <Button type="submit" variant="accent" disabled={!canWrite || createImageMutation.isPending}>
-              {createImageMutation.isPending ? "Saving..." : "Create Image Record"}
+              {createImageMutation.isPending ? "Creating image…" : "Create image"}
             </Button>
           </div>
         </form>
       </AdminSectionCard>
 
-      <AdminSectionCard title="Gallery Images" description="Select an image row to edit it. Use Feature to control which image leads the public gallery.">
+      <AdminSectionCard title="Gallery images">
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -453,9 +454,9 @@ export default function AdminGalleriesPage() {
 
         <div className="mt-4">
           {images.length === 0 ? (
-            <EmptyState title="No gallery images" description="Create gallery image records to populate this section." />
+            <EmptyState title="No gallery images yet" description="Upload an image and add its event and display details." />
           ) : (
-            <DataTable headers={["Preview", "Event", "Caption", "Sort", "Featured", "Actions"]} minWidthClassName="min-w-[760px] md:min-w-[980px]">
+            <DataTable headers={["Preview", "Event", "Caption", "Sort order", "Featured", "Actions"]} minWidthClassName="min-w-[760px] md:min-w-[980px]">
               {images.map((image) => (
                 <tr
                   key={image.id}
@@ -483,7 +484,7 @@ export default function AdminGalleriesPage() {
                   <td className="px-3 py-3 text-sm text-foreground-secondary">{image.sortOrder}</td>
                   <td className="px-3 py-3">
                     <Button type="button" variant="outline" size="sm" onClick={() => handleToggleFeatured(image)} disabled={!canWrite || updateImageMutation.isPending}>
-                      <Star size={12} /> {image.featured ? "Featured" : "Feature"}
+                      <Star size={12} /> {image.featured ? "Remove from featured" : "Feature image"}
                     </Button>
                   </td>
                   <td className="px-3 py-3">
@@ -493,7 +494,7 @@ export default function AdminGalleriesPage() {
                       </Button>
                       {canWrite && (
                         <Button type="button" variant="outline" size="sm" onClick={() => handleArchiveImage(image.id)} disabled={archiveImageMutation.isPending}>
-                          <Trash2 size={12} /> Archive
+                          <Trash2 size={12} /> Archive image
                         </Button>
                       )}
                     </div>
@@ -506,17 +507,18 @@ export default function AdminGalleriesPage() {
       </AdminSectionCard>
 
       {selectedImageId && (
-        <AdminSectionCard title="Edit Gallery Image" description="Make the change, then save. The public gallery uses the saved caption, order, and featured status." id="admin-gallery-editor">
+        <AdminSectionCard title="Edit gallery image">
           {selectedImageQuery.isLoading ? (
-            <p className="text-sm text-foreground-secondary">Loading gallery image details...</p>
+            <p className="text-sm text-foreground-secondary">Loading gallery image details…</p>
           ) : selectedImageQuery.isError || !selectedImage ? (
-            <EmptyState title="Could not load gallery image" description="Select another image and retry." />
+            <EmptyState title="Gallery image could not be loaded" description="Select another image to try again." />
           ) : (
             <form onSubmit={handleUpdateImage} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <select
                 className={adminInputClassName}
                 value={editForm.eventId}
                 onChange={(event) => setEditForm((current) => ({ ...current, eventId: event.target.value }))}
+                aria-label="Event"
               >
                 {events.map((event) => (
                   <option key={event.id} value={event.id}>{event.title}</option>
@@ -537,24 +539,24 @@ export default function AdminGalleriesPage() {
                 />
                 <p className="mt-1 text-xs text-foreground-secondary">
                   {uploadMediaMutation.isPending
-                    ? "Uploading image..."
+                ? "Uploading image…"
                     : editMedia?.storageKey
                       ? "Image upload ready."
                       : "Upload image to replace existing asset."}
                 </p>
               </div>
               <input value={editMedia?.url ?? ""} readOnly className={adminInputClassName} placeholder="Image URL (auto)" />
-              <input value={editMedia?.storageKey ?? ""} readOnly className={adminInputClassName} placeholder="Storage key (auto)" />
-              <input value={editMedia?.mimeType ?? ""} readOnly className={adminInputClassName} placeholder="Mime type (auto)" />
+              <input value={editMedia?.storageKey ?? ""} readOnly className={adminInputClassName} placeholder="Storage location (automatic)" aria-label="Storage location" />
+              <input value={editMedia?.mimeType ?? ""} readOnly className={adminInputClassName} placeholder="File type (automatic)" aria-label="File type" />
               <input value={editForm.alt} onChange={(event) => setEditForm((current) => ({ ...current, alt: event.target.value }))} className={adminInputClassName} placeholder="Alt text" />
               <input value={editForm.sortOrder} onChange={(event) => setEditForm((current) => ({ ...current, sortOrder: event.target.value }))} className={adminInputClassName} placeholder="Sort order" />
-              <select value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as GalleryFormState["status"] }))} className={adminInputClassName}>
+              <select value={editForm.status} onChange={(event) => setEditForm((current) => ({ ...current, status: event.target.value as GalleryFormState["status"] }))} className={adminInputClassName} aria-label="Image status">
                 <option value="published">Published</option>
                 <option value="archived">Archived</option>
               </select>
-              <input value={editMedia?.sizeBytes ? String(editMedia.sizeBytes) : ""} readOnly className={adminInputClassName} placeholder="Size bytes (auto)" />
-              <input value={editMedia?.width ? String(editMedia.width) : ""} readOnly className={adminInputClassName} placeholder="Width (auto)" />
-              <input value={editMedia?.height ? String(editMedia.height) : ""} readOnly className={adminInputClassName} placeholder="Height (auto)" />
+              <input value={editMedia?.sizeBytes ? String(editMedia.sizeBytes) : ""} readOnly className={adminInputClassName} placeholder="File size in bytes (automatic)" aria-label="File size in bytes" />
+              <input value={editMedia?.width ? String(editMedia.width) : ""} readOnly className={adminInputClassName} placeholder="Image width in pixels (automatic)" aria-label="Image width in pixels" />
+              <input value={editMedia?.height ? String(editMedia.height) : ""} readOnly className={adminInputClassName} placeholder="Image height in pixels (automatic)" aria-label="Image height in pixels" />
               <label className={adminCheckboxFieldClassName}>
                 <input type="checkbox" checked={editForm.featured} onChange={(event) => setEditForm((current) => ({ ...current, featured: event.target.checked }))} className={adminCheckboxClassName} />
                 Featured image
@@ -562,7 +564,7 @@ export default function AdminGalleriesPage() {
               <div className="md:col-span-2 flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => { setSelectedImageId(""); setEditForm(defaultGalleryForm); setEditMedia(null); }}>Cancel</Button>
                 <Button type="submit" variant="accent" disabled={!canWrite || updateImageMutation.isPending}>
-                  {updateImageMutation.isPending ? "Saving..." : "Save Changes"}
+                  {updateImageMutation.isPending ? "Saving changes…" : "Save changes"}
                 </Button>
               </div>
             </form>

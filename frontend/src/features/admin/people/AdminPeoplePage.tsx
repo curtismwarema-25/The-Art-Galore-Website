@@ -16,6 +16,7 @@ import {
   adminFileInputClassName,
   adminInputClassName,
   adminTextareaClassName,
+  formatAdminStatus,
 } from "@/features/admin/shared/utils";
 import { useAuth } from "@/features/auth/useAuth";
 import { validateFile } from "@/features/uploads/uploadService";
@@ -268,6 +269,7 @@ function PersonFormFields({ form, setForm }: PersonFormFieldsProps) {
         value={form.category}
         onChange={(event) => setForm((current) => ({ ...current, category: event.target.value as PersonCategory }))}
         className={adminInputClassName}
+        aria-label="Profile category"
       >
         <option value="leadership">Leadership</option>
         <option value="member">Member</option>
@@ -276,6 +278,7 @@ function PersonFormFields({ form, setForm }: PersonFormFieldsProps) {
         value={form.status}
         onChange={(event) => setForm((current) => ({ ...current, status: event.target.value as PersonFormState["status"] }))}
         className={adminInputClassName}
+        aria-label="Profile status"
       >
         <option value="draft">Draft</option>
         <option value="published">Published</option>
@@ -547,14 +550,14 @@ export default function AdminPeoplePage() {
   async function handleCreatePerson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canWrite) {
-      toast.error("You have read-only access for people records.");
+      toast.error("You do not have permission to edit profiles.");
       return;
     }
 
     const parsed = personFormSchema.safeParse(createForm);
 
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete required person fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Add a name and role before saving the profile.");
       return;
     }
 
@@ -580,7 +583,7 @@ export default function AdminPeoplePage() {
   async function handleUpdatePerson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canWrite) {
-      toast.error("You have read-only access for people records.");
+      toast.error("You do not have permission to edit profiles.");
       return;
     }
 
@@ -588,7 +591,7 @@ export default function AdminPeoplePage() {
 
     const parsed = personFormSchema.safeParse(editForm);
     if (!parsed.success) {
-      toast.error(parsed.error.issues[0]?.message ?? "Complete required edit fields.");
+      toast.error(parsed.error.issues[0]?.message ?? "Add a name and role before saving the profile.");
       return;
     }
 
@@ -612,7 +615,7 @@ export default function AdminPeoplePage() {
 
   async function handleArchivePerson(id: string) {
     if (!canWrite) {
-      toast.error("You have read-only access for people records.");
+      toast.error("You do not have permission to edit profiles.");
       return;
     }
 
@@ -634,24 +637,24 @@ export default function AdminPeoplePage() {
   }
 
   if (peopleQuery.isLoading) {
-    return <p className="text-sm text-foreground-secondary">Loading people...</p>;
+    return <p className="text-sm text-foreground-secondary">Loading profiles…</p>;
   }
 
   if (peopleQuery.isError) {
-    return <EmptyState title="Could not load people" description="Verify admin people endpoints and active session." />;
+    return <EmptyState title="Profiles could not be loaded" description="Check your connection and try again." />;
   }
 
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="People & Artists"
-        subtitle="Keep public profiles, roles, and artist information accurate and ready to publish."
+        title="People and artists"
+        subtitle="Manage artist and team profiles shown on the public site. Moderators can view profiles but cannot edit them."
       />
 
-      <AdminSectionCard title="Create Person" description="Add the profile details first, then choose whether it is ready to appear publicly.">
+      <AdminSectionCard title="Create profile">
         {!canWrite && (
           <p className="text-sm text-foreground-secondary mb-4">
-            Your role is read-only for People management.
+            You can view profiles, but your account cannot edit them.
           </p>
         )}
         <form onSubmit={handleCreatePerson} className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -671,6 +674,7 @@ export default function AdminPeoplePage() {
             value={createForm.category}
             onChange={(event) => setCreateForm((current) => ({ ...current, category: event.target.value as PersonCategory }))}
             className={adminInputClassName}
+            aria-label="Profile category"
           >
             <option value="leadership">Leadership</option>
             <option value="member">Member</option>
@@ -696,6 +700,7 @@ export default function AdminPeoplePage() {
               setCreateForm((current) => ({ ...current, status: event.target.value as PersonFormState["status"] }))
             }
             className={adminInputClassName}
+            aria-label="Profile status"
           >
             <option value="draft">Draft</option>
             <option value="published">Published</option>
@@ -715,7 +720,7 @@ export default function AdminPeoplePage() {
             />
             <p className="mt-1 text-xs text-foreground-secondary">
               {uploadMediaMutation.isPending
-                ? "Uploading profile image..."
+                    ? "Uploading profile image…"
                 : createImageMeta?.url
                   ? "Profile image upload ready."
                   : "Optional profile image."}
@@ -735,7 +740,7 @@ export default function AdminPeoplePage() {
             />
             <p className="mt-1 text-xs text-foreground-secondary">
               {uploadMediaMutation.isPending
-                ? "Uploading cover image..."
+                    ? "Uploading cover image…"
                 : createCoverMeta?.url
                   ? "Cover image upload ready."
                   : "Optional cover image."}
@@ -759,13 +764,13 @@ export default function AdminPeoplePage() {
           </div>
           <div className="md:col-span-2 flex justify-end">
             <Button type="submit" variant="accent" disabled={!canWrite || createPersonMutation.isPending}>
-              {createPersonMutation.isPending ? "Saving..." : "Create Person"}
+              {createPersonMutation.isPending ? "Creating profile…" : "Create profile"}
             </Button>
           </div>
         </form>
       </AdminSectionCard>
 
-      <AdminSectionCard title="People Directory" description="Select a profile row to edit it. The Edit button is also available for keyboard and touch access.">
+      <AdminSectionCard title="People directory">
         <FilterBar
           searchValue={search}
           onSearchChange={setSearch}
@@ -827,16 +832,16 @@ export default function AdminPeoplePage() {
                   <td className="px-3 py-3">
                     <StatusBadge
                       tone={person.category === "leadership" ? "published" : "draft"}
-                      label={person.category}
+                      label={formatAdminStatus(person.category)}
                     />
                   </td>
                   <td className="px-3 py-3">
-                    <StatusBadge tone={person.isArtist ? "approved" : "draft"} label={person.isArtist ? "artist" : "no"} />
+                    <StatusBadge tone={person.isArtist ? "approved" : "draft"} label={person.isArtist ? "Artist" : "Not an artist"} />
                   </td>
                   <td className="px-3 py-3">
                     <StatusBadge
                       tone={person.status === "published" ? "published" : person.status === "draft" ? "draft" : "failed"}
-                      label={person.status}
+                      label={formatAdminStatus(person.status)}
                     />
                   </td>
                   <td className="px-3 py-3">
@@ -851,7 +856,7 @@ export default function AdminPeoplePage() {
                           onClick={() => handleArchivePerson(person.id)}
                           disabled={archivePersonMutation.isPending}
                         >
-                          <Trash2 size={12} /> Archive
+                          <Trash2 size={12} /> Archive profile
                         </Button>
                       )}
                     </div>
@@ -864,11 +869,11 @@ export default function AdminPeoplePage() {
       </AdminSectionCard>
 
       {selectedPersonId && (
-        <AdminSectionCard title="Edit Person" description="Update the profile, confirm its status, then save. Close this section when you are done." id="admin-person-editor">
+        <AdminSectionCard title="Edit profile">
           {personQuery.isLoading ? (
-            <p className="text-sm text-foreground-secondary">Loading person detail...</p>
+            <p className="text-sm text-foreground-secondary">Loading profile…</p>
           ) : personQuery.isError || !selectedPerson ? (
-            <EmptyState title="Could not load selected person" description="Choose another profile and try again." />
+            <EmptyState title="Profile could not be loaded" description="Choose another profile to try again." />
           ) : (
             <form onSubmit={handleUpdatePerson} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <input
@@ -887,6 +892,7 @@ export default function AdminPeoplePage() {
                 value={editForm.category}
                 onChange={(event) => setEditForm((current) => ({ ...current, category: event.target.value as PersonCategory }))}
                 className={adminInputClassName}
+                aria-label="Profile category"
               >
                 <option value="leadership">Leadership</option>
                 <option value="member">Member</option>
@@ -912,6 +918,7 @@ export default function AdminPeoplePage() {
                   setEditForm((current) => ({ ...current, status: event.target.value as PersonFormState["status"] }))
                 }
                 className={adminInputClassName}
+                aria-label="Profile status"
               >
                 <option value="draft">Draft</option>
                 <option value="published">Published</option>
@@ -931,7 +938,7 @@ export default function AdminPeoplePage() {
                 />
                 <p className="mt-1 text-xs text-foreground-secondary">
                   {uploadMediaMutation.isPending
-                    ? "Uploading profile image..."
+                    ? "Uploading profile image…"
                     : editImageMeta?.url
                       ? "Profile image upload ready."
                       : "Optional profile image."}
@@ -951,7 +958,7 @@ export default function AdminPeoplePage() {
                 />
                 <p className="mt-1 text-xs text-foreground-secondary">
                   {uploadMediaMutation.isPending
-                    ? "Uploading cover image..."
+                    ? "Uploading cover image…"
                     : editCoverMeta?.url
                       ? "Cover image upload ready."
                       : "Optional cover image."}
@@ -1004,7 +1011,7 @@ export default function AdminPeoplePage() {
                   Cancel
                 </Button>
                 <Button type="submit" variant="accent" disabled={!canWrite || updatePersonMutation.isPending}>
-                  {updatePersonMutation.isPending ? "Saving..." : "Save Changes"}
+                  {updatePersonMutation.isPending ? "Saving changes…" : "Save changes"}
                 </Button>
               </div>
             </form>

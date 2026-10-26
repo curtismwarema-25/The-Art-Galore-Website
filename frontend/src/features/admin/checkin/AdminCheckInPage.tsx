@@ -6,7 +6,7 @@ import EmptyState from "@/components/common/EmptyState";
 import SectionHeader from "@/components/common/SectionHeader";
 import StatusBadge from "@/components/common/StatusBadge";
 import AdminSectionCard from "@/features/admin/shared/AdminSectionCard";
-import { adminInputClassName, adminLabelClassName, formatDateTime } from "@/features/admin/shared/utils";
+import { adminInputClassName, adminLabelClassName, formatAdminStatus, formatDateTime } from "@/features/admin/shared/utils";
 import { formHelperTextClassName } from "@/lib/formStyles";
 import { useAdminTicketCheckInMutation } from "@/hooks/mutations/useAdminTicketCheckInMutation";
 import { useAdminTicketSearchQuery } from "@/hooks/queries/useAdminTicketSearchQuery";
@@ -58,7 +58,7 @@ export default function AdminCheckInPage() {
       setVerificationResult({
         tone: "rejected",
         title: "Search failed",
-        message: "Could not verify ticket data from backend.",
+        message: "Ticket details could not be loaded. Check your connection and search again.",
       });
       return;
     }
@@ -130,11 +130,8 @@ export default function AdminCheckInPage() {
         } else {
           scannerControlsRef.current = controls;
         }
-      } catch (error) {
-        if (!cancelled) {
-          setScannerMessage(error instanceof Error ? error.message : "Could not start QR scanning.");
-          setScannerActive(false);
-        }
+      } catch {
+        setScannerMessage("QR code could not be scanned. Hold the ticket steady and try again.");
       }
     };
 
@@ -163,15 +160,30 @@ export default function AdminCheckInPage() {
       return;
     }
 
-    setCheckInMethod("qr");
-    setScannerActive(true);
-    setScannerMessage("Point the camera at a ticket QR code.");
+    try {
+      detectorRef.current = new barcodeDetectorConstructor({ formats: ["qr_code"] });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setScannerActive(true);
+      setScannerMessage("Point the camera at a ticket QR code.");
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch {
+      setScannerMessage("Camera access failed. Check your browser permissions and try again, or search for the ticket manually.");
+      stopScanner();
+    }
   };
 
   const searchTicket = () => {
     const normalized = query.trim();
     if (!normalized) {
-      toast.error("Enter ticket token, QR value, order number, or buyer details.");
+      toast.error("Enter a ticket number, QR code, order number, buyer name, or phone number.");
       return;
     }
 
@@ -188,7 +200,7 @@ export default function AdminCheckInPage() {
         query: activeTicket.publicTicketToken,
         method: checkInMethod,
       });
-      toast.success("Ticket checked in successfully.");
+      toast.success("Guest checked in.");
       setVerificationResult({
         tone: "approved",
         title: "Check-in successful",
@@ -196,7 +208,7 @@ export default function AdminCheckInPage() {
       });
       await refetch();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not check in ticket.";
+      const message = error instanceof Error ? error.message : "Guest could not be checked in. Try again.";
       toast.error(message);
 
       if (message.toLowerCase().includes("already")) {
@@ -232,9 +244,9 @@ export default function AdminCheckInPage() {
 
   return (
     <div className="space-y-5 md:space-y-6">
-      <SectionHeader title="Check-In Guests" subtitle="Scan or search a ticket, confirm the guest, and mark them in with one action." />
+      <SectionHeader title="Guest check-in" subtitle="Search for a ticket or scan its QR code, then record the guest’s entry." />
 
-      <AdminSectionCard title="Scanner + Manual Search" description="Start with the camera when a guest has a QR code. Otherwise search by ticket, order, phone, or buyer name.">
+      <AdminSectionCard title="Scan or search for a ticket">
         <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr] gap-4">
           <div className="rounded-md border border-dashed border-border bg-secondary/20 p-4 text-center">
             {scannerActive ? (
@@ -243,57 +255,57 @@ export default function AdminCheckInPage() {
               <QrCode size={34} className="mx-auto text-foreground-secondary mb-3" />
             )}
             <p className="mt-3 font-display text-sm text-foreground">
-              {scannerActive ? "Scanning QR Code" : "QR Scanner"}
+              {scannerActive ? "Scanning QR code" : "QR code scanner"}
             </p>
             <p className="mt-1 text-xs text-foreground-secondary">
-              {scannerMessage || (scannerSupported ? "Use the camera to scan ticket QR payloads." : "Camera access is unavailable. Use manual search instead.")}
+              {scannerMessage || (scannerSupported ? "Use the camera to scan a ticket QR code." : "QR scanning is unavailable in this browser. Search for the ticket instead.")}
             </p>
             <div className="mt-3 flex justify-center gap-2">
               <Button type="button" size="sm" variant="outline" disabled={!scannerSupported || scannerActive} onClick={() => void startScanner()}>
-                Start Scanner
+                Start scanner
               </Button>
               <Button type="button" size="sm" variant="outline" disabled={!scannerActive} onClick={stopScanner}>
-                Stop
+                Stop scanner
               </Button>
             </div>
           </div>
 
           <div className="space-y-3">
             <label className="block">
-              <span className={adminLabelClassName}>Search Ticket</span>
+              <span className={adminLabelClassName}>Find a ticket</span>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Ticket number, token, QR value, order, buyer..."
+                  placeholder="Ticket number, QR code, order, buyer, or phone"
                   className={adminInputClassName}
                 />
                 <Button type="button" variant="accent" onClick={searchTicket} className="w-full sm:w-auto justify-center">
                   <Search size={14} /> Search
                 </Button>
               </div>
-              <p className={formHelperTextClassName}>Paste scanned QR payload or type any ticket/search identifier.</p>
+              <p className={formHelperTextClassName}>Scan a ticket QR code or enter a ticket, order, or buyer detail.</p>
             </label>
             <label className="block">
-              <span className={adminLabelClassName}>Check-In Method</span>
+              <span className={adminLabelClassName}>Check-in method</span>
               <select
                 value={checkInMethod}
                 onChange={(event) => setCheckInMethod(event.target.value as "manual" | "qr")}
                 className={adminInputClassName}
               >
-                <option value="manual">Manual</option>
-                <option value="qr">QR Scan</option>
+                <option value="manual">Manual check-in</option>
+                <option value="qr">QR scan</option>
               </select>
             </label>
           </div>
         </div>
       </AdminSectionCard>
 
-      <AdminSectionCard title="Search Results" description="Select the matching ticket to see its status and check-in action below.">
-        {isLoading && <p className="text-sm text-foreground-secondary">Searching tickets...</p>}
-        {isError && <EmptyState title="Search failed" description="Could not load ticket results from the backend." />}
+      <AdminSectionCard title="Matching tickets">
+        {isLoading && <p className="text-sm text-foreground-secondary">Searching tickets…</p>}
+        {isError && <EmptyState title="Ticket search failed" description="Ticket details could not be loaded. Check your connection and search again." />}
         {!isLoading && !isError && submittedQuery && matches.length === 0 && (
-          <EmptyState title="No tickets found" description="Try another token, order number, or buyer keyword." />
+          <EmptyState title="No tickets found" description="Try another ticket number, order number, buyer name, or phone number." />
         )}
         {!isLoading && !isError && matches.length > 0 && (
           <div className="space-y-3">
@@ -311,7 +323,7 @@ export default function AdminCheckInPage() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm text-foreground">{ticket.ticketNumber}</p>
-                    <StatusBadge tone={ticketTone(ticket.ticketStatus)} label={ticket.ticketStatus} />
+                    <StatusBadge tone={ticketTone(ticket.ticketStatus)} label={formatAdminStatus(ticket.ticketStatus)} />
                   </div>
                   <p className="text-xs text-foreground-secondary mt-1">
                     {ticket.eventTitle} | {ticket.ticketTierName} | {ticket.buyerName} ({ticket.buyerPhone})
@@ -323,7 +335,7 @@ export default function AdminCheckInPage() {
         )}
       </AdminSectionCard>
 
-      <AdminSectionCard title="Ticket Result" description="Confirm the guest details, then mark the ticket checked-in once they are at the entrance.">
+      <AdminSectionCard title="Ticket details">
         {!activeTicket && <EmptyState title="No ticket selected" description="Search and select a ticket to check in." />}
         {activeTicket && (
           <div className="space-y-4">
@@ -343,18 +355,18 @@ export default function AdminCheckInPage() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              <p className="text-foreground-secondary"><span className="text-foreground">Ticket Number:</span> {activeTicket.ticketNumber}</p>
-              <p className="text-foreground-secondary"><span className="text-foreground">Order:</span> {activeTicket.orderNumber}</p>
+              <p className="text-foreground-secondary"><span className="text-foreground">Ticket number:</span> {activeTicket.ticketNumber}</p>
+              <p className="text-foreground-secondary"><span className="text-foreground">Order number:</span> {activeTicket.orderNumber}</p>
               <p className="text-foreground-secondary"><span className="text-foreground">Buyer:</span> {activeTicket.buyerName}</p>
               <p className="text-foreground-secondary"><span className="text-foreground">Phone:</span> {activeTicket.buyerPhone}</p>
               <p className="text-foreground-secondary"><span className="text-foreground">Event:</span> {activeTicket.eventTitle}</p>
               <p className="text-foreground-secondary"><span className="text-foreground">Tier:</span> {activeTicket.ticketTierName}</p>
-              <p className="text-foreground-secondary"><span className="text-foreground">Issued At:</span> {formatDateTime(activeTicket.issuedAt)}</p>
-              <p className="text-foreground-secondary"><span className="text-foreground">Checked-In At:</span> {activeTicket.checkedInAt ? formatDateTime(activeTicket.checkedInAt) : "-"}</p>
+              <p className="text-foreground-secondary"><span className="text-foreground">Issued:</span> {formatDateTime(activeTicket.issuedAt)}</p>
+              <p className="text-foreground-secondary"><span className="text-foreground">Checked in:</span> {activeTicket.checkedInAt ? formatDateTime(activeTicket.checkedInAt) : "—"}</p>
             </div>
 
             <div className="flex flex-wrap gap-2">
-              <StatusBadge tone={ticketTone(activeTicket.ticketStatus)} label={activeTicket.ticketStatus} />
+              <StatusBadge tone={ticketTone(activeTicket.ticketStatus)} label={formatAdminStatus(activeTicket.ticketStatus)} />
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -364,11 +376,11 @@ export default function AdminCheckInPage() {
                 onClick={() => void checkInActiveTicket()}
                 disabled={checkInMutation.isPending || activeTicket.ticketStatus !== "active" || !canCheckIn}
               >
-                {checkInMutation.isPending ? "Checking In..." : "Mark Checked-In"}
+                {checkInMutation.isPending ? "Checking in…" : "Check in guest"}
               </Button>
               {!canCheckIn && (
                 <p className="text-xs text-foreground-secondary">
-                  Your role has read-only ticket verification access.
+                  Your account can view tickets but cannot check guests in.
                 </p>
               )}
             </div>
