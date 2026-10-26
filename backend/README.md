@@ -81,7 +81,68 @@ To let testers see the built site (not Vite's development screen), build the fro
 4. Start the tunnel against backend port `4000` (for example, `ngrok http 4000`) and share only the HTTPS site URL.
 5. Set `PUBLIC_APP_URL` to that HTTPS URL, `PUBLIC_API_URL` to the same URL followed by `/api`, add that exact origin to `CORS_ORIGIN`, and set `MPESA_CALLBACK_URL` to the same URL followed by `/api/payments/mpesa/stk/callback`. For HTTPS tunnel testing, set `SESSION_COOKIE_SECURE=true`. Restart the backend after changing these values. If using a different or rotating tunnel URL, update them again.
 
-The frontend uses relative `/api` requests, so browser API traffic stays on the site's origin. The backend also serves the SPA routes and static production assets. Do not forward the database port or share `.env` values. A tunnel makes the app publicly reachable; use test data and do not allow testers to initiate real-money payments.
+The frontend can use relative `/api` requests through the local Vite proxy, or use the deployed API origin directly. The backend can also serve SPA routes and static production assets when configured for a combined deployment. Do not forward the database port or share `.env` values. A tunnel makes the app publicly reachable; use test data and do not allow testers to initiate real-money payments.
+
+## Production topology: Vercel frontend + VPS backend
+
+The intended production topology keeps the Vite frontend on Vercel and runs the Express backend as one supervised process on a VPS:
+
+```text
+https://YOUR_DOMAIN       -> Vercel frontend
+https://www.YOUR_DOMAIN   -> canonical domain or the same Vercel project
+https://YOUR_API_DOMAIN   -> VPS HTTPS reverse proxy -> 127.0.0.1:4000
+Express                   -> MySQL
+Express                   -> YOUR_VPS_MEDIA_PATH (persistent media volume)
+```
+
+The repository includes `frontend/vercel.json` for the admin-host redirect, `/api/:path*` proxy fallback, and SPA deep-link fallback:
+
+- `/` on `admin.YOUR_DOMAIN` redirects to `/admin/login`.
+- `/api/:path*` is proxied to `https://YOUR_API_DOMAIN/api/:path*` when the frontend uses the relative `/api` base.
+- frontend deep links such as `/admin/login` are served by the SPA entry point.
+
+The API hostname in the proxy fallback is already configured in `frontend/vercel.json`. The Vercel project should use `frontend/` as its root directory, run `npm run build`, and publish `dist`. In Vercel, set `VITE_API_BASE_URL` to the API origin (for example, `https://api.theartgaloreinternational.co.ke`); the frontend adds `/api` when the configured origin has no path. The relative `/api` value remains the local-development default.
+
+Configure these Vercel variables for Production and Preview as appropriate:
+
+```dotenv
+VITE_API_BASE_URL=https://api.theartgaloreinternational.co.ke
+VITE_APP_ENV=production
+VITE_ENABLE_ADMIN=true
+```
+
+Configure the backend environment on the VPS with real values, never with the example placeholders:
+
+```dotenv
+NODE_ENV=production
+PORT=4000
+TRUST_PROXY_HOPS=1
+SERVE_FRONTEND=false
+PUBLIC_APP_URL=https://YOUR_DOMAIN
+PUBLIC_API_URL=https://YOUR_API_DOMAIN/api
+CORS_ORIGIN=https://YOUR_DOMAIN,https://www.YOUR_DOMAIN
+SESSION_COOKIE_SECURE=true
+SESSION_SAME_SITE=lax
+SESSION_COOKIE_DOMAIN=
+MEDIA_LOCAL_ROOT=YOUR_VPS_MEDIA_PATH
+SEED_ADMIN_ENABLED=false
+```
+
+`YOUR_VPS_MEDIA_PATH` must be an absolute directory outside the application release directory, owned by the backend service account, and included in media backups. Do not expose port 4000 or the MySQL port publicly; expose only the reverse proxy's HTTP/HTTPS ports. Use the VPS provider's exact public IP for the `api` DNS record and the exact Vercel-prescribed target for the apex/`www` records. Do not remove existing DNS records until their purpose is verified.
+
+The reverse proxy must terminate HTTPS and forward the original host/protocol and the `/api` path unchanged. An example is only valid after confirming that the VPS uses Nginx or Caddy; do not apply a provider-specific configuration blindly.
+
+Recommended deployment sequence:
+
+1. Back up the production database and media directory.
+2. Deploy the backend release and install production dependencies.
+3. Confirm the VPS environment variables without printing their values.
+4. Run `npm run prisma:migrate:deploy` against the intended database.
+5. Start one backend instance under the existing or selected process manager.
+6. Verify `/health`, `/health/db`, `/admin/login`, API login, uploads, and the M-Pesa callback path.
+7. Confirm the process restarts after failure and reboot.
+
+Do not enable PM2 cluster mode or multiple backend replicas while the in-process order, payment, email, and M-Pesa workers remain enabled. Do not run live M-Pesa transactions during deployment verification.
 
 Validate schema:
 ```bash

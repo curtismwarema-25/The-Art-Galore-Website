@@ -34,6 +34,7 @@ function isLoopbackOrigin(origin: string) {
 
 export function createApp() {
   const app = express();
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
 
   const allowedOrigins = env.CORS_ORIGIN.split(",")
     .map((origin) => origin.trim())
