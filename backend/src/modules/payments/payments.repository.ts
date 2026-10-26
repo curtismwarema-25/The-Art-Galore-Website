@@ -427,7 +427,7 @@ export class PaymentsRepository {
     });
   }
 
-  async markPaymentAmbiguous(id: string, input: { resultCode?: string; resultMessage?: string; rawCallback?: Prisma.InputJsonValue; nextReconciliationAt: Date; error?: string }, tx: Prisma.TransactionClient) {
+  async markPaymentAmbiguous(id: string, input: { resultCode?: string; resultMessage?: string; rawCallback?: Prisma.InputJsonValue; nextReconciliationAt: Date; error?: string; manualReview?: boolean }, tx: Prisma.TransactionClient) {
     return tx.paymentTransaction.update({
       where: { id },
       data: {
@@ -435,9 +435,10 @@ export class PaymentsRepository {
         resultCode: input.resultCode,
         resultMessage: input.resultMessage,
         rawCallback: input.rawCallback,
-        nextReconciliationAt: input.nextReconciliationAt,
+        nextReconciliationAt: input.manualReview ? null : input.nextReconciliationAt,
         lastReconciliationError: input.error?.slice(0, 500),
         reconciliationAttemptCount: { increment: 1 },
+        reconciliationRequiresManualReview: input.manualReview,
       },
     });
   }

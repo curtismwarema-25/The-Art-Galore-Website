@@ -10,6 +10,7 @@ const baseInput: StkFeedbackInput = {
   paymentStatus: "pending",
   canSubmitPaymentProof: true,
   mpesaPaymentPending: false,
+  manualReviewRequired: false,
   ticketCount: 0,
   stkRequested: false,
   initiationPending: false,
@@ -56,6 +57,19 @@ describe("persistent M-Pesa checkout feedback", () => {
     expect(uncertain?.canRetry).toBe(false);
     expect(failed?.kind).toBe("failed");
     expect(failed?.canRetry).toBe(true);
+  });
+
+  it("shows manual-review guidance without allowing another payment prompt", () => {
+    const state = getStkFeedbackState({
+      ...baseInput,
+      manualReviewRequired: true,
+      canSubmitPaymentProof: false,
+    });
+
+    expect(state?.kind).toBe("uncertain");
+    expect(state?.message).toContain("team needs to review");
+    expect(state?.message).toContain("do not start another payment");
+    expect(state?.canRetry).toBe(false);
   });
 
   it("shows a retry option only for a definitive failure that the backend marks retryable", () => {

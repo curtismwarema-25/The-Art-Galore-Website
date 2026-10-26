@@ -20,6 +20,7 @@ export type StkFeedbackInput = {
   paymentStatus: OrderPaymentStatus;
   canSubmitPaymentProof: boolean;
   mpesaPaymentPending: boolean;
+  manualReviewRequired: boolean;
   ticketCount: number;
   stkRequested: boolean;
   initiationPending: boolean;
@@ -52,6 +53,14 @@ export function getStkFeedbackState(input: StkFeedbackInput): StkFeedbackState |
     }
 
     return null;
+  }
+
+  if (input.manualReviewRequired) {
+    return {
+      kind: "uncertain",
+      message: "We couldn't confirm this payment automatically. Our team needs to review it; do not start another payment.",
+      canRetry: false,
+    };
   }
 
   if (input.initiationPending) {

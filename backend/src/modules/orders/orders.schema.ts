@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const phoneRegex = /^\+?\d{9,15}$/;
+const phoneRegex = /^(?:\+?254[17]\d{8}|0[17]\d{8})$/;
 
 const orderStatusSchema = z.enum([
   "pending_payment",

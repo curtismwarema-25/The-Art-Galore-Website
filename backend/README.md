@@ -124,8 +124,9 @@ PORT=4000
 TRUST_PROXY_HOPS=1
 SERVE_FRONTEND=false
 PUBLIC_APP_URL=https://YOUR_DOMAIN
+ADMIN_APP_URL=https://admin.YOUR_DOMAIN
 PUBLIC_API_URL=https://YOUR_API_DOMAIN/api
-CORS_ORIGIN=https://YOUR_DOMAIN,https://www.YOUR_DOMAIN
+CORS_ORIGIN=https://YOUR_DOMAIN,https://www.YOUR_DOMAIN,https://admin.YOUR_DOMAIN
 SESSION_COOKIE_SECURE=true
 SESSION_SAME_SITE=lax
 SESSION_COOKIE_DOMAIN=
@@ -354,9 +355,11 @@ sandbox STK requests use shortcode `174379` and the passkey issued by your Daraj
 number supplied by the checkout is forwarded to Daraja. Production Daraja is blocked unless both
 `MPESA_DARAJA_ENV=production` and `MPESA_LIVE_PAYMENTS_ENABLED=true` are explicitly set.
 
-Production deployments must set `MPESA_CALLBACK_SECRET` and include it in callback requests as
+Production deployments must set `MPESA_CALLBACK_URL` to a public HTTPS callback URL and set `MPESA_CALLBACK_SECRET`, then include the secret in callback requests as
 `x-mpesa-callback-secret`, `Authorization: Bearer <secret>`, or `?secret=` on the callback URL. When
-`NODE_ENV=production` the backend refuses to start without the secret, whether or not a callback URL is configured.
+`NODE_ENV=production` the backend refuses to start without both the callback URL and secret.
+
+Prefer the header or bearer form. A query-string secret can be captured by reverse-proxy, web-server, browser-history, or monitoring logs; if the Daraja callback contract requires it, configure log redaction and rotate the secret if it is exposed. Application error logs record the request path without its query string.
 
 The public STK initiation endpoint returns only buyer-safe status fields. Provider request IDs are available from
 `GET /api/admin/payments/mpesa-transactions`, and admins can retry provider verification with

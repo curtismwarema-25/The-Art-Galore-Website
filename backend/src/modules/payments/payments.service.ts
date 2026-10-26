@@ -63,8 +63,8 @@ export function assertScreenshotAsset(asset?: ScreenshotAsset) {
 
 function toMpesaPhone(phone: string) {
   const digits = phone.replace(/\D+/g, "");
-  if (digits.startsWith("254") && digits.length === 12) return digits;
-  if (digits.startsWith("0") && digits.length === 10) return `254${digits.slice(1)}`;
+  if (/^254[17]\d{8}$/.test(digits)) return digits;
+  if (/^0[17]\d{8}$/.test(digits)) return `254${digits.slice(1)}`;
   throw new ValidationError("Use a valid Kenyan phone number format (07... or 254...)");
 }
 
@@ -518,7 +518,40 @@ export class PaymentsService {
         return;
       }
 
+      if (transaction.status !== PaymentStatus.INITIATED && transaction.status !== PaymentStatus.PENDING && transaction.status !== PaymentStatus.AMBIGUOUS) {
+        logger.info("Duplicate/terminal MPESA result ignored", {
+          checkoutRequestId: input.checkoutRequestId,
+          transactionId: transaction.id,
+        });
+        mappedStatus = this.mapPaymentStatusForAudit(transaction.status);
+        return;
+      }
+
       if (input.resultCode === "0") {
+        const duplicateReceipt = input.providerReceipt
+          ? await tx.paymentTransaction.findFirst({
+            where: {
+              provider: PaymentProvider.MPESA,
+              providerAccountKey: transaction.providerAccountKey,
+              providerReceipt: input.providerReceipt,
+              NOT: { id: transaction.id },
+            },
+            select: { id: true },
+          })
+          : null;
+        if (duplicateReceipt) {
+          await this.repository.markPaymentAmbiguous(transaction.id, {
+            resultCode: input.resultCode,
+            resultMessage: "Provider receipt is already linked to another payment",
+            rawCallback: input.rawCallback,
+            nextReconciliationAt: new Date(now.getTime() + 60_000),
+            error: "M-Pesa provider receipt is already linked to another payment",
+            manualReview: true,
+          }, tx);
+          mappedStatus = "ambiguous";
+          return;
+        }
+
         const expectedAmount = Number(transaction.amount);
         const amountMatches = input.amount === undefined || Math.abs(input.amount - expectedAmount) < 0.005;
         const phoneMatches = !input.payerPhone || !transaction.payerPhone || input.payerPhone === transaction.payerPhone;
@@ -533,15 +566,6 @@ export class PaymentsService {
           mappedStatus = "ambiguous";
           return;
         }
-      }
-
-      if (transaction.status !== PaymentStatus.INITIATED && transaction.status !== PaymentStatus.PENDING && transaction.status !== PaymentStatus.AMBIGUOUS) {
-        logger.info("Duplicate/terminal MPESA result ignored", {
-          checkoutRequestId: input.checkoutRequestId,
-          transactionId: transaction.id,
-        });
-        mappedStatus = this.mapPaymentStatusForAudit(transaction.status);
-        return;
       }
 
       if (input.resultCode === "0") {

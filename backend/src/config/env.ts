@@ -21,6 +21,7 @@ const envSchema = z.object({
   SERVE_FRONTEND: booleanEnv.default(false),
   API_PREFIX: z.string().default("/api"),
   PUBLIC_APP_URL: z.string().url().default("http://localhost:8080"),
+  ADMIN_APP_URL: z.string().url().or(z.literal("")).default(""),
   PUBLIC_API_URL: z.string().url().or(z.literal("")).default(""),
   CORS_ORIGIN: z.string().default("http://localhost:8080"),
   CORS_ALLOW_ALL_IN_DEV: booleanEnv.default(false),
@@ -123,7 +124,20 @@ function assertProductionPublicUrl(value: string, name: string) {
   }
 }
 
-function assertProductionCorsOrigins(value: string) {
+function assertProductionOrigin(value: string, name: string) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`Invalid backend environment configuration: ${name} must be a valid HTTPS origin in production`);
+  }
+
+  if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash || isUnsafePublicHostname(url.hostname)) {
+    throw new Error(`Invalid backend environment configuration: ${name} must be a public HTTPS origin in production`);
+  }
+}
+
+function assertProductionCorsOrigins(value: string, requiredOrigin?: string) {
   const origins = value.split(",").map((origin) => origin.trim()).filter(Boolean);
 
   if (origins.length === 0) {
@@ -141,6 +155,10 @@ function assertProductionCorsOrigins(value: string) {
     if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash || isUnsafePublicHostname(url.hostname)) {
       throw new Error("Invalid backend environment configuration: CORS_ORIGIN must contain public HTTPS origins only");
     }
+  }
+
+  if (requiredOrigin && !origins.includes(new URL(requiredOrigin).origin)) {
+    throw new Error("Invalid backend environment configuration: CORS_ORIGIN must include ADMIN_APP_URL");
   }
 }
 
@@ -185,7 +203,25 @@ if (parsed.NODE_ENV === "production") {
 
   assertProductionPublicUrl(parsed.PUBLIC_APP_URL, "PUBLIC_APP_URL");
   assertProductionPublicUrl(parsed.PUBLIC_API_URL, "PUBLIC_API_URL");
-  assertProductionCorsOrigins(parsed.CORS_ORIGIN);
+  if (!parsed.ADMIN_APP_URL) {
+    throw new Error("Invalid backend environment configuration: ADMIN_APP_URL is required in production");
+  }
+  assertProductionOrigin(parsed.ADMIN_APP_URL, "ADMIN_APP_URL");
+  assertProductionCorsOrigins(parsed.CORS_ORIGIN, parsed.ADMIN_APP_URL);
+  assertProductionPublicUrl(parsed.MPESA_CALLBACK_URL, "MPESA_CALLBACK_URL");
+
+  if (parsed.MPESA_LIVE_PAYMENTS_ENABLED) {
+    const requiredMpesaValues = [
+      ["MPESA_SHORTCODE", parsed.MPESA_SHORTCODE],
+      ["MPESA_PASSKEY", parsed.MPESA_PASSKEY],
+      ["MPESA_CONSUMER_KEY", parsed.MPESA_CONSUMER_KEY],
+      ["MPESA_CONSUMER_SECRET", parsed.MPESA_CONSUMER_SECRET],
+    ] as const;
+    const missingMpesaValues = requiredMpesaValues.filter(([, value]) => !value).map(([name]) => name);
+    if (missingMpesaValues.length > 0) {
+      throw new Error(`Invalid backend environment configuration: ${missingMpesaValues.join(", ")} are required when live M-Pesa is enabled`);
+    }
+  }
 
   if (!parsed.SESSION_COOKIE_SECURE) {
     throw new Error("Invalid backend environment configuration: SESSION_COOKIE_SECURE must be true in production");

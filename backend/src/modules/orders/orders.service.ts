@@ -183,6 +183,12 @@ function mapPublicTrackedOrderRecord(order: OrderWithRelations): PublicTrackedOr
         || payment.status === PaymentStatus.PENDING
         || payment.status === PaymentStatus.AMBIGUOUS),
     );
+  const manualReviewRequired = order.status !== OrderStatus.PAID
+    && order.status !== OrderStatus.PAYMENT_VERIFIED
+    && order.paymentTransactions.some((payment) =>
+      payment.provider === PaymentProvider.MPESA
+      && payment.reconciliationRequiresManualReview,
+    );
   const hasTerminalAutomatedFailure = latestPayment?.provider === PaymentProvider.MPESA
     && (latestPayment.status === PaymentStatus.FAILED || latestPayment.status === PaymentStatus.CANCELLED)
     && latestProof?.verificationStatus !== PaymentVerificationStatus.PENDING;
@@ -213,6 +219,7 @@ function mapPublicTrackedOrderRecord(order: OrderWithRelations): PublicTrackedOr
     })),
     canSubmitPaymentProof: (mappedStatus === "pending_payment" || mappedStatus === "payment_rejected") && !mpesaPaymentPending,
     mpesaPaymentPending,
+    manualReviewRequired,
     ticketDeliveryStatus: mapTicketDeliveryStatus(order.ticketDeliveryStatus),
     ticketEmailDeliveryEnabled: env.EMAIL_DELIVERY_ENABLED,
     tickets: order.tickets.map((ticket) => ({

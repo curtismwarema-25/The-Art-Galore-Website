@@ -717,8 +717,10 @@ test("terminal payment status cannot be overwritten by a late duplicate result",
     fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
     const transaction = await createPendingMpesaTransaction(fixture, { status: PaymentStatus.SUCCEEDED, resultCode: "0", resultMessage: "Already paid", completedAt: new Date() });
     const apply = createPaymentsService().paymentsService as unknown as { applyMpesaPaymentResult: (input: Record<string, unknown>) => Promise<{ status?: string }> };
-    const result = await apply.applyMpesaPaymentResult({ checkoutRequestId: transaction.externalRequestId, resultCode: "2001", resultDesc: "Late failure", rawCallback: { source: "mission-03" } });
-    assert.equal(result.status, "paid");
+    const duplicateSuccess = await apply.applyMpesaPaymentResult({ checkoutRequestId: transaction.externalRequestId, resultCode: "0", resultDesc: "Late duplicate success", rawCallback: { source: "mission-03" } });
+    assert.equal(duplicateSuccess.status, "paid");
+    const lateFailure = await apply.applyMpesaPaymentResult({ checkoutRequestId: transaction.externalRequestId, resultCode: "2001", resultDesc: "Late failure", rawCallback: { source: "mission-04" } });
+    assert.equal(lateFailure.status, "paid");
     assert.equal((await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transaction.id } })).status, PaymentStatus.SUCCEEDED);
   } finally {
     restoreEnv();

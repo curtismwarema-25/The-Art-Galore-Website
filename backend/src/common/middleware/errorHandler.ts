@@ -31,7 +31,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
       statusCode: err.statusCode,
       message: err.message,
       method: req.method,
-      path: req.originalUrl,
+      path: req.path,
       ipAddress: req.ip,
       details: sanitizeDetails(err.details),
     });
@@ -51,7 +51,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     name: safeError.name,
     message: safeError.message,
     method: req.method,
-    path: req.originalUrl,
+    path: req.path,
     ipAddress: req.ip,
   });
 

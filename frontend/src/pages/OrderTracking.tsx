@@ -268,6 +268,7 @@ export default function OrderTracking() {
     paymentStatus: order.paymentStatus,
     canSubmitPaymentProof: order.canSubmitPaymentProof,
     mpesaPaymentPending: Boolean(order.mpesaPaymentPending),
+    manualReviewRequired: order.manualReviewRequired,
     ticketCount: order.tickets.length,
     stkRequested,
     initiationPending: initiateStkMutation.isPending,
