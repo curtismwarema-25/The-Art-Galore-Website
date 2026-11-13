@@ -1,4 +1,4 @@
-import type { BrowserQRCodeReader } from "@zxing/browser";
+import { BrowserCodeReader, type BrowserQRCodeReader } from "@zxing/browser";
 
 export type CameraState =
   | "idle"
@@ -34,6 +34,18 @@ export function getCameraConstraints(deviceId?: string): MediaStreamConstraints 
       : { facingMode: { ideal: "environment" } },
     audio: false,
   };
+}
+
+export function isCaptureAvailable(scannerActive: boolean, captureInProgress: boolean) {
+  return scannerActive && !captureInProgress;
+}
+
+export type TicketVerificationState = "valid" | "duplicate" | "invalid";
+
+export function getTicketVerificationState(status: string): TicketVerificationState {
+  if (status === "active") return "valid";
+  if (status === "checked_in") return "duplicate";
+  return "invalid";
 }
 
 export function getCameraError(error: unknown): { state: Exclude<CameraState, "idle" | "requesting" | "active">; message: string } {
@@ -72,6 +84,31 @@ export function getCameraError(error: unknown): { state: Exclude<CameraState, "i
 
 export function stopMediaStream(stream: MediaStream | null | undefined) {
   stream?.getTracks().forEach((track) => track.stop());
+}
+
+export type CapturedQrFrame = {
+  canvas: HTMLCanvasElement;
+  imageDataUrl: string;
+};
+
+export function captureVideoFrame(video: HTMLVideoElement): CapturedQrFrame {
+  if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+    throw new CameraPreviewError("The camera frame is not ready. Keep the ticket in view and try again.");
+  }
+
+  const canvas = BrowserCodeReader.createCanvasFromMediaElement(video);
+  return {
+    canvas,
+    imageDataUrl: canvas.toDataURL("image/jpeg", 0.9),
+  };
+}
+
+export function decodeCapturedVideoFrame(reader: BrowserQRCodeReader, video: HTMLVideoElement) {
+  const capture = captureVideoFrame(video);
+  const result = reader.decodeFromCanvas(capture.canvas);
+  const text = result.getText().trim();
+  if (!text) throw new Error("No QR code was found in the captured frame.");
+  return { text, imageDataUrl: capture.imageDataUrl };
 }
 
 export async function prepareVideoPreview(video: HTMLVideoElement, stream: MediaStream, timeoutMs = 5000) {

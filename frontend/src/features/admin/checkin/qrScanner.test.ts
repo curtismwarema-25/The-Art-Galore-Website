@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
+import { BrowserCodeReader } from "@zxing/browser";
 import {
   CameraPreviewError,
+  decodeCapturedVideoFrame,
   decodeQrImage,
+  captureVideoFrame,
   getCameraConstraints,
   getCameraError,
+  getTicketVerificationState,
+  isCaptureAvailable,
   prepareVideoPreview,
   stopMediaStream,
 } from "./qrScanner";
@@ -18,6 +23,21 @@ describe("QR scanner utilities", () => {
       video: { deviceId: { ideal: "camera-2" } },
       audio: false,
     });
+  });
+
+  it("disables duplicate capture while a capture or verification is in progress", () => {
+    expect(isCaptureAvailable(false, false)).toBe(false);
+    expect(isCaptureAvailable(true, true)).toBe(false);
+    expect(isCaptureAvailable(true, false)).toBe(true);
+  });
+
+  it.each([
+    ["active", "valid"],
+    ["checked_in", "duplicate"],
+    ["revoked", "invalid"],
+    ["cancelled", "invalid"],
+  ])("maps backend ticket status %s to %s", (status, expected) => {
+    expect(getTicketVerificationState(status)).toBe(expected);
   });
 
   it.each([
@@ -57,6 +77,40 @@ describe("QR scanner utilities", () => {
     video.dispatchEvent(new Event("loadedmetadata"));
     await previewPromise;
     expect(video.play).toHaveBeenCalledOnce();
+  });
+
+  it("captures the current video frame and decodes it with ZXing's canvas API", () => {
+    const video = document.createElement("video");
+    Object.defineProperties(video, {
+      readyState: { configurable: true, value: 4 },
+      videoWidth: { configurable: true, value: 640 },
+      videoHeight: { configurable: true, value: 480 },
+    });
+    const canvas = { toDataURL: vi.fn().mockReturnValue("data:image/jpeg;base64,captured") };
+    const createCanvas = vi.spyOn(BrowserCodeReader, "createCanvasFromMediaElement").mockReturnValue(canvas as HTMLCanvasElement);
+    const reader = {
+      decodeFromCanvas: vi.fn().mockReturnValue({ getText: () => "agi-ticket:captured" }),
+    };
+
+    expect(decodeCapturedVideoFrame(reader as never, video)).toEqual({
+      text: "agi-ticket:captured",
+      imageDataUrl: "data:image/jpeg;base64,captured",
+    });
+    expect(createCanvas).toHaveBeenCalledWith(video);
+    expect(reader.decodeFromCanvas).toHaveBeenCalledWith(canvas);
+
+    createCanvas.mockRestore();
+  });
+
+  it("rejects a capture before the video has a usable frame", () => {
+    const video = document.createElement("video");
+    Object.defineProperties(video, {
+      readyState: { configurable: true, value: 1 },
+      videoWidth: { configurable: true, value: 0 },
+      videoHeight: { configurable: true, value: 0 },
+    });
+
+    expect(() => captureVideoFrame(video)).toThrow(CameraPreviewError);
   });
 
   it("stops every track during scanner cleanup", () => {
