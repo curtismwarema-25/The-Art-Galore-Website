@@ -257,6 +257,15 @@ export interface SiteSettings extends BaseRecord {
   privacyPolicyLink: string;
   termsLink: string;
   refundPolicyLink: string;
+  aboutTitle: string;
+  aboutIntro: string;
+  aboutBody: string;
+  aboutImage?: string;
+  contactTitle: string;
+  contactIntro: string;
+  privacyPolicyContent: string;
+  termsContent: string;
+  refundPolicyContent: string;
   manualPaymentEnabled: boolean;
   bankAccountName?: string;
   bankAccountNumber?: string;

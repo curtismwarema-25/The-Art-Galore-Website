@@ -116,7 +116,6 @@ test("failed, malformed, and provider-error query outcomes remain non-successful
   assert.equal(getQueryResultCode({ ResponseCode: "bad", ResultCode: "0" }), undefined);
   assert.equal(getQueryResultCode({ ResponseCode: "500", ResultCode: "0" }), undefined);
 });
-
 test("ambiguous reconciliation uses exponential backoff and caps at manual review", () => {
   const now = new Date("2026-11-12T12:00:00.000Z");
   assert.equal(getMpesaReconciliationSchedule({ attemptCount: 0, maxAttempts: 8, now }).nextAttemptAt?.toISOString(), "2026-11-12T12:01:00.000Z");

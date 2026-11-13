@@ -156,7 +156,6 @@ test("a worker exception is contained so a later cycle can recover", async () =>
 
   assert.equal(listCalls, 2);
 });
-
 test("a provider HTTP 500 is recorded with backoff and does not run another transaction in the same sweep", async () => {
   let failure: { nextAttemptAt?: Date; error: string; manualReview: boolean; countAttempt?: boolean } | undefined;
   let released = false;
