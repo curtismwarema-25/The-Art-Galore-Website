@@ -1,4 +1,4 @@
-import type { BrowserQRCodeReader } from "@zxing/browser";
+import { BrowserCodeReader, type BrowserQRCodeReader } from "@zxing/browser";
 
 export type CameraState =
   | "idle"
@@ -9,6 +9,13 @@ export type CameraState =
   | "in-use"
   | "unsupported"
   | "error";
+
+export class CameraPreviewError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CameraPreviewError";
+  }
+}
 
 export function isCameraContextSupported() {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
@@ -29,7 +36,23 @@ export function getCameraConstraints(deviceId?: string): MediaStreamConstraints 
   };
 }
 
+export function isCaptureAvailable(scannerActive: boolean, captureInProgress: boolean) {
+  return scannerActive && !captureInProgress;
+}
+
+export type TicketVerificationState = "valid" | "duplicate" | "invalid";
+
+export function getTicketVerificationState(status: string): TicketVerificationState {
+  if (status === "active") return "valid";
+  if (status === "checked_in") return "duplicate";
+  return "invalid";
+}
+
 export function getCameraError(error: unknown): { state: Exclude<CameraState, "idle" | "requesting" | "active">; message: string } {
+  if (error instanceof CameraPreviewError) {
+    return { state: "error", message: error.message };
+  }
+
   const name = error instanceof DOMException ? error.name : error instanceof Error ? error.name : "";
 
   if (name === "NotAllowedError" || name === "SecurityError") {
@@ -61,6 +84,71 @@ export function getCameraError(error: unknown): { state: Exclude<CameraState, "i
 
 export function stopMediaStream(stream: MediaStream | null | undefined) {
   stream?.getTracks().forEach((track) => track.stop());
+}
+
+export type CapturedQrFrame = {
+  canvas: HTMLCanvasElement;
+  imageDataUrl: string;
+};
+
+export function captureVideoFrame(video: HTMLVideoElement): CapturedQrFrame {
+  if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+    throw new CameraPreviewError("The camera frame is not ready. Keep the ticket in view and try again.");
+  }
+
+  const canvas = BrowserCodeReader.createCanvasFromMediaElement(video);
+  return {
+    canvas,
+    imageDataUrl: canvas.toDataURL("image/jpeg", 0.9),
+  };
+}
+
+export function decodeCapturedVideoFrame(reader: BrowserQRCodeReader, video: HTMLVideoElement) {
+  const capture = captureVideoFrame(video);
+  const result = reader.decodeFromCanvas(capture.canvas);
+  const text = result.getText().trim();
+  if (!text) throw new Error("No QR code was found in the captured frame.");
+  return { text, imageDataUrl: capture.imageDataUrl };
+}
+
+export async function prepareVideoPreview(video: HTMLVideoElement, stream: MediaStream, timeoutMs = 5000) {
+  video.autoplay = true;
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+
+  if (video.readyState < 1) {
+    await new Promise<void>((resolve, reject) => {
+      const cleanup = () => {
+        clearTimeout(timeoutId);
+        video.removeEventListener("loadedmetadata", handleReady);
+        video.removeEventListener("canplay", handleReady);
+        video.removeEventListener("error", handleError);
+      };
+      const handleReady = () => {
+        cleanup();
+        resolve();
+      };
+      const handleError = () => {
+        cleanup();
+        reject(new CameraPreviewError("The camera opened, but its preview could not be initialized. Try again or use image upload."));
+      };
+
+      video.addEventListener("loadedmetadata", handleReady, { once: true });
+      video.addEventListener("canplay", handleReady, { once: true });
+      video.addEventListener("error", handleError, { once: true });
+      const timeoutId = setTimeout(() => {
+        cleanup();
+        reject(new CameraPreviewError("The camera opened, but its preview did not become ready. Try again or use image upload."));
+      }, timeoutMs);
+    });
+  }
+
+  try {
+    await video.play();
+  } catch {
+    throw new CameraPreviewError("Camera access was granted, but the live preview could not start. Tap Start scanner again or use image upload.");
+  }
 }
 
 export async function decodeQrImage(reader: BrowserQRCodeReader, file: File) {
