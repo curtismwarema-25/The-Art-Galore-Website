@@ -1,5 +1,13 @@
 import { ApiError, apiRequest } from "@/api/client";
-import type { EventLifecycle, EventRecord, RecordStatus, TicketTier } from "@/types/models";
+import type {
+  CommunityUpload,
+  EventLifecycle,
+  EventRecord,
+  GalleryImage,
+  RecordStatus,
+  TicketAvailabilityState,
+  TicketTier,
+} from "@/types/models";
 
 type ApiData<T> = {
   data: T;
@@ -56,6 +64,23 @@ export type AdminTicketTierUpsertInput = {
 
 export type AdminTicketTierUpdateInput = Partial<AdminTicketTierUpsertInput>;
 
+export type AdminTicketTierResponse = Omit<
+  TicketTier,
+  "status" | "currency" | "availabilityState" | "allocatedQuantity" | "remainingQuantity"
+> & {
+  status: "draft" | "published" | "archived";
+  currency: "KES";
+  availabilityState: TicketAvailabilityState;
+  allocatedQuantity: number;
+  remainingQuantity: number;
+};
+
+export type AdminEventDetailResponse = EventRecord & {
+  ticketTiers: AdminTicketTierResponse[];
+  galleryImages: GalleryImage[];
+  approvedUploads: CommunityUpload[];
+};
+
 function mapRecordStatusToAdminStatus(status: RecordStatus | undefined) {
   if (!status) return undefined;
   return status;
@@ -89,7 +114,7 @@ export async function getAdminEvents(filters?: AdminEventsFilters) {
 
 export async function getAdminEventById(id: string) {
   try {
-    const response = await apiRequest<ApiData<EventRecord>>(`/admin/events/${id}`, {
+    const response = await apiRequest<ApiData<AdminEventDetailResponse>>(`/admin/events/${id}`, {
       method: "GET",
     });
 
@@ -104,7 +129,7 @@ export async function getAdminEventById(id: string) {
 }
 
 export async function createAdminEvent(input: AdminEventUpsertInput) {
-  const response = await apiRequest<ApiData<EventRecord>>("/admin/events", {
+  const response = await apiRequest<ApiData<AdminEventDetailResponse>>("/admin/events", {
     method: "POST",
     body: input,
   });
@@ -113,7 +138,7 @@ export async function createAdminEvent(input: AdminEventUpsertInput) {
 }
 
 export async function updateAdminEvent(id: string, input: AdminEventUpdateInput) {
-  const response = await apiRequest<ApiData<EventRecord>>(`/admin/events/${id}`, {
+  const response = await apiRequest<ApiData<AdminEventDetailResponse>>(`/admin/events/${id}`, {
     method: "PATCH",
     body: input,
   });
@@ -128,7 +153,7 @@ export async function deleteAdminEvent(id: string) {
 }
 
 export async function getAdminTicketTiers(eventId: string) {
-  const response = await apiRequest<ApiData<TicketTier[]>>(`/admin/events/${eventId}/ticket-tiers`, {
+  const response = await apiRequest<ApiData<AdminTicketTierResponse[]>>(`/admin/events/${eventId}/ticket-tiers`, {
     method: "GET",
   });
 
@@ -136,7 +161,7 @@ export async function getAdminTicketTiers(eventId: string) {
 }
 
 export async function createAdminTicketTier(eventId: string, input: AdminTicketTierUpsertInput) {
-  const response = await apiRequest<ApiData<TicketTier>>(`/admin/events/${eventId}/ticket-tiers`, {
+  const response = await apiRequest<ApiData<AdminTicketTierResponse>>(`/admin/events/${eventId}/ticket-tiers`, {
     method: "POST",
     body: input,
   });
@@ -145,7 +170,7 @@ export async function createAdminTicketTier(eventId: string, input: AdminTicketT
 }
 
 export async function updateAdminTicketTier(id: string, input: AdminTicketTierUpdateInput) {
-  const response = await apiRequest<ApiData<TicketTier>>(`/admin/ticket-tiers/${id}`, {
+  const response = await apiRequest<ApiData<AdminTicketTierResponse>>(`/admin/ticket-tiers/${id}`, {
     method: "PATCH",
     body: input,
   });

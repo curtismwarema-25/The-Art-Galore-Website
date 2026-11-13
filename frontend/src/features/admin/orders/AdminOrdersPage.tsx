@@ -1,5 +1,5 @@
-import { Fragment, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ChevronDown, ChevronUp, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import DataTable from "@/components/common/DataTable";
@@ -15,13 +15,15 @@ import { useResendTicketEmailDeliveryMutation } from "@/hooks/mutations/useTicke
 import { useAdminManualPaymentsQuery } from "@/hooks/queries/useAdminManualPaymentsQuery";
 import { useAdminMpesaTransactionsQuery } from "@/hooks/queries/useAdminMpesaTransactionsQuery";
 import { useAdminOrderQuery, useAdminOrdersQuery } from "@/hooks/queries/useAdminOrdersQuery";
+import { useAdminEventsQuery } from "@/hooks/queries/useAdminEventsQuery";
 import { useAdminTicketEmailDeliveryQuery } from "@/hooks/queries/useAdminTicketEmailDeliveryQuery";
-import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
 import type { AdminMpesaTransactionAuditRecord, AdminMpesaTransactionStatus } from "@/api/endpoints/payments";
 import type { OrderDetailsRecord, OrderLifecycleStatus, TicketDeliveryStatus, VerificationStatus } from "@/api/endpoints/orders";
 import type { TicketEmailDeliverySummaryRecord } from "@/api/endpoints/tickets";
 import { toast } from "@/components/ui/sonner";
 import { canReverifyMpesaTransaction, isMpesaManualReview, mpesaStatusTone } from "./mpesaStatus";
+import AdminEventWorkspaceNav from "../events/AdminEventWorkspaceNav";
+import { buildAdminEventFilterOptions } from "./adminEventFilter";
 
 const ORDER_STATUS_FILTER_OPTIONS: Array<{ label: string; value: "all" | OrderLifecycleStatus }> = [
   { label: "All", value: "all" },
@@ -150,15 +152,20 @@ function buildOrderTimeline(
 
 export default function AdminOrdersPage() {
   const { id: routeOrderId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [statusFilterValue, setStatusFilterValue] = useState<"all" | OrderLifecycleStatus>("all");
-  const [eventFilter, setEventFilter] = useState("all");
+  const routeEventId = searchParams.get("eventId") ?? "";
+  const [eventFilter, setEventFilter] = useState(routeEventId || "all");
   const [mpesaSearch, setMpesaSearch] = useState("");
   const [mpesaStatusFilterValue, setMpesaStatusFilterValue] = useState<"all" | AdminMpesaTransactionStatus>("all");
   const [expandedMpesaTransactionId, setExpandedMpesaTransactionId] = useState<string | null>(null);
   const [reviewModal, setReviewModal] = useState<ReviewModalState>(null);
   const [reviewNote, setReviewNote] = useState("");
+  const reviewTriggerRef = useRef<HTMLElement | null>(null);
+  const reviewDialogRef = useRef<HTMLDivElement | null>(null);
+  const reviewNoteRef = useRef<HTMLTextAreaElement | null>(null);
 
   const statusFilter = statusFilterValue === "all" ? undefined : statusFilterValue;
   const scopedEventId = eventFilter === "all" ? undefined : eventFilter;
@@ -190,24 +197,73 @@ export default function AdminOrdersPage() {
     orderId: routeOrderId,
     limit: 100,
   });
-  const { data: events = [] } = useEventsQuery();
+  const adminEventsQuery = useAdminEventsQuery();
+  const events = useMemo(() => adminEventsQuery.data ?? [], [adminEventsQuery.data]);
+  const contextEvent = events.find((event) => event.id === routeEventId);
   const approveMutation = useApproveManualPaymentMutation();
   const rejectMutation = useRejectManualPaymentMutation();
   const reverifyMpesaMutation = useReverifyMpesaTransactionMutation();
   const issueTicketsMutation = useIssueTicketsMutation();
   const resendTicketEmailMutation = useResendTicketEmailDeliveryMutation();
 
-  const eventOptions = useMemo(
-    () => [{ label: "All Events", value: "all" }].concat(events.map((event) => ({ label: event.title, value: event.id }))),
-    [events],
-  );
+  const eventOptions = useMemo(() => buildAdminEventFilterOptions(events), [events]);
+
+  useEffect(() => {
+    if (routeEventId) setEventFilter(routeEventId);
+  }, [routeEventId]);
 
   const reviewPending = approveMutation.isPending || rejectMutation.isPending;
 
   const openReviewModal = (submissionId: string, orderNumber: string, action: "approve" | "reject") => {
+    reviewTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setReviewModal({ submissionId, orderNumber, action });
     setReviewNote("");
   };
+
+  const closeReviewModal = () => {
+    setReviewModal(null);
+    setReviewNote("");
+    const trigger = reviewTriggerRef.current;
+    reviewTriggerRef.current = null;
+    if (trigger) {
+      window.requestAnimationFrame(() => trigger.focus());
+    }
+  };
+
+  useEffect(() => {
+    if (!reviewModal) return;
+
+    reviewNoteRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !reviewPending) {
+        event.preventDefault();
+        closeReviewModal();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const focusableElements = Array.from(
+        reviewDialogRef.current?.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), textarea, input, select, a[href]",
+        ) ?? [],
+      );
+      if (focusableElements.length === 0) return;
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [reviewModal, reviewPending]);
 
   const submitReview = async () => {
     if (!reviewModal) return;
@@ -226,8 +282,7 @@ export default function AdminOrdersPage() {
         });
         toast.success(`Payment rejected for ${result.orderNumber}.`);
       }
-      setReviewModal(null);
-      setReviewNote("");
+      closeReviewModal();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not review payment.");
     }
@@ -281,14 +336,27 @@ export default function AdminOrdersPage() {
   return (
     <div className="space-y-5 md:space-y-6">
       <SectionHeader
-        title="Orders and payments"
+        title={contextEvent ? `${contextEvent.title} — Orders and payments` : "Orders and payments"}
         subtitle="Review orders, payment submissions, and ticket delivery."
         action={
-          <Button size="sm" variant="outline" asChild>
-            <Link to="/admin/checkin">Open guest check-in</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {contextEvent && (
+              <Button size="sm" variant="outline" asChild>
+                <Link to={`/admin/events/${contextEvent.id}`}>Event workspace</Link>
+              </Button>
+            )}
+            <Button size="sm" variant="outline" asChild>
+              <Link to={contextEvent ? `/admin/checkin?eventId=${encodeURIComponent(contextEvent.id)}` : "/admin/checkin"}>Open guest check-in</Link>
+            </Button>
+          </div>
         }
       />
+
+      {contextEvent && <AdminEventWorkspaceNav event={contextEvent} currentSection="orders" />}
+
+      {adminEventsQuery.isError && (
+        <p className="text-xs text-foreground-secondary">Event filters are temporarily unavailable; order search and status filters remain available.</p>
+      )}
 
       <div className="flex flex-col gap-5 xl:grid xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.85fr)] xl:items-start">
       <div className="xl:col-start-1 xl:row-start-1">
@@ -319,48 +387,88 @@ export default function AdminOrdersPage() {
           {orders.length === 0 ? (
             <EmptyState title="No matching orders" description="Change your search or filters to see more orders." />
           ) : (
-            <DataTable headers={["Order", "Buyer", "Event", "Items", "Amount", "Order status", "Payment review", "Actions"]} minWidthClassName="min-w-[820px] md:min-w-[1080px]">
-              {orders.map((order) => (
-                <tr
-                  key={order.id}
-                  className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${routeOrderId === order.id ? "bg-accent/10" : "bg-background"}`}
-                  aria-selected={routeOrderId === order.id}
-                  tabIndex={0}
-                  onClick={(event) => {
-                    if ((event.target as HTMLElement).closest("a,button")) return;
-                    navigate(`/admin/orders/${order.id}`);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      navigate(`/admin/orders/${order.id}`);
-                    }
-                  }}
-                >
-                  <td className="px-3 py-3 text-sm text-foreground">{order.orderNumber}</td>
-                  <td className="px-3 py-3 text-sm text-foreground-secondary">
-                    <p>{order.buyer.buyerName}</p>
-                    <p className="text-xs">{order.buyer.buyerPhone}</p>
-                  </td>
-                  <td className="px-3 py-3 text-sm text-foreground-secondary">{order.event.title}</td>
-                  <td className="px-3 py-3 text-sm text-foreground-secondary">
-                    {order.items.map((item) => `${item.ticketTierName} x${item.quantity}`).join(", ")}
-                  </td>
-                  <td className="px-3 py-3 text-sm text-foreground-secondary">{formatMoney(order.currency, order.totalAmount)}</td>
-                  <td className="px-3 py-3">
-                    <StatusBadge tone={orderStatusTone(order.status)} label={formatAdminStatus(order.status)} />
-                  </td>
-                  <td className="px-3 py-3">
-                    <StatusBadge tone={verificationTone(order.verificationStatus)} label={formatAdminStatus(order.verificationStatus)} />
-                  </td>
-                  <td className="px-3 py-3">
-                    <Button size="sm" variant="outline" asChild>
-                      <Link to={`/admin/orders/${order.id}`}>View order</Link>
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </DataTable>
+            <>
+              <div className="space-y-3 md:hidden">
+                {orders.map((order) => (
+                  <article key={`mobile-${order.id}`} className="rounded-[var(--radius-md)] border border-border bg-card p-4 shadow-none">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-display text-base text-foreground">{order.orderNumber}</h3>
+                        <p className="mt-1 text-sm text-foreground-secondary">{order.event.title}</p>
+                      </div>
+                      <StatusBadge tone={orderStatusTone(order.status)} label={formatAdminStatus(order.status)} />
+                    </div>
+
+                    <dl className="mt-4 grid grid-cols-1 gap-2 text-sm text-foreground-secondary">
+                      <div>
+                        <dt className="text-xs uppercase tracking-[0.1em] text-foreground">Buyer</dt>
+                        <dd>{order.buyer.buyerName} · {order.buyer.buyerPhone}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-[0.1em] text-foreground">Tickets</dt>
+                        <dd>{order.items.map((item) => `${item.ticketTierName} x${item.quantity}`).join(", ")}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-xs uppercase tracking-[0.1em] text-foreground">Amount</dt>
+                        <dd>{formatMoney(order.currency, order.totalAmount)}</dd>
+                      </div>
+                    </dl>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <StatusBadge tone={verificationTone(order.verificationStatus)} label={formatAdminStatus(order.verificationStatus)} />
+                      <Button size="sm" variant="accent" asChild>
+                        <Link to={`/admin/orders/${order.id}`}>View order</Link>
+                      </Button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="hidden md:block">
+                <DataTable headers={["Order", "Buyer", "Event", "Items", "Amount", "Order status", "Payment review", "Actions"]} minWidthClassName="min-w-[820px] md:min-w-[1080px]">
+                  {orders.map((order) => (
+                    <tr
+                      key={order.id}
+                      className={`cursor-pointer border border-border transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${routeOrderId === order.id ? "bg-accent/10" : "bg-background"}`}
+                      aria-selected={routeOrderId === order.id}
+                      tabIndex={0}
+                      onClick={(event) => {
+                        if ((event.target as HTMLElement).closest("a,button")) return;
+                        navigate(`/admin/orders/${order.id}`);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          navigate(`/admin/orders/${order.id}`);
+                        }
+                      }}
+                    >
+                      <td className="px-3 py-3 text-sm text-foreground">{order.orderNumber}</td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary">
+                        <p>{order.buyer.buyerName}</p>
+                        <p className="text-xs">{order.buyer.buyerPhone}</p>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary">{order.event.title}</td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary">
+                        {order.items.map((item) => `${item.ticketTierName} x${item.quantity}`).join(", ")}
+                      </td>
+                      <td className="px-3 py-3 text-sm text-foreground-secondary">{formatMoney(order.currency, order.totalAmount)}</td>
+                      <td className="px-3 py-3">
+                        <StatusBadge tone={orderStatusTone(order.status)} label={formatAdminStatus(order.status)} />
+                      </td>
+                      <td className="px-3 py-3">
+                        <StatusBadge tone={verificationTone(order.verificationStatus)} label={formatAdminStatus(order.verificationStatus)} />
+                      </td>
+                      <td className="px-3 py-3">
+                        <Button size="sm" variant="outline" asChild>
+                          <Link to={`/admin/orders/${order.id}`}>View order</Link>
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </DataTable>
+              </div>
+            </>
           )}
         </div>
       </AdminSectionCard>
@@ -373,43 +481,93 @@ export default function AdminOrdersPage() {
         ) : manualPayments.length === 0 ? (
           <EmptyState title="No payment proofs to review" description="New submissions will appear here when customers send payment proof." />
         ) : (
-          <DataTable
-            headers={["Order", "Payer", "Event", "Amount", "Transaction reference", "Payment proof", "Submitted", "Actions"]}
-            minWidthClassName="min-w-[900px] md:min-w-[1180px]"
-          >
-            {manualPayments.map((submission) => (
-              <tr key={submission.id} className="bg-background border border-border">
-                <td className="px-3 py-3 text-sm text-foreground">{submission.orderNumber}</td>
-                <td className="px-3 py-3 text-sm text-foreground-secondary">
-                  <p>{submission.payerName}</p>
-                  <p className="text-xs">{submission.phoneNumber}</p>
-                </td>
-                <td className="px-3 py-3 text-sm text-foreground-secondary">{submission.eventTitle}</td>
-                <td className="px-3 py-3 text-sm text-foreground-secondary">{formatMoney(submission.currency, submission.amountPaid)}</td>
-                <td className="px-3 py-3 text-sm text-foreground-secondary">{submission.transactionReference}</td>
-                <td className="px-3 py-3 text-sm text-foreground-secondary">
-                  {submission.screenshotUrl ? (
-                    <a href={submission.screenshotUrl} target="_blank" rel="noreferrer" className="text-accent underline">
-                      View
-                    </a>
-                  ) : (
-                    "-"
-                  )}
-                </td>
-                <td className="px-3 py-3 text-sm text-foreground-secondary">{formatDateTime(submission.submittedAt)}</td>
-                <td className="px-3 py-3">
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="accent" disabled={reviewPending} onClick={() => openReviewModal(submission.id, submission.orderNumber, "approve")}>
-                      Approve
-                    </Button>
-                    <Button size="sm" variant="outline" disabled={reviewPending} onClick={() => openReviewModal(submission.id, submission.orderNumber, "reject")}>
-                      Reject
-                    </Button>
+          <>
+            <div className="space-y-3 md:hidden">
+              {manualPayments.map((submission) => (
+                <article key={`mobile-${submission.id}`} className="rounded-[var(--radius-md)] border border-border bg-card p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-display text-sm text-foreground">{submission.orderNumber}</p>
+                      <p className="mt-1 text-xs text-foreground-secondary">{submission.eventTitle}</p>
+                    </div>
+                    <p className="shrink-0 font-display text-sm text-foreground">
+                      {formatMoney(submission.currency, submission.amountPaid)}
+                    </p>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </DataTable>
+                  <dl className="mt-4 grid gap-2 text-sm text-foreground-secondary">
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-[0.12em] text-foreground">Payer</dt>
+                      <dd>{submission.payerName} · {submission.phoneNumber}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-[0.12em] text-foreground">Reference</dt>
+                      <dd className="break-all">{submission.transactionReference}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-[10px] uppercase tracking-[0.12em] text-foreground">Submitted</dt>
+                      <dd>{formatDateTime(submission.submittedAt)}</dd>
+                    </div>
+                  </dl>
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                    {submission.screenshotUrl ? (
+                      <a href={submission.screenshotUrl} target="_blank" rel="noreferrer" className="text-xs font-display uppercase tracking-[0.12em] text-accent underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
+                        View proof
+                      </a>
+                    ) : (
+                      <span className="text-xs text-foreground-secondary">No proof image</span>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="accent" disabled={reviewPending} onClick={() => openReviewModal(submission.id, submission.orderNumber, "approve")}>
+                        Approve
+                      </Button>
+                      <Button size="sm" variant="outline" disabled={reviewPending} onClick={() => openReviewModal(submission.id, submission.orderNumber, "reject")}>
+                        Reject
+                      </Button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="hidden md:block">
+              <DataTable
+                headers={["Order", "Payer", "Event", "Amount", "Transaction reference", "Payment proof", "Submitted", "Actions"]}
+                minWidthClassName="min-w-[900px] md:min-w-[1180px]"
+              >
+                {manualPayments.map((submission) => (
+                  <tr key={submission.id} className="bg-background border border-border">
+                    <td className="px-3 py-3 text-sm text-foreground">{submission.orderNumber}</td>
+                    <td className="px-3 py-3 text-sm text-foreground-secondary">
+                      <p>{submission.payerName}</p>
+                      <p className="text-xs">{submission.phoneNumber}</p>
+                    </td>
+                    <td className="px-3 py-3 text-sm text-foreground-secondary">{submission.eventTitle}</td>
+                    <td className="px-3 py-3 text-sm text-foreground-secondary">{formatMoney(submission.currency, submission.amountPaid)}</td>
+                    <td className="px-3 py-3 text-sm text-foreground-secondary">{submission.transactionReference}</td>
+                    <td className="px-3 py-3 text-sm text-foreground-secondary">
+                      {submission.screenshotUrl ? (
+                        <a href={submission.screenshotUrl} target="_blank" rel="noreferrer" className="text-accent underline">
+                          View
+                        </a>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-foreground-secondary">{formatDateTime(submission.submittedAt)}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Button size="sm" variant="accent" disabled={reviewPending} onClick={() => openReviewModal(submission.id, submission.orderNumber, "approve")}>
+                          Approve
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={reviewPending} onClick={() => openReviewModal(submission.id, submission.orderNumber, "reject")}>
+                          Reject
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </DataTable>
+            </div>
+          </>
         )}
       </AdminSectionCard>
       </div>
@@ -445,6 +603,76 @@ export default function AdminOrdersPage() {
           ) : mpesaTransactions.length === 0 ? (
             <EmptyState title="No matching M-Pesa transactions" description="Change the filters or check back when there is a new payment attempt." />
           ) : (
+            <>
+              <div className="space-y-3 md:hidden">
+                {mpesaTransactions.map((transaction) => {
+                  const isExpanded = expandedMpesaTransactionId === transaction.id;
+                  const requiresManualReview = isMpesaManualReview(transaction);
+                  return (
+                    <article key={`mobile-${transaction.id}`} className="rounded-[var(--radius-md)] border border-border bg-card p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-display text-sm text-foreground">{transaction.orderNumber}</p>
+                          <p className="mt-1 text-xs text-foreground-secondary">{transaction.buyerPhone}</p>
+                        </div>
+                        <StatusBadge tone={mpesaStatusTone(transaction.status)} label={formatAdminStatus(transaction.status)} />
+                      </div>
+                      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
+                        <p className="font-display text-sm text-foreground">{formatMoney(transaction.currency, transaction.amount)}</p>
+                        <p className="text-xs text-foreground-secondary">{formatDateTime(transaction.initiatedAt)}</p>
+                      </div>
+                      <dl className="mt-3 grid gap-2 text-xs text-foreground-secondary">
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-[0.12em] text-foreground">Receipt</dt>
+                          <dd className="break-all">{transaction.externalTransactionId ?? "Not received"}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] uppercase tracking-[0.12em] text-foreground">Result</dt>
+                          <dd>{transaction.resultCode ?? "No result"} · {transaction.resultDesc ?? "Awaiting callback"}</dd>
+                        </div>
+                      </dl>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setExpandedMpesaTransactionId(isExpanded ? null : transaction.id)}
+                          aria-expanded={isExpanded}
+                        >
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          {isExpanded ? "Hide details" : "View details"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={reverifyMpesaMutation.isPending || !canReverifyMpesaTransaction(transaction)}
+                          onClick={() => void reverifyMpesaTransaction(transaction.id)}
+                        >
+                          <RefreshCw size={14} />
+                          Reverify
+                        </Button>
+                      </div>
+                      {isExpanded && (
+                        <div className="mt-4 space-y-3 rounded-[var(--radius-sm)] border border-border bg-secondary/15 p-3 text-xs text-foreground-secondary">
+                          <p><span className="text-foreground">Merchant request:</span> {transaction.merchantRequestId ?? "-"}</p>
+                          <p><span className="text-foreground">Checkout request:</span> {transaction.checkoutRequestId ?? "-"}</p>
+                          <p><span className="text-foreground">Callback:</span> {transaction.callbackReceived ? "received" : "not received"}</p>
+                          <p><span className="text-foreground">Reconciliation attempts:</span> {transaction.reconciliationAttemptCount}</p>
+                          {requiresManualReview && (
+                            <p className="rounded-[var(--radius-sm)] border border-destructive/30 bg-destructive/5 p-3 text-destructive">
+                              Manual review required. Reverify checks the existing M-Pesa request status and does not create a new STK prompt.
+                            </p>
+                          )}
+                          {transaction.lastReconciliationError && <p><span className="text-foreground">Last reconciliation error:</span> {transaction.lastReconciliationError}</p>}
+                          {transaction.rawCallback !== undefined && (
+                            <pre className="max-h-56 overflow-auto rounded-[var(--radius-sm)] border border-border bg-background p-3 text-[11px]">{formatCallback(transaction.rawCallback)}</pre>
+                          )}
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="hidden md:block">
             <DataTable
               headers={["Order", "Buyer phone", "Amount", "Status", "Payment request", "M-Pesa receipt", "Result", "Activity", "Details"]}
               minWidthClassName="min-w-[980px] md:min-w-[1240px]"
@@ -558,6 +786,8 @@ export default function AdminOrdersPage() {
                 );
               })}
             </DataTable>
+              </div>
+            </>
           )}
         </div>
       </AdminSectionCard>
@@ -782,24 +1012,34 @@ export default function AdminOrdersPage() {
 
       {reviewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/75 px-4">
-          <div className="w-full max-w-lg rounded-md border border-border bg-card p-5 shadow-lg">
-            <p className="font-display text-lg text-foreground">
+          <div
+            ref={reviewDialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="payment-review-title"
+            aria-describedby="payment-review-description"
+            className="w-full max-w-lg rounded-[var(--radius-lg)] border border-border bg-card p-5 shadow-lg"
+          >
+            <h2 id="payment-review-title" className="font-display text-lg text-foreground">
               {reviewModal.action === "approve" ? "Approve payment" : "Reject payment"}
-            </p>
-            <p className="mt-1 text-sm text-foreground-secondary">
+            </h2>
+            <p id="payment-review-description" className="mt-1 text-sm text-foreground-secondary">
               Order {reviewModal.orderNumber}
             </p>
             <label className="mt-4 block">
               <span className="text-xs uppercase tracking-[0.12em] text-foreground-secondary">Review note</span>
               <textarea
+                ref={reviewNoteRef}
+                id="payment-review-note"
                 value={reviewNote}
                 onChange={(event) => setReviewNote(event.target.value)}
-                className="mt-2 min-h-28 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                className="mt-2 min-h-28 w-full rounded-[var(--radius-sm)] border border-border bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                 placeholder={reviewModal.action === "approve" ? "Optional internal approval note" : "Reason visible to the operations team"}
+                aria-label="Review note"
               />
             </label>
             <div className="mt-4 flex flex-wrap justify-end gap-2">
-              <Button type="button" size="sm" variant="outline" disabled={reviewPending} onClick={() => setReviewModal(null)}>
+              <Button type="button" size="sm" variant="outline" disabled={reviewPending} onClick={closeReviewModal}>
                 Cancel
               </Button>
               <Button type="button" size="sm" variant={reviewModal.action === "approve" ? "accent" : "outline"} disabled={reviewPending} onClick={() => void submitReview()}>

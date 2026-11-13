@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { QrCode, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EmptyState from "@/components/common/EmptyState";
@@ -9,8 +10,10 @@ import { adminInputClassName, adminLabelClassName, formatAdminStatus, formatDate
 import { formHelperTextClassName } from "@/lib/formStyles";
 import { useAdminTicketCheckInMutation } from "@/hooks/mutations/useAdminTicketCheckInMutation";
 import { useAdminTicketSearchQuery } from "@/hooks/queries/useAdminTicketSearchQuery";
+import { useAdminEventQuery } from "@/hooks/queries/useAdminEventsQuery";
 import { toast } from "@/components/ui/sonner";
 import { useAuth } from "@/features/auth/useAuth";
+import AdminEventWorkspaceNav from "../events/AdminEventWorkspaceNav";
 
 type DetectedBarcode = {
   rawValue: string;
@@ -31,6 +34,9 @@ function ticketTone(status: "active" | "checked_in" | "revoked" | "cancelled") {
 export default function AdminCheckInPage() {
   const { hasRole } = useAuth();
   const canCheckIn = hasRole(["admin", "staff"]);
+  const [searchParams] = useSearchParams();
+  const eventId = searchParams.get("eventId") ?? "";
+  const { data: contextEvent } = useAdminEventQuery(eventId);
   const [query, setQuery] = useState("");
   const [submittedQuery, setSubmittedQuery] = useState("");
   const [activeTicketToken, setActiveTicketToken] = useState<string | null>(null);
@@ -49,6 +55,7 @@ export default function AdminCheckInPage() {
   const { data: matches = [], isLoading, isError, refetch } = useAdminTicketSearchQuery(
     {
       query: submittedQuery,
+      eventId: eventId || undefined,
       limit: 20,
     },
     Boolean(submittedQuery),
@@ -249,7 +256,9 @@ export default function AdminCheckInPage() {
 
   return (
     <div className="space-y-5 md:space-y-6">
-      <SectionHeader title="Guest check-in" subtitle="Search for a ticket or scan its QR code, then record the guest’s entry." />
+      <SectionHeader title={contextEvent ? `${contextEvent.title} — Guest check-in` : "Guest check-in"} subtitle="Search for a ticket or scan its QR code, then record the guest’s entry." />
+
+      {contextEvent && <AdminEventWorkspaceNav event={contextEvent} currentSection="guests" />}
 
       <AdminSectionCard title="Scan or search for a ticket">
         <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr] gap-4">

@@ -25,6 +25,15 @@ function mapSettingsRecord(settings: {
   privacyPolicyLink: string;
   termsLink: string;
   refundPolicyLink: string;
+  aboutTitle: string | null;
+  aboutIntro: string | null;
+  aboutBody: string | null;
+  aboutImage: string | null;
+  contactTitle: string | null;
+  contactIntro: string | null;
+  privacyPolicyContent: string | null;
+  termsContent: string | null;
+  refundPolicyContent: string | null;
   manualPaymentEnabled: boolean;
   bankAccountName: string | null;
   bankAccountNumber: string | null;
@@ -61,6 +70,15 @@ function mapSettingsRecord(settings: {
     privacyPolicyLink: settings.privacyPolicyLink,
     termsLink: settings.termsLink,
     refundPolicyLink: settings.refundPolicyLink,
+    aboutTitle: settings.aboutTitle ?? "The Art Galore International",
+    aboutIntro: settings.aboutIntro ?? "A space for creativity, expression and community.",
+    aboutBody: settings.aboutBody ?? "The Art Galore International is a creative community built around the appreciation, expression and experience of art.",
+    aboutImage: settings.aboutImage ?? undefined,
+    contactTitle: settings.contactTitle ?? "Let's connect.",
+    contactIntro: settings.contactIntro ?? "Have a question about an event, a ticket, a creative collaboration or something happening within our community? We would be glad to hear from you.",
+    privacyPolicyContent: settings.privacyPolicyContent ?? "The Art Galore International respects your privacy. Please contact us with privacy questions or requests.",
+    termsContent: settings.termsContent ?? "These terms govern use of The Art Galore International website and the purchase of event tickets.",
+    refundPolicyContent: settings.refundPolicyContent ?? "Tickets are generally non-refundable. Contact us about exceptional circumstances or event changes.",
     manualPaymentEnabled: settings.manualPaymentEnabled,
     bankAccountName: settings.bankAccountName ?? undefined,
     bankAccountNumber: settings.bankAccountNumber ?? undefined,
@@ -129,6 +147,15 @@ export class SettingsService {
       privacyPolicyLink: input.privacyPolicyLink?.trim(),
       termsLink: input.termsLink?.trim(),
       refundPolicyLink: input.refundPolicyLink?.trim(),
+      aboutTitle: input.aboutTitle?.trim(),
+      aboutIntro: input.aboutIntro?.trim(),
+      aboutBody: input.aboutBody?.trim(),
+      aboutImage: input.aboutImage === undefined ? undefined : input.aboutImage.trim() || null,
+      contactTitle: input.contactTitle?.trim(),
+      contactIntro: input.contactIntro?.trim(),
+      privacyPolicyContent: input.privacyPolicyContent?.trim(),
+      termsContent: input.termsContent?.trim(),
+      refundPolicyContent: input.refundPolicyContent?.trim(),
       manualPaymentEnabled: input.manualPaymentEnabled,
       bankAccountName:
         input.bankAccountName === undefined ? undefined : input.bankAccountName.trim() || null,

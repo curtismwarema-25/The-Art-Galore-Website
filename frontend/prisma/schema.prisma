@@ -767,6 +767,15 @@ model SiteSettings {
   privacyPolicyLink            String   @db.VarChar(500)
   termsLink                    String   @db.VarChar(500)
   refundPolicyLink             String   @db.VarChar(500)
+  aboutTitle                   String?  @db.VarChar(191)
+  aboutIntro                   String?  @db.Text
+  aboutBody                    String?  @db.Text
+  aboutImage                   String?  @db.VarChar(500)
+  contactTitle                 String?  @db.VarChar(191)
+  contactIntro                 String?  @db.Text
+  privacyPolicyContent         String?  @db.Text
+  termsContent                 String?  @db.Text
+  refundPolicyContent          String?  @db.Text
   manualPaymentEnabled         Boolean  @default(true)
   bankAccountName              String?  @db.VarChar(191)
   bankAccountNumber            String?  @db.VarChar(64)

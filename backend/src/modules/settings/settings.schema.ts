@@ -11,6 +11,11 @@ export const adminSettingsRouteSchema = z.object({
   query: z.object({}),
 });
 
+const optionalUrlSchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.trim() : value),
+  z.string().url().or(z.literal("")),
+);
+
 const updateSettingsBodySchema = z
   .object({
     siteName: z.string().trim().min(2).max(191).optional(),
@@ -18,11 +23,11 @@ const updateSettingsBodySchema = z
     footerText: z.string().trim().min(10).optional(),
     contactEmail: z.string().trim().email().optional(),
     contactPhone: z.string().trim().min(7).max(32).optional(),
-    whatsappLink: z.string().trim().url().optional(),
+    whatsappLink: optionalUrlSchema.optional(),
     instagram: z.string().trim().url().optional(),
     tiktok: z.string().trim().url().optional(),
-    x: z.string().trim().url().optional(),
-    facebook: z.string().trim().url().optional(),
+    x: optionalUrlSchema.optional(),
+    facebook: optionalUrlSchema.optional(),
     heroTitle: z.string().trim().min(2).max(191).optional(),
     heroSubtitle: z.string().trim().min(10).optional(),
     featuredEventId: z.string().trim().max(191).optional(),
@@ -32,6 +37,15 @@ const updateSettingsBodySchema = z
     privacyPolicyLink: z.string().trim().min(1).max(500).optional(),
     termsLink: z.string().trim().min(1).max(500).optional(),
     refundPolicyLink: z.string().trim().min(1).max(500).optional(),
+    aboutTitle: z.string().trim().min(2).max(191).optional(),
+    aboutIntro: z.string().trim().min(10).optional(),
+    aboutBody: z.string().trim().min(10).optional(),
+    aboutImage: mediaUrlOrPathSchema.optional(),
+    contactTitle: z.string().trim().min(2).max(191).optional(),
+    contactIntro: z.string().trim().min(10).optional(),
+    privacyPolicyContent: z.string().trim().min(20).optional(),
+    termsContent: z.string().trim().min(20).optional(),
+    refundPolicyContent: z.string().trim().min(20).optional(),
     manualPaymentEnabled: z.boolean().optional(),
     bankAccountName: z.string().trim().max(191).optional(),
     bankAccountNumber: z.string().trim().max(64).optional(),

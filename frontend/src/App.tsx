@@ -61,8 +61,11 @@ const App = () => (
               <Route path="/orders/track/:publicToken" element={<OrderTracking />} />
               <Route path="/tickets/:publicTicketToken" element={<TicketConfirmation />} />
               <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+              <Route path="/privacy" element={<PrivacyPolicy />} />
               <Route path="/terms-of-use" element={<TermsOfUse />} />
+              <Route path="/terms" element={<TermsOfUse />} />
               <Route path="/ticket-refund-policy" element={<TicketRefundPolicy />} />
+              <Route path="/refund-policy" element={<TicketRefundPolicy />} />
             </Route>
 
             <Route path="/admin/login" element={<AdminLogin />} />
@@ -78,6 +81,7 @@ const App = () => (
               <Route index element={<AdminDashboardPage />} />
               <Route path="events" element={<AdminEventsPage />} />
               <Route path="events/:id" element={<AdminEventsPage />} />
+              <Route path="events/:id/tickets" element={<AdminEventsPage />} />
               <Route path="orders" element={<AdminOrdersPage />} />
               <Route path="orders/:id" element={<AdminOrdersPage />} />
               <Route path="checkin" element={<AdminCheckInPage />} />

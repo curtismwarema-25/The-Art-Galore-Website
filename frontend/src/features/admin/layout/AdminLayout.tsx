@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Calendar,
+  ClipboardCheck,
   ChevronLeft,
   ChevronRight,
   Handshake,
@@ -20,16 +21,35 @@ import { AnimatePresence, motion } from "framer-motion";
 import PageHeader from "@/components/common/PageHeader";
 import { useAuth } from "@/features/auth/useAuth";
 
-const navItems: Array<{ label: string; path: string; icon: LucideIcon; end?: boolean }> = [
-  { label: "Dashboard", path: "/admin", icon: LayoutDashboard, end: true },
-  { label: "Events", path: "/admin/events", icon: Calendar },
-  { label: "Orders", path: "/admin/orders", icon: Ticket },
-  { label: "People", path: "/admin/people", icon: Users },
-  { label: "Gallery", path: "/admin/gallery", icon: Image },
-  { label: "Community uploads", path: "/admin/uploads", icon: Upload },
-  { label: "Partners", path: "/admin/partners", icon: Handshake },
-  { label: "Site settings", path: "/admin/settings", icon: Settings },
+const navGroups: Array<{ label: string; items: Array<{ label: string; path: string; icon: LucideIcon; end?: boolean }> }> = [
+  {
+    label: "Overview",
+    items: [{ label: "Dashboard", path: "/admin", icon: LayoutDashboard, end: true }],
+  },
+  {
+    label: "Event Operations",
+    items: [
+      { label: "Events", path: "/admin/events", icon: Calendar },
+      { label: "Orders & payments", path: "/admin/orders", icon: Ticket },
+      { label: "Guest check-in", path: "/admin/checkin", icon: ClipboardCheck },
+    ],
+  },
+  {
+    label: "Content",
+    items: [
+      { label: "People & artists", path: "/admin/people", icon: Users },
+      { label: "Gallery", path: "/admin/gallery", icon: Image },
+      { label: "Community uploads", path: "/admin/uploads", icon: Upload },
+      { label: "Partners", path: "/admin/partners", icon: Handshake },
+    ],
+  },
+  {
+    label: "Site",
+    items: [{ label: "Settings", path: "/admin/settings", icon: Settings }],
+  },
 ];
+
+const navItems = navGroups.flatMap((group) => group.items);
 
 function getTitle(pathname: string) {
   if (pathname.startsWith("/admin/checkin")) return "Guest check-in";
@@ -79,7 +99,7 @@ export default function AdminLayout() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="min-h-screen flex">
-        <aside className={`${desktopSidebarWidthClassName} hidden md:block shrink-0 border-r border-border bg-secondary/35 transition-all duration-200`}>
+        <aside className={`${desktopSidebarWidthClassName} hidden md:block shrink-0 border-r border-border bg-secondary/35 transition-[width,background-color] duration-200`}>
           <div className="h-16 px-3 md:px-4 border-b border-border flex items-center justify-between">
             {!collapsed && (
               <div>
@@ -90,7 +110,7 @@ export default function AdminLayout() {
             <button
               type="button"
               onClick={() => setCollapsed((current) => !current)}
-              className="h-8 w-8 rounded-md border border-border text-foreground-secondary hover:text-accent transition-colors inline-flex items-center justify-center"
+              className="h-8 w-8 rounded-[var(--radius-sm)] border border-border text-foreground-secondary hover:text-accent transition-colors inline-flex items-center justify-center"
               aria-label="Toggle sidebar"
               aria-expanded={!collapsed}
             >
@@ -99,24 +119,33 @@ export default function AdminLayout() {
           </div>
 
           <nav className="p-2 md:p-3 space-y-1">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.end}
-                title={collapsed ? item.label : undefined}
-                aria-label={item.label}
-                className={({ isActive }) =>
-                  `w-full rounded-md border px-2.5 py-2.5 text-sm font-body transition-all flex items-center gap-2.5 ${
-                    isActive
-                      ? "border-accent/35 bg-accent/12 text-accent"
-                      : "border-transparent text-foreground-secondary hover:border-border hover:text-foreground"
-                  }`
-                }
-              >
-                <item.icon size={16} className="shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-              </NavLink>
+            {navGroups.map((group) => (
+              <div key={group.label} className="space-y-1">
+                {!collapsed && (
+                  <p className="px-2.5 pb-1 pt-3 text-[10px] font-display uppercase tracking-[0.18em] text-foreground-secondary first:pt-0">
+                    {group.label}
+                  </p>
+                )}
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    end={item.end}
+                    title={collapsed ? item.label : undefined}
+                    aria-label={item.label}
+                    className={({ isActive }) =>
+                      `w-full rounded-[var(--radius-sm)] border px-2.5 py-2.5 text-sm font-body transition-[border-color,background-color,color] duration-200 flex items-center gap-2.5 ${
+                        isActive
+                          ? "border-accent/35 bg-accent/12 text-accent"
+                          : "border-transparent text-foreground-secondary hover:border-border hover:text-foreground"
+                      }`
+                    }
+                  >
+                    <item.icon size={16} className="shrink-0" />
+                    {!collapsed && <span>{item.label}</span>}
+                  </NavLink>
+                ))}
+              </div>
             ))}
           </nav>
         </aside>
@@ -156,18 +185,24 @@ export default function AdminLayout() {
                     className="bg-background border-b border-border mt-2"
                   >
                     <div className="px-4 py-6 flex flex-col gap-4">
-                      {navItems.map((item) => (
-                        <Link
-                          key={`mobile-${item.path}`}
-                          to={item.path}
-                          onClick={() => setMobileMenuOpen(false)}
-                          className={`font-display text-lg tracking-wide flex items-center gap-2.5 ${
-                            isMobileNavLinkActive(item.path, item.end) ? "text-accent" : "text-foreground"
-                          }`}
-                        >
-                          <item.icon size={18} className="shrink-0" />
-                          <span>{item.label}</span>
-                        </Link>
+                      {navGroups.map((group) => (
+                        <div key={`mobile-${group.label}`} className="space-y-2">
+                          <p className="text-[10px] font-display uppercase tracking-[0.18em] text-foreground-secondary">{group.label}</p>
+                          {group.items.map((item) => (
+                            <Link
+                              key={`mobile-${item.path}`}
+                              to={item.path}
+                              onClick={() => setMobileMenuOpen(false)}
+                              aria-current={isMobileNavLinkActive(item.path, item.end) ? "page" : undefined}
+                              className={`font-display text-lg tracking-wide flex items-center gap-2.5 ${
+                                isMobileNavLinkActive(item.path, item.end) ? "text-accent" : "text-foreground"
+                              }`}
+                            >
+                              <item.icon size={18} className="shrink-0" />
+                              <span>{item.label}</span>
+                            </Link>
+                          ))}
+                        </div>
                       ))}
 
                       <button

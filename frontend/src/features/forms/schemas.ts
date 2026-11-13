@@ -2,6 +2,10 @@ import { z } from "zod";
 import { mediaUrlOrPathSchema } from "@/lib/validation/media";
 
 const phoneRegex = /^(?:\+?254[17]\d{8}|0[17]\d{8})$/;
+const optionalUrlSchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.trim() : value),
+  z.string().url().or(z.literal("")),
+);
 
 export const eventFormSchema = z.object({
   title: z.string().trim().min(3),
@@ -39,11 +43,11 @@ export const siteSettingsFormSchema = z.object({
   footerText: z.string().trim().min(10),
   contactEmail: z.string().trim().email(),
   contactPhone: z.string().trim().min(7),
-  whatsappLink: z.string().trim().url(),
+  whatsappLink: optionalUrlSchema,
   instagram: z.string().trim().url(),
   tiktok: z.string().trim().url(),
-  x: z.string().trim().url(),
-  facebook: z.string().trim().url(),
+  x: optionalUrlSchema,
+  facebook: optionalUrlSchema,
   heroTitle: z.string().trim().min(2),
   heroSubtitle: z.string().trim().min(10),
   featuredEventId: z.string().trim(),
@@ -53,6 +57,15 @@ export const siteSettingsFormSchema = z.object({
   privacyPolicyLink: z.string().trim().min(1),
   termsLink: z.string().trim().min(1),
   refundPolicyLink: z.string().trim().min(1),
+  aboutTitle: z.string().trim().min(2),
+  aboutIntro: z.string().trim().min(10),
+  aboutBody: z.string().trim().min(10),
+  aboutImage: mediaUrlOrPathSchema.optional(),
+  contactTitle: z.string().trim().min(2),
+  contactIntro: z.string().trim().min(10),
+  privacyPolicyContent: z.string().trim().min(20),
+  termsContent: z.string().trim().min(20),
+  refundPolicyContent: z.string().trim().min(20),
   manualPaymentEnabled: z.boolean(),
   bankAccountName: z.string().trim().optional(),
   bankAccountNumber: z.string().trim().optional(),

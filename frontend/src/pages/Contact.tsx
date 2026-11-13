@@ -12,6 +12,7 @@ export default function Contact() {
   const contactEmail = settings?.contactEmail?.trim() || fallbackEmail;
   const contactPhone = settings?.contactPhone?.trim() || fallbackPhone;
   const partnershipEmail = contactEmail || "theartgaloreintl@gmail.com";
+  const whatsappNumbers = [contactPhone, ...additionalPhones];
 
   const contactMethods = [
     {
@@ -39,20 +40,20 @@ export default function Contact() {
       <div className="container-narrow">
         <ScrollReveal>
           <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-4">Contact</p>
-          <h1 className="text-display-lg mb-5">Contact The Art Galore International</h1>
+          <h1 className="editorial-display text-display-lg mb-5">{settings?.contactTitle || "Let's connect."}</h1>
           <p className="text-body-lg max-w-2xl mb-10">
-            Reach out for event inquiries, artist opportunities, media requests, or partnerships.
+            {settings?.contactIntro || "Have a question about an event, a ticket, a creative collaboration or something happening within our community? We would be glad to hear from you."}
           </p>
         </ScrollReveal>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
           {contactMethods.map((item) => (
-            <ScrollReveal key={item.label}>
+            <ScrollReveal key={`${item.label}-${item.value}`}>
               <a
                 href={item.href}
                 target={item.label === "WhatsApp" ? "_blank" : undefined}
                 rel={item.label === "WhatsApp" ? "noreferrer" : undefined}
-                className="block h-full rounded-md border border-border bg-card p-6 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_14px_32px_-20px_hsl(var(--foreground)/0.35)]"
+                className="block h-full rounded-md border border-border bg-card p-6 transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-soft)]"
               >
                 <div className="flex h-full flex-col">
                   <item.icon size={18} className="text-accent mb-4" />
@@ -65,6 +66,18 @@ export default function Contact() {
             </ScrollReveal>
           ))}
         </div>
+
+        <ScrollReveal delay={0.06}>
+          <div className="mt-6 border border-border bg-card p-6">
+            <p className="font-display text-xs tracking-[0.25em] uppercase text-accent mb-4">WhatsApp</p>
+            <div className="flex flex-wrap gap-3">
+              {whatsappNumbers.map((phone) => {
+                const international = phone.replace(/\s+/g, "");
+                return <a key={phone} href={`https://wa.me/${international.replace(/^\+/, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 border border-border px-4 py-3 text-sm hover:border-accent hover:text-accent"><MessageCircle size={16} />{phone}</a>;
+              })}
+            </div>
+          </div>
+        </ScrollReveal>
 
         <ScrollReveal delay={0.1}>
           <div className="mt-10 border border-border p-8 bg-secondary/20">
