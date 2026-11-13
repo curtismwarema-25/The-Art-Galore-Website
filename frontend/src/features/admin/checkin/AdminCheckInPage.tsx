@@ -19,6 +19,7 @@ import {
   getCameraConstraints,
   getCameraError,
   isCameraContextSupported,
+  prepareVideoPreview,
   stopMediaStream,
   type CameraState,
 } from "./qrScanner";
@@ -173,8 +174,20 @@ export default function AdminCheckInPage() {
         return;
       }
 
+      const video = videoRef.current;
+      if (!video) {
+        throw new Error("The camera preview is not ready. Try starting the scanner again.");
+      }
+
       streamRef.current = stream;
-      const controls = await reader.decodeFromStream(stream, videoRef.current ?? undefined, (result) => {
+      await prepareVideoPreview(video, stream);
+
+      if (runId !== scannerRunRef.current) {
+        stopMediaStream(stream);
+        return;
+      }
+
+      const controls = await reader.decodeFromStream(stream, video, (result) => {
         if (result) handleDecodedValue(result.getText());
       });
 
@@ -301,18 +314,15 @@ export default function AdminCheckInPage() {
       <AdminSectionCard title="Scan or search for a ticket">
         <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_1fr] gap-4">
           <div className="rounded-md border border-dashed border-border bg-secondary/20 p-4 text-center">
-            {scannerActive ? (
-              <video
-                ref={videoRef}
-                autoPlay
-                muted
-                playsInline
-                aria-label="Live ticket QR camera"
-                className="mx-auto aspect-video w-full max-w-md rounded-md border border-border bg-background object-cover"
-              />
-            ) : (
-              <QrCode size={34} className="mx-auto text-foreground-secondary mb-3" />
-            )}
+            <video
+              ref={videoRef}
+              autoPlay
+              muted
+              playsInline
+              aria-label="Live ticket QR camera"
+              className="mx-auto aspect-video w-full max-w-md min-h-48 rounded-md border border-border bg-background object-cover"
+            />
+            {!scannerActive && <QrCode size={34} className="mx-auto text-foreground-secondary my-3" />}
             <p className="mt-3 font-display text-sm text-foreground">
               {scannerActive ? "Scanning QR code" : "QR code scanner"}
             </p>

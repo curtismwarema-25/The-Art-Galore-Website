@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  CameraPreviewError,
   decodeQrImage,
   getCameraConstraints,
   getCameraError,
+  prepareVideoPreview,
   stopMediaStream,
 } from "./qrScanner";
 
@@ -25,6 +27,36 @@ describe("QR scanner utilities", () => {
     ["UnknownError", "error"],
   ])("maps %s to the safe camera state %s", (name, state) => {
     expect(getCameraError(new DOMException("camera failure", name)).state).toBe(state);
+  });
+
+  it("reports a visible-preview error when playback is rejected", async () => {
+    const video = document.createElement("video");
+    Object.defineProperty(video, "readyState", { configurable: true, value: 1 });
+    video.play = vi.fn().mockRejectedValue(new Error("autoplay blocked"));
+
+    await expect(prepareVideoPreview(video, {} as MediaStream)).rejects.toBeInstanceOf(CameraPreviewError);
+    expect(getCameraError(new CameraPreviewError("preview failed"))).toEqual({
+      state: "error",
+      message: "preview failed",
+    });
+  });
+
+  it("attaches the stream and waits for video readiness before playback", async () => {
+    const video = document.createElement("video");
+    Object.defineProperty(video, "readyState", { configurable: true, value: 0 });
+    video.play = vi.fn().mockResolvedValue(undefined);
+    const stream = {} as MediaStream;
+
+    const previewPromise = prepareVideoPreview(video, stream);
+    expect(video.srcObject).toBe(stream);
+    expect(video.autoplay).toBe(true);
+    expect(video.muted).toBe(true);
+    expect(video.playsInline).toBe(true);
+    expect(video.play).not.toHaveBeenCalled();
+
+    video.dispatchEvent(new Event("loadedmetadata"));
+    await previewPromise;
+    expect(video.play).toHaveBeenCalledOnce();
   });
 
   it("stops every track during scanner cleanup", () => {
