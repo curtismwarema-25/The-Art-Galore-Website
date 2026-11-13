@@ -1,4 +1,4 @@
-import { EventStatus, OrderStatus, PaymentProvider, PaymentStatus, PaymentVerificationStatus, type Prisma, TicketTierStatus } from "@prisma/client";
+import { EventStatus, OrderStatus, PaymentProvider, PaymentStatus, PaymentVerificationStatus, type Prisma } from "@prisma/client";
 import { randomBytes, randomInt } from "node:crypto";
 import { NotFoundError, ValidationError } from "../../common/errors/httpErrors.js";
 import { env } from "../../config/index.js";
@@ -24,6 +24,7 @@ import type {
   TicketDeliveryLifecycleStatus,
   VerificationStatus,
 } from "./orders.types.js";
+import { deriveTicketAvailability, isTicketQuantityWithinLimit } from "../events/ticketAvailability.js";
 
 type RequestedTier = {
   ticketTierId: string;
@@ -295,6 +296,7 @@ export class OrdersService {
   }
 
   private validateTierAvailability(
+    event: EventForOrderRecord,
     tiers: TierForOrderRecord[],
     requestedItems: RequestedTier[],
     reservedQuantities: Map<string, number>,
@@ -310,24 +312,38 @@ export class OrdersService {
         throw new ValidationError("One or more ticket tiers are invalid for this event");
       }
 
-      if (tier.status !== TicketTierStatus.ACTIVE) {
+      const availability = deriveTicketAvailability({
+        eventStatus: event.status,
+        eventEndAt: event.endAt,
+        tierStatus: tier.status,
+        allocatedQuantity: tier.availableQuantity,
+        reservedQuantity: reservedQuantities.get(tier.id) ?? 0,
+        saleStartAt: tier.saleStartAt,
+        saleEndAt: tier.saleEndAt,
+        now,
+      });
+
+      if (availability.availabilityState === "HIDDEN" || availability.availabilityState === "CANCELLED") {
         throw new ValidationError(`Ticket tier \"${tier.name}\" is not available for purchase`);
       }
 
-      if (tier.saleStartAt && tier.saleStartAt > now) {
+      if (availability.availabilityState === "UPCOMING") {
         throw new ValidationError(`Ticket sales for \"${tier.name}\" have not started`);
       }
 
-      if (tier.saleEndAt && tier.saleEndAt < now) {
+      if (availability.availabilityState === "SALES_CLOSED") {
         throw new ValidationError(`Ticket sales for \"${tier.name}\" have ended`);
       }
 
-      if (tier.maxPerOrder && item.quantity > tier.maxPerOrder) {
+      if (availability.availabilityState === "SOLD_OUT") {
+        throw new ValidationError(`Ticket tier \"${tier.name}\" has only 0 ticket(s) remaining`);
+      }
+
+      if (!isTicketQuantityWithinLimit(item.quantity, tier.maxPerOrder)) {
         throw new ValidationError(`Ticket tier \"${tier.name}\" allows maximum ${tier.maxPerOrder} per order`);
       }
 
-      const reserved = reservedQuantities.get(tier.id) ?? 0;
-      const available = Math.max(tier.availableQuantity - reserved, 0);
+      const available = availability.remainingQuantity;
 
       if (item.quantity > available) {
         throw new ValidationError(`Ticket tier \"${tier.name}\" has only ${available} ticket(s) remaining`);
@@ -416,7 +432,7 @@ export class OrdersService {
       }
 
       const reservedQuantities = await this.repository.getReservedQuantities(ticketTierIds, now, tx);
-      const pricing = this.validateTierAvailability(tiers, requestedItems, reservedQuantities, now);
+      const pricing = this.validateTierAvailability(event, tiers, requestedItems, reservedQuantities, now);
       const reservationExpiresAt = new Date(now.getTime() + env.ORDER_RESERVATION_TTL_MINUTES * 60 * 1000);
 
       const writeInput: CreateOrderWriteInput = {

@@ -27,6 +27,9 @@ export type PublicTicketTier = {
   currency: "KES";
   perks: string[];
   available: number;
+  availabilityState: "HIDDEN" | "CANCELLED" | "SALES_CLOSED" | "UPCOMING" | "SOLD_OUT" | "AVAILABLE";
+  allocatedQuantity: number;
+  remainingQuantity: number;
   saleStartAt?: string;
   saleEndAt?: string;
   maxPerOrder?: number;

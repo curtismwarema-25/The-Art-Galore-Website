@@ -77,6 +77,10 @@ instance before production deployment because the original tables were created a
 This M-Pesa integration does not rewrite those historical migrations; any Linux table-name casing repair
 requires its own migration decision after the staging chain has been tested.
 
+For the complete Windows sandbox callback, worker, and optional SMTP setup, see
+[`docs/local-mpesa-sandbox.md`](../docs/local-mpesa-sandbox.md). Run `npm run mpesa:diagnose`
+before starting a sandbox checkout; it performs no payment or reconciliation request.
+
 ## Public production-build test through a tunnel
 
 To let testers see the built site (not Vite's development screen), build the frontend and have the backend serve it on the same origin as `/api`:

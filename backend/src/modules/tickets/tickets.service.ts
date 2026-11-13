@@ -40,6 +40,7 @@ import type {
 } from "./tickets.types.js";
 
 const ticketEmailDeliveryInFlight = new Set<string>();
+const ticketEmailDeliveryTasks = new Map<string, Promise<SerializedTicketDeliveryStatus>>();
 const retryBackoffMinutes = [5, 15, 60, 360];
 
 function mapTicketDeliveryStatus(status: PrismaTicketDeliveryStatus): SerializedTicketDeliveryStatus {
@@ -310,13 +311,25 @@ export class TicketsService {
     }
 
     const tickets = await this.repository.withTransaction((innerTx) => this.issueTicketsInTransaction(orderId, innerTx));
-    void this.deliverIssuedTicketsForOrder(orderId).catch((error) => {
+    const deliveryTask = this.deliverIssuedTicketsForOrder(orderId);
+    let trackedDeliveryTask!: Promise<SerializedTicketDeliveryStatus>;
+    trackedDeliveryTask = deliveryTask.finally(() => {
+      if (ticketEmailDeliveryTasks.get(orderId) === trackedDeliveryTask) {
+        ticketEmailDeliveryTasks.delete(orderId);
+      }
+    });
+    ticketEmailDeliveryTasks.set(orderId, trackedDeliveryTask);
+    void trackedDeliveryTask.catch((error) => {
       logger.error("Background ticket email delivery failed", {
         orderId,
         error: error instanceof Error ? error.message : String(error),
       });
     });
     return tickets;
+  }
+
+  async waitForTicketEmailDelivery(orderId: string) {
+    await ticketEmailDeliveryTasks.get(orderId)?.catch(() => undefined);
   }
 
   async getTicketEmailDeliverySummary(orderId: string): Promise<TicketEmailDeliverySummaryRecord> {

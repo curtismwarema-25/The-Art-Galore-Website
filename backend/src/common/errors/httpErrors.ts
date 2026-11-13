@@ -24,6 +24,12 @@ export class ValidationError extends AppError {
   }
 }
 
+export class ConflictError extends AppError {
+  constructor(message = "The resource is currently being processed") {
+    super(409, message, "CONFLICT");
+  }
+}
+
 export class RateLimitError extends AppError {
   constructor(message = "Too many requests") {
     super(429, message, "RATE_LIMITED");

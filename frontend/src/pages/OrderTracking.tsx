@@ -11,7 +11,13 @@ import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSetting
 import { useTrackOrderQuery } from "@/hooks/queries/useTrackOrderQuery";
 import { createPreviewUrl, revokePreviewUrl, validateFile } from "@/features/uploads/uploadService";
 import { toast } from "@/components/ui/sonner";
-import { canStartPayment as canStartPaymentForOrder, getStkFeedbackState } from "./orderTrackingFeedback";
+import {
+  canStartPayment as canStartPaymentForOrder,
+  getStkFeedbackState,
+  shouldClearStkRequest,
+  shouldPollPaymentStatus,
+} from "./orderTrackingFeedback";
+import { formatOrderDateTime } from "@/lib/orderDateTime";
 import {
   formFileInputClassName,
   formHelperTextClassName,
@@ -61,9 +67,10 @@ export default function OrderTracking() {
   const initiateStkMutation = useInitiateMpesaStkPushMutation(publicToken);
   const orderCanStillBeWaitingForStk = order?.status === "pending_payment" || order?.status === "payment_submitted";
   const awaitingTicketIssue = order?.paymentStatus === "paid" && order.tickets.length === 0;
+  const paymentTerminal = order?.paymentStatus === "paid" || order?.paymentStatus === "failed";
   const paymentProcessing = initiateStkMutation.isPending
     || Boolean(order?.mpesaPaymentPending)
-    || (stkRequested && Boolean(orderCanStillBeWaitingForStk))
+    || (!paymentTerminal && stkRequested && Boolean(orderCanStillBeWaitingForStk))
     || Boolean(awaitingTicketIssue);
   const showBlockingPaymentScreen = paymentProcessing
     && paymentWaitStartedAt !== null
@@ -100,14 +107,17 @@ export default function OrderTracking() {
 
   useEffect(() => {
     if (!order) return;
-    const awaitingMpesaVerification = order.status === "payment_submitted"
-      && order.paymentStatus === "pending"
-      && order.verificationStatus === "not_submitted";
-    const awaitingTicketFulfillment = order.paymentStatus === "paid"
-      && (order.tickets.length === 0 || (order.ticketEmailDeliveryEnabled && order.ticketDeliveryStatus === "pending"));
-    setPollPaymentStatus(order.mpesaPaymentPending || awaitingMpesaVerification || awaitingTicketFulfillment);
+    setPollPaymentStatus(shouldPollPaymentStatus({
+      orderStatus: order.status,
+      paymentStatus: order.paymentStatus,
+      verificationStatus: order.verificationStatus,
+      mpesaPaymentPending: Boolean(order.mpesaPaymentPending),
+      ticketCount: order.tickets.length,
+      ticketEmailDeliveryEnabled: order.ticketEmailDeliveryEnabled,
+      ticketDeliveryStatus: order.ticketDeliveryStatus,
+    }));
 
-    if (stkRequested && (order.status === "paid" || order.status === "expired" || order.status === "payment_rejected")) {
+    if (stkRequested && shouldClearStkRequest(order.status)) {
       setStkRequested(false);
     }
   }, [order, stkRequested]);
@@ -260,7 +270,7 @@ export default function OrderTracking() {
   };
 
   const formattedAmountDue = toMoney(order.currency, order.amountDue);
-  const reservationExpiry = new Date(order.reservationExpiresAt).toLocaleString();
+  const reservationExpiry = formatOrderDateTime(order.reservationExpiresAt, order.event.timezone);
   const manualPaymentEnabled = settings?.manualPaymentEnabled ?? true;
   const hasIssuedTickets = order.tickets.length > 0;
   const stkFeedback = getStkFeedbackState({
@@ -323,7 +333,7 @@ export default function OrderTracking() {
             <div>
               <p className="font-display text-sm uppercase tracking-[0.16em] text-foreground-secondary">{order.event.title}</p>
               <p className="mt-1 text-sm text-foreground-secondary">
-                {new Date(order.event.startAt).toLocaleString()} at {order.event.venueName}
+                {formatOrderDateTime(order.event.startAt, order.event.timezone)} at {order.event.venueName}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -549,7 +559,7 @@ export default function OrderTracking() {
                 <div key={ticket.publicTicketToken} className="flex items-center justify-between gap-3 border border-border rounded-md p-3">
                   <div>
                     <p className="text-sm text-foreground">{ticket.ticketNumber}</p>
-                    <p className="text-xs text-foreground-secondary">Issued {new Date(ticket.issuedAt).toLocaleString()}</p>
+                    <p className="text-xs text-foreground-secondary">Issued {formatOrderDateTime(ticket.issuedAt, order.event.timezone)}</p>
                   </div>
                   <Button variant="outline" size="sm" asChild>
                     <Link to={`/tickets/${ticket.publicTicketToken}`}>Open Ticket</Link>

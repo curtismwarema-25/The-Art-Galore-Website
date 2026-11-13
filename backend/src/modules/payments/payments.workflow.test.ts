@@ -30,6 +30,8 @@ type Fixture = {
   publicToken: string;
 };
 
+const testCallbackPathToken = "test-callback-path-token-1234567890";
+
 class FakeTicketEmailService {
   readonly sends: string[] = [];
 
@@ -47,8 +49,10 @@ function withWorkflowEnv() {
     MPESA_SHORTCODE: env.MPESA_SHORTCODE,
     MPESA_PASSKEY: env.MPESA_PASSKEY,
     MPESA_CALLBACK_URL: env.MPESA_CALLBACK_URL,
+    MPESA_CALLBACK_PATH_TOKEN: env.MPESA_CALLBACK_PATH_TOKEN,
     MPESA_LATE_PAYMENT_POLICY: env.MPESA_LATE_PAYMENT_POLICY,
     MPESA_CALLBACK_SECRET: env.MPESA_CALLBACK_SECRET,
+    MPESA_LEGACY_CALLBACK_QUERY_ENABLED: env.MPESA_LEGACY_CALLBACK_QUERY_ENABLED,
   };
 
   env.EMAIL_DELIVERY_ENABLED = true;
@@ -56,8 +60,10 @@ function withWorkflowEnv() {
   env.MPESA_CONSUMER_SECRET = "test-consumer-secret";
   env.MPESA_SHORTCODE = "174379";
   env.MPESA_PASSKEY = "test-passkey";
-  env.MPESA_CALLBACK_URL = "https://example.test/api/payments/mpesa/stk/callback";
+  env.MPESA_CALLBACK_PATH_TOKEN = testCallbackPathToken;
+  env.MPESA_CALLBACK_URL = `https://example.test/api/payments/mpesa/stk/callback/${testCallbackPathToken}`;
   env.MPESA_LATE_PAYMENT_POLICY = "reject";
+  env.MPESA_LEGACY_CALLBACK_QUERY_ENABLED = false;
 
   return () => {
     Object.assign(env, original);
@@ -68,11 +74,12 @@ function createPaymentsService(fakeEmailService = new FakeTicketEmailService()) 
   const ticketsService = new TicketsService(new TicketsRepository(), fakeEmailService as never);
   return {
     paymentsService: new PaymentsService(new PaymentsRepository(), ticketsService),
+    ticketsService,
     fakeEmailService,
   };
 }
 
-function mockDarajaQuery(result: { ResultCode: string; ResultDesc: string; CheckoutRequestID: string; MpesaReceiptNumber?: string; Amount?: number; PhoneNumber?: string }) {
+function mockDarajaQuery(result: { ResponseCode?: string; ResponseDescription?: string; ResultCode: string; ResultDesc: string; CheckoutRequestID: string; MpesaReceiptNumber?: string; Amount?: number; PhoneNumber?: string }) {
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -313,14 +320,23 @@ test("M-Pesa reverify pays an active order idempotently", async (t) => {
       PhoneNumber: "254700000000",
     });
 
-    const { paymentsService, fakeEmailService } = createPaymentsService();
+    const { paymentsService, ticketsService, fakeEmailService } = createPaymentsService();
     const first = await paymentsService.reverifyMpesaTransaction(transaction.id);
     const second = await paymentsService.reverifyMpesaTransaction(transaction.id);
+    await ticketsService.waitForTicketEmailDelivery(fixture.orderId);
 
     assert.equal(first.status, "paid");
     assert.equal(first.ticketsIssued, 2);
     assert.equal(second.status, "paid");
     assert.equal(fakeEmailService.sends.length, 1);
+
+    const storedTransaction = await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
+    const queryMetadata = (storedTransaction.rawResponse as { mpesaStkQuery?: Record<string, unknown> } | null)?.mpesaStkQuery;
+    assert.equal(queryMetadata?.ResultCode, "0");
+    assert.equal(queryMetadata?.CheckoutRequestID, checkoutRequestId);
+    assert.equal(queryMetadata?.receiptPresent, true);
+    assert.equal(typeof queryMetadata?.queriedAt, "string");
+    assert.equal(String(queryMetadata?.queriedAt).endsWith("Z"), true);
 
     const order = await prisma.order.findUniqueOrThrow({ where: { id: fixture.orderId }, include: { tickets: true } });
     assert.equal(order.status, OrderStatus.PAID);
@@ -379,9 +395,10 @@ test("late M-Pesa success after grace requires review and issues no tickets", as
   }
 });
 
-test("M-Pesa callback route rejects missing or invalid callback secret", async () => {
+test("M-Pesa callback supports tokenized and explicitly enabled legacy authentication", async () => {
   const restoreEnv = withWorkflowEnv();
   env.MPESA_CALLBACK_SECRET = `secret-${randomUUID()}`;
+  env.MPESA_LEGACY_CALLBACK_QUERY_ENABLED = true;
 
   const app = createApp();
   const server = http.createServer(app);
@@ -408,14 +425,39 @@ test("M-Pesa callback route rejects missing or invalid callback secret", async (
       headers: { "content-type": "application/json" },
       body: JSON.stringify(callbackPayload),
     });
-    const invalidSecret = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback`, {
+    const legacyQuery = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback?secret=${encodeURIComponent(env.MPESA_CALLBACK_SECRET)}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-mpesa-callback-secret": "wrong" },
-      body: JSON.stringify(callbackPayload),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const wrongLegacyQuery = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback?secret=wrong-secret`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    env.MPESA_LEGACY_CALLBACK_QUERY_ENABLED = false;
+    const disabledLegacyQuery = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback?secret=${encodeURIComponent(env.MPESA_CALLBACK_SECRET)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const tokenizedQuery = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback/${env.MPESA_CALLBACK_PATH_TOKEN}?secret=${encodeURIComponent(env.MPESA_CALLBACK_SECRET)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const tokenized = await fetch(`${baseUrl}/api/payments/mpesa/stk/callback/${env.MPESA_CALLBACK_PATH_TOKEN}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
     });
 
     assert.equal(missingSecret.status, 401);
-    assert.equal(invalidSecret.status, 401);
+    assert.equal(legacyQuery.status, 422);
+    assert.equal(wrongLegacyQuery.status, 401);
+    assert.equal(disabledLegacyQuery.status, 401);
+    assert.equal(tokenizedQuery.status, 401);
+    assert.equal(tokenized.status, 422);
   } finally {
     restoreEnv();
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
@@ -425,8 +467,12 @@ test("M-Pesa callback route rejects missing or invalid callback secret", async (
 test("production M-Pesa callback route fails closed when its secret is absent", async () => {
   const originalNodeEnv = env.NODE_ENV;
   const originalSecret = env.MPESA_CALLBACK_SECRET;
+  const originalPathToken = env.MPESA_CALLBACK_PATH_TOKEN;
+  const originalLegacyQueryEnabled = env.MPESA_LEGACY_CALLBACK_QUERY_ENABLED;
   env.NODE_ENV = "production";
   env.MPESA_CALLBACK_SECRET = "";
+  env.MPESA_CALLBACK_PATH_TOKEN = "";
+  env.MPESA_LEGACY_CALLBACK_QUERY_ENABLED = false;
 
   const server = http.createServer(createApp());
   try {
@@ -442,6 +488,27 @@ test("production M-Pesa callback route fails closed when its secret is absent", 
   } finally {
     env.NODE_ENV = originalNodeEnv;
     env.MPESA_CALLBACK_SECRET = originalSecret;
+    env.MPESA_CALLBACK_PATH_TOKEN = originalPathToken;
+    env.MPESA_LEGACY_CALLBACK_QUERY_ENABLED = originalLegacyQueryEnabled;
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});
+
+test("M-Pesa callback route rejects malformed payloads after path authentication", async () => {
+  const restoreEnv = withWorkflowEnv();
+  const server = http.createServer(createApp());
+  try {
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/payments/mpesa/stk/callback/${testCallbackPathToken}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ Body: { stkCallback: { ResultCode: 0 } } }),
+    });
+
+    assert.equal(response.status, 422);
+  } finally {
+    restoreEnv();
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 });
@@ -476,6 +543,66 @@ test("M-Pesa callback ingestion is durable and idempotent", async (t) => {
   }
 });
 
+test("a successful callback without provider receipt evidence cannot mark a payment paid", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  let restoreFetch: (() => void) | undefined;
+  let checkoutRequestId: string | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
+    const transaction = await createPendingMpesaTransaction(fixture, {
+      reconciliationAttemptCount: 1,
+      reconciliationLockedAt: new Date(Date.now() - 1000),
+      reconciliationLockedBy: "expired-test-lease",
+      lastReconciliationError: "previous ambiguity",
+    });
+    checkoutRequestId = transaction.externalRequestId!;
+    const payload = {
+      Body: {
+        stkCallback: {
+          MerchantRequestID: transaction.providerReference!,
+          CheckoutRequestID: checkoutRequestId,
+          ResultCode: 0,
+          ResultDesc: "The service request is processed successfully.",
+        },
+      },
+    };
+    const { paymentsService } = createPaymentsService();
+    await paymentsService.ingestMpesaStkCallback(payload);
+    const event = await prisma.paymentCallbackInbox.findFirstOrThrow({ where: { checkoutRequestId } });
+    const claimed = await new PaymentsRepository().claimNextCallbackInboxEvent(
+      "callback-evidence-test",
+      new Date(Date.now() + 1000),
+      new Date(Date.now() + 61_000),
+    );
+    assert.equal(claimed?.id, event.id);
+
+    restoreFetch = mockDarajaQuery({
+      CheckoutRequestID: checkoutRequestId,
+      ResultCode: "0",
+      ResultDesc: "The service request is processed successfully.",
+      MpesaReceiptNumber: `RCP-${randomUUID()}`,
+      Amount: 2000,
+      PhoneNumber: "254700000000",
+    });
+    await paymentsService.processCallbackInboxEvent(event.id);
+
+    const [updatedTransaction, order] = await Promise.all([
+      prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transaction.id } }),
+      prisma.order.findUniqueOrThrow({ where: { id: fixture.orderId }, include: { tickets: true } }),
+    ]);
+    assert.equal(updatedTransaction.status, PaymentStatus.AMBIGUOUS);
+    assert.notEqual(order.status, OrderStatus.PAYMENT_VERIFIED);
+    assert.equal(order.tickets.length, 0);
+  } finally {
+    restoreFetch?.();
+    restoreEnv();
+    await prisma.paymentCallbackInbox.deleteMany({ where: { checkoutRequestId } });
+    await cleanupFixture(fixture);
+  }
+});
+
 test("callback is persisted before the HTTP 200 response", async (t) => {
   if (!(await ensureDbAvailable(t))) return;
   const restoreEnv = withWorkflowEnv();
@@ -487,9 +614,9 @@ test("callback is persisted before the HTTP 200 response", async (t) => {
   try {
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address() as AddressInfo;
-    const response = await fetch(`http://127.0.0.1:${address.port}/api/payments/mpesa/stk/callback`, {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/payments/mpesa/stk/callback/${env.MPESA_CALLBACK_PATH_TOKEN}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "x-mpesa-callback-secret": env.MPESA_CALLBACK_SECRET },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
     });
     assert.equal(response.status, 200);
@@ -586,6 +713,113 @@ test("STK Query unknown and definitive failure statuses are classified separatel
   }
 });
 
+test("STK Query success without a receipt remains ambiguous and records receipt absence", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  let restoreFetch: (() => void) | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
+    const transaction = await createPendingMpesaTransaction(fixture);
+    restoreFetch = mockDarajaQuery({ CheckoutRequestID: transaction.externalRequestId!, ResultCode: "0", ResultDesc: "Processed", Amount: 2000, PhoneNumber: "254700000000" });
+    const result = await createPaymentsService().paymentsService.reverifyMpesaTransaction(transaction.id);
+    assert.equal(result.status, "ambiguous");
+    const stored = await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
+    const metadata = (stored.rawResponse as { mpesaStkQuery?: Record<string, unknown> } | null)?.mpesaStkQuery;
+    assert.equal(metadata?.receiptPresent, false);
+    assert.equal(metadata?.ResultCode, "0");
+    assert.equal(stored.reconciliationRequiresManualReview, false);
+    assert.ok(stored.nextReconciliationAt && stored.nextReconciliationAt > new Date());
+    assert.equal(stored.reconciliationLockedAt, null);
+    assert.equal(stored.reconciliationLockedBy, null);
+    assert.notEqual(stored.lastReconciliationError, null);
+  } finally {
+    restoreFetch?.();
+    restoreEnv();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("STK Query cancellation and timeout remain non-success terminal outcomes", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  let restoreFetch: (() => void) | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
+    const cancelled = await createPendingMpesaTransaction(fixture, {
+      reconciliationAttemptCount: 7,
+      reconciliationRequiresManualReview: true,
+      nextReconciliationAt: null,
+      reconciliationLockedAt: new Date(Date.now() - 1000),
+      reconciliationLockedBy: "expired-test-lease",
+      lastReconciliationError: "previous ambiguity",
+    });
+    restoreFetch = mockDarajaQuery({ CheckoutRequestID: cancelled.externalRequestId!, ResultCode: "1032", ResultDesc: "Request cancelled by user" });
+    const service = createPaymentsService().paymentsService;
+    assert.equal((await service.reverifyMpesaTransaction(cancelled.id)).status, "cancelled");
+    const cancelledRecord = await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: cancelled.id } });
+    assert.equal(cancelledRecord.nextReconciliationAt, null);
+    assert.equal(cancelledRecord.reconciliationRequiresManualReview, false);
+    assert.equal(cancelledRecord.reconciliationLockedAt, null);
+    assert.equal(cancelledRecord.reconciliationLockedBy, null);
+    assert.equal(cancelledRecord.lastReconciliationError, null);
+    restoreFetch();
+
+    const timedOut = await createPendingMpesaTransaction(fixture, {
+      reconciliationAttemptCount: 7,
+      reconciliationRequiresManualReview: true,
+      nextReconciliationAt: null,
+      reconciliationLockedAt: new Date(Date.now() - 1000),
+      reconciliationLockedBy: "expired-test-lease",
+      lastReconciliationError: "previous ambiguity",
+    });
+    restoreFetch = mockDarajaQuery({ CheckoutRequestID: timedOut.externalRequestId!, ResultCode: "1037", ResultDesc: "DS timeout" });
+    assert.equal((await service.reverifyMpesaTransaction(timedOut.id)).status, "failed");
+    const timedOutRecord = await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: timedOut.id } });
+    assert.equal(timedOutRecord.nextReconciliationAt, null);
+    assert.equal(timedOutRecord.reconciliationRequiresManualReview, false);
+    assert.equal(timedOutRecord.reconciliationLockedAt, null);
+    assert.equal(timedOutRecord.reconciliationLockedBy, null);
+    assert.equal(timedOutRecord.lastReconciliationError, null);
+  } finally {
+    restoreFetch?.();
+    restoreEnv();
+    await cleanupFixture(fixture);
+  }
+});
+
+test("admin re-verification respects cooldown and can recover manual review", async (t) => {
+  if (!(await ensureDbAvailable(t))) return;
+  const restoreEnv = withWorkflowEnv();
+  let fixture: Fixture | undefined;
+  let restoreFetch: (() => void) | undefined;
+  try {
+    fixture = await createFixture(OrderStatus.PENDING_PAYMENT);
+    const transaction = await createPendingMpesaTransaction(fixture);
+    restoreFetch = mockDarajaQuery({ CheckoutRequestID: transaction.externalRequestId!, ResultCode: "9999", ResultDesc: "Still processing" });
+    const service = createPaymentsService().paymentsService;
+    assert.equal((await service.reverifyMpesaTransaction(transaction.id)).status, "ambiguous");
+    await assert.rejects(() => service.reverifyMpesaTransaction(transaction.id), /cooling down/i);
+    restoreFetch();
+
+    const manualReview = await createPendingMpesaTransaction(fixture, {
+      reconciliationAttemptCount: env.MPESA_RECONCILIATION_MAX_ATTEMPTS,
+      reconciliationRequiresManualReview: true,
+      nextReconciliationAt: null,
+    });
+    restoreFetch = mockDarajaQuery({ CheckoutRequestID: manualReview.externalRequestId!, ResultCode: "0", ResultDesc: "Success", MpesaReceiptNumber: `RCP-${randomUUID()}`, Amount: 2000, PhoneNumber: "254700000000" });
+    assert.equal((await service.reverifyMpesaTransaction(manualReview.id)).status, "paid");
+    const recovered = await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: manualReview.id } });
+    assert.equal(recovered.reconciliationRequiresManualReview, false);
+    assert.equal(recovered.nextReconciliationAt, null);
+  } finally {
+    restoreFetch?.();
+    restoreEnv();
+    await cleanupFixture(fixture);
+  }
+});
+
 test("provider evidence mismatches are recoverable and cannot issue tickets", async (t) => {
   if (!(await ensureDbAvailable(t))) return;
   const restoreEnv = withWorkflowEnv();
@@ -596,6 +830,8 @@ test("provider evidence mismatches are recoverable and cannot issue tickets", as
     const cases = [
       { name: "amount", amount: 1999, PhoneNumber: "254700000000" },
       { name: "phone", amount: 2000, PhoneNumber: "254711111111" },
+      { name: "amount missing", PhoneNumber: "254700000000" },
+      { name: "phone missing", amount: 2000 },
     ];
     for (const item of cases) {
       const transaction = await createPendingMpesaTransaction(fixture);

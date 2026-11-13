@@ -38,6 +38,11 @@ import type {
   SerializedEventRecord,
   SerializedTicketTierRecord,
 } from "./events.types.js";
+import { deriveTicketAvailability, type TicketAvailability } from "./ticketAvailability.js";
+import {
+  getEffectiveEventTimezone,
+  validateConfiguredEventTimezone,
+} from "./timezone.js";
 
 type EventWithPublicRelations = Event & {
   highlights: EventHighlight[];
@@ -64,7 +69,7 @@ function toDisplayTimeRange(startAt: Date, endAt: Date, timezone: string) {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-    timeZone: timezone,
+    timeZone: getEffectiveEventTimezone(timezone),
   });
 
   return `${formatter.format(startAt)} - ${formatter.format(endAt)}`;
@@ -176,7 +181,7 @@ function mapEventRecord(event: EventWithPublicRelations): SerializedEventRecord 
     time: toDisplayTimeRange(event.startAt, event.endAt, event.timezone),
     startAt: event.startAt.toISOString(),
     endAt: event.endAt.toISOString(),
-    timezone: event.timezone,
+    timezone: getEffectiveEventTimezone(event.timezone),
     venue: event.venueName,
     capacity: event.capacity ?? 0,
     heroImage: event.heroImageUrl ?? "/bg.jpg",
@@ -207,7 +212,11 @@ function mapEventRecord(event: EventWithPublicRelations): SerializedEventRecord 
   };
 }
 
-function mapTicketTier(tier: TicketTierWithPerks, available = tier.availableQuantity): SerializedTicketTierRecord {
+function mapTicketTier(
+  tier: TicketTierWithPerks,
+  availability: TicketAvailability,
+  legacyAvailable = tier.availableQuantity,
+): SerializedTicketTierRecord {
   return {
     id: tier.id,
     slug: tier.slug,
@@ -218,7 +227,10 @@ function mapTicketTier(tier: TicketTierWithPerks, available = tier.availableQuan
     price: Number(tier.price),
     currency: "KES",
     perks: tier.perks.map((perk) => perk.label),
-    available,
+    available: legacyAvailable,
+    availabilityState: availability.availabilityState,
+    allocatedQuantity: availability.allocatedQuantity,
+    remainingQuantity: availability.remainingQuantity,
     saleStartAt: tier.saleStartAt?.toISOString(),
     saleEndAt: tier.saleEndAt?.toISOString(),
     maxPerOrder: tier.maxPerOrder ?? undefined,
@@ -226,6 +238,24 @@ function mapTicketTier(tier: TicketTierWithPerks, available = tier.availableQuan
     createdAt: tier.createdAt.toISOString(),
     updatedAt: tier.updatedAt.toISOString(),
   };
+}
+
+function getTicketAvailability(
+  tier: TicketTier,
+  event: Pick<Event, "status" | "endAt">,
+  reservedQuantity: number,
+  now: Date,
+) {
+  return deriveTicketAvailability({
+    eventStatus: event.status,
+    eventEndAt: event.endAt,
+    tierStatus: tier.status,
+    allocatedQuantity: tier.availableQuantity,
+    reservedQuantity,
+    saleStartAt: tier.saleStartAt,
+    saleEndAt: tier.saleEndAt,
+    now,
+  });
 }
 
 function normalizeHighlights(input?: string[]) {
@@ -261,8 +291,13 @@ export class EventsService {
     return {
       ...mapEventRecord(record),
       ticketTiers: record.ticketTiers.map((tier) => {
-        const available = Math.max(tier.availableQuantity - (reservedQuantities.get(tier.id) ?? 0), 0);
-        return mapTicketTier(tier as TicketTierWithPerks, available);
+        const availability = getTicketAvailability(
+          tier,
+          record,
+          reservedQuantities.get(tier.id) ?? 0,
+          now,
+        );
+        return mapTicketTier(tier as TicketTierWithPerks, availability, availability.remainingQuantity);
       }),
       galleryImages: record.galleryImages.map(mapGalleryImage),
       approvedUploads: record.communityUploads.map(mapCommunityUpload),
@@ -282,10 +317,20 @@ export class EventsService {
     }
 
     const record = event as EventWithDetailRelations;
+    const now = new Date();
+    const reservedQuantities = await this.repository.getReservedTicketQuantities(
+      record.ticketTiers.map((tier) => tier.id),
+      now,
+    );
 
     return {
       ...mapEventRecord(record),
-      ticketTiers: record.ticketTiers.map((tier) => mapTicketTier(tier as TicketTierWithPerks)),
+      ticketTiers: record.ticketTiers.map((tier) =>
+        mapTicketTier(
+          tier as TicketTierWithPerks,
+          getTicketAvailability(tier, record, reservedQuantities.get(tier.id) ?? 0, now),
+        ),
+      ),
       galleryImages: record.galleryImages.map(mapGalleryImage),
       approvedUploads: record.communityUploads
         .filter((upload) => upload.status === "APPROVED")
@@ -333,6 +378,8 @@ export class EventsService {
       throw new ValidationError("endAt must be after startAt");
     }
 
+    const timezone = validateConfiguredEventTimezone(input.timezone);
+
     const slug = await this.getUniqueEventSlug(input.title, input.slug);
 
     const createdEventId = await this.repository.createEvent({
@@ -343,7 +390,7 @@ export class EventsService {
       description: input.description?.trim() || `${input.title.trim()} event details will be expanded.`,
       startAt: input.startAt,
       endAt: input.endAt,
-      timezone: input.timezone?.trim() || "Africa/Nairobi",
+      timezone,
       venueName: input.venue.trim(),
       capacity: input.capacity,
       status: parseEventStatus(input.status, input.lifecycle),
@@ -363,6 +410,7 @@ export class EventsService {
   }
 
   async updateAdminEvent(id: string, input: AdminUpdateEventInput) {
+    const timezone = input.timezone === undefined ? undefined : validateConfiguredEventTimezone(input.timezone);
     const existing = await this.repository.findEventById(id);
 
     if (!existing) {
@@ -389,7 +437,7 @@ export class EventsService {
       description: input.description?.trim(),
       startAt: input.startAt,
       endAt: input.endAt,
-      timezone: input.timezone?.trim(),
+      timezone,
       venueName: input.venue?.trim(),
       capacity: input.capacity,
       status: input.status || input.lifecycle ? parseEventStatus(input.status, input.lifecycle) : undefined,
@@ -441,7 +489,17 @@ export class EventsService {
     if (!event) throw new NotFoundError("Event not found");
 
     const tiers = await this.repository.listTicketTiersByEventId(eventId);
-    return tiers.map((tier) => mapTicketTier(tier as TicketTierWithPerks));
+    const now = new Date();
+    const reservedQuantities = await this.repository.getReservedTicketQuantities(
+      tiers.map((tier) => tier.id),
+      now,
+    );
+    return tiers.map((tier) =>
+      mapTicketTier(
+        tier as TicketTierWithPerks,
+        getTicketAvailability(tier, event, reservedQuantities.get(tier.id) ?? 0, now),
+      ),
+    );
   }
 
   async createAdminTicketTier(eventId: string, input: AdminCreateTicketTierInput) {
@@ -477,7 +535,10 @@ export class EventsService {
     const created = await this.repository.getTicketTierById(tierId);
     if (!created) throw new NotFoundError("Ticket tier not found");
 
-    return mapTicketTier(created as TicketTierWithPerks);
+    return mapTicketTier(
+      created as TicketTierWithPerks,
+      getTicketAvailability(created, event, 0, new Date()),
+    );
   }
 
   async updateAdminTicketTier(id: string, input: AdminUpdateTicketTierInput) {
@@ -518,7 +579,15 @@ export class EventsService {
     const updated = await this.repository.getTicketTierById(id);
     if (!updated) throw new NotFoundError("Ticket tier not found");
 
-    return mapTicketTier(updated as TicketTierWithPerks);
+    const event = await this.repository.findEventById(updated.eventId);
+    if (!event) throw new NotFoundError("Event not found");
+    const now = new Date();
+    const reservedQuantities = await this.repository.getReservedTicketQuantities([updated.id], now);
+
+    return mapTicketTier(
+      updated as TicketTierWithPerks,
+      getTicketAvailability(updated, event, reservedQuantities.get(updated.id) ?? 0, now),
+    );
   }
 
   async archiveAdminTicketTier(id: string) {
