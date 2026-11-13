@@ -1,7 +1,7 @@
 /**
- * Light Mode Design System Guide
+ * Art Galore Editorial Design System
  * 
- * Lavender & Midnight Palette - Editorial Minimalism
+ * Warm Paper, Deep Purple Ink & Editorial Minimalism
  * ================================================
  * 
  * COLOR HIERARCHY:
@@ -190,11 +190,15 @@ Size Scale (responsive):
 
 export const ColorPalette = {
   light: {
-    bg: '#FFFFFF',
-    surface: '#E8E4F5',
+    bg: '#FCFBF7',
+    paper: '#FCFBF7',
+    surface: '#F0EEF8',
+    card: '#FFFFFF',
     text: '#141738',
     muted: '#3E458D',
     accent: '#7B6AB5',
+    deepPurple: '#3F2A60',
+    editorialAccent: '#CF5C3C',
   },
   darkMode: {
     bg: '#141738',
@@ -202,5 +206,12 @@ export const ColorPalette = {
     text: '#FFFFFF',
     muted: '#E8E4F5',
     accent: '#7B6AB5',
+    deepPurple: '#3F2A60',
+    editorialAccent: '#CF5C3C',
+  },
+  typography: {
+    editorial: 'Instrument Serif',
+    display: 'Space Grotesk',
+    body: 'DM Sans',
   },
 };

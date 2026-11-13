@@ -69,7 +69,7 @@ export default function ArtistProfile() {
                   <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-2">
                     {person.category === "leadership" ? "Leadership Artist" : "Collective Artist"}
                   </p>
-                  <h1 className="text-display-lg mb-2">
+                  <h1 className="editorial-display text-display-lg mb-2">
                     {person.preferredName && person.preferredName !== person.name ? person.preferredName : person.name}
                   </h1>
                   <p className="font-display text-foreground-secondary">{person.role}</p>

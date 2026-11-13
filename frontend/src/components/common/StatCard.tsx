@@ -6,7 +6,7 @@ type StatCardProps = {
 
 export default function StatCard({ label, value, detail }: StatCardProps) {
   return (
-    <article className="rounded-md border border-border bg-background/80 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-accent/35">
+    <article className="rounded-md border border-border bg-background/80 p-4 transition-[border-color,transform] duration-200 hover:-translate-y-0.5 hover:border-accent/35">
       <p className="font-display text-[10px] tracking-[0.2em] uppercase text-foreground-secondary mb-2">
         {label}
       </p>

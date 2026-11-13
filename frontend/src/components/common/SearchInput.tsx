@@ -15,6 +15,7 @@ export default function SearchInput({ value, onChange, placeholder = "Search" }:
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder ?? "Search"}
         className={`${formInputClassName} pl-9 pr-3`}
       />
     </label>
