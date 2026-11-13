@@ -1,5 +1,6 @@
 import { UserRole } from "@prisma/client";
-import { Router, type Request } from "express";
+import { Router, type Request, type RequestHandler } from "express";
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { UnauthorizedError } from "../../common/errors/httpErrors.js";
 import { authenticate } from "../../common/middleware/authenticate.js";
@@ -7,6 +8,7 @@ import { authorize } from "../../common/middleware/authorize.js";
 import { createSimpleRateLimit } from "../../common/middleware/simpleRateLimit.js";
 import { validateRequest } from "../../common/validation/validateRequest.js";
 import { env } from "../../config/index.js";
+import { isLegacyMpesaCallbackConfigured } from "../../config/env.js";
 import { PaymentsService } from "./payments.service.js";
 import {
   adminMpesaTransactionIdParamsSchema,
@@ -56,35 +58,78 @@ paymentsRouter.post("/mpesa/stk/:publicToken/initiate", publicPaymentRateLimit, 
   }
 });
 
-function assertMpesaCallbackAuthorized(req: Request) {
-  if (!env.MPESA_CALLBACK_SECRET) {
-    if (env.NODE_ENV === "production") {
-      throw new UnauthorizedError("M-Pesa callback authentication is not configured");
+function secretsMatch(received: string | undefined, expected: string) {
+  if (!received || !expected) return false;
+  const receivedBuffer = Buffer.from(received);
+  const expectedBuffer = Buffer.from(expected);
+  return receivedBuffer.length === expectedBuffer.length && timingSafeEqual(receivedBuffer, expectedBuffer);
+}
+
+export function assertMpesaCallbackAuthorized(req: Request) {
+  const callbackPathToken = req.params.callbackToken;
+  if (callbackPathToken !== undefined) {
+    if (typeof req.query.secret === "string") {
+      throw new UnauthorizedError("Query-string callback authentication is not accepted on the tokenized callback route");
     }
 
+    if (!secretsMatch(callbackPathToken, env.MPESA_CALLBACK_PATH_TOKEN)) {
+      throw new UnauthorizedError("Invalid M-Pesa callback path");
+    }
     return;
   }
 
-  const headerSecret = req.header("x-mpesa-callback-secret");
-  const querySecret = typeof req.query.secret === "string" ? req.query.secret : undefined;
-  const bearerToken = req.header("authorization")?.replace(/^Bearer\s+/i, "");
-  const receivedSecret = headerSecret || querySecret || bearerToken;
+  const legacyCallbackConfigured = isLegacyMpesaCallbackConfigured(env);
+  if (env.NODE_ENV === "production" && !legacyCallbackConfigured) {
+    throw new UnauthorizedError("M-Pesa callback path authentication is required");
+  }
 
-  if (receivedSecret !== env.MPESA_CALLBACK_SECRET) {
+  const headerSecret = req.header("x-mpesa-callback-secret");
+  const bearerToken = req.header("authorization")?.replace(/^Bearer\s+/i, "");
+  const querySecret = typeof req.query.secret === "string" ? req.query.secret : undefined;
+
+  if (querySecret && !legacyCallbackConfigured) {
+    throw new UnauthorizedError("Legacy M-Pesa callback authentication is disabled");
+  }
+
+  if (querySecret && !secretsMatch(querySecret, env.MPESA_CALLBACK_SECRET)) {
+    throw new UnauthorizedError("Invalid M-Pesa callback secret");
+  }
+
+  const receivedSecret = headerSecret || bearerToken || (legacyCallbackConfigured ? querySecret : undefined);
+
+  if (!env.MPESA_CALLBACK_SECRET) {
+    if (env.NODE_ENV === "production" || legacyCallbackConfigured) {
+      throw new UnauthorizedError("M-Pesa callback authentication is not configured");
+    }
+    return;
+  }
+
+  if (!secretsMatch(receivedSecret, env.MPESA_CALLBACK_SECRET)) {
     throw new UnauthorizedError("Invalid M-Pesa callback secret");
   }
 }
 
-paymentsRouter.post("/mpesa/stk/callback", validateRequest(z.object({ body: mpesaStkCallbackSchema })), async (req, res, next) => {
+const authorizeMpesaCallback: RequestHandler = (req, _res, next) => {
   try {
     assertMpesaCallbackAuthorized(req);
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
+const handleMpesaStkCallback: RequestHandler = async (req, res, next) => {
+  try {
     const payload = mpesaStkCallbackSchema.parse(req.body);
     await paymentsService.ingestMpesaStkCallback(payload);
     res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
   } catch (error) {
     next(error);
   }
-});
+};
+
+paymentsRouter.post("/mpesa/stk/callback/:callbackToken", authorizeMpesaCallback, validateRequest(z.object({ body: mpesaStkCallbackSchema })), handleMpesaStkCallback);
+paymentsRouter.post("/mpesa/stk/callback", authorizeMpesaCallback, validateRequest(z.object({ body: mpesaStkCallbackSchema })), handleMpesaStkCallback);
 
 adminPaymentsRouter.use(authenticate);
 
@@ -115,7 +160,7 @@ adminPaymentsRouter.post(
   async (req, res, next) => {
     try {
       const { id } = adminMpesaTransactionIdParamsSchema.shape.params.parse(req.params);
-      const result = await paymentsService.reverifyMpesaTransaction(id);
+      const result = await paymentsService.reverifyMpesaTransaction(id, { source: "admin" });
       res.status(200).json({ data: result });
     } catch (error) {
       next(error);

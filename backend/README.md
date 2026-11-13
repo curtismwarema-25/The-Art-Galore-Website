@@ -77,6 +77,10 @@ instance before production deployment because the original tables were created a
 This M-Pesa integration does not rewrite those historical migrations; any Linux table-name casing repair
 requires its own migration decision after the staging chain has been tested.
 
+For the complete Windows sandbox callback, worker, and optional SMTP setup, see
+[`docs/local-mpesa-sandbox.md`](../docs/local-mpesa-sandbox.md). Run `npm run mpesa:diagnose`
+before starting a sandbox checkout; it performs no payment or reconciliation request.
+
 ## Public production-build test through a tunnel
 
 To let testers see the built site (not Vite's development screen), build the frontend and have the backend serve it on the same origin as `/api`:
@@ -132,6 +136,11 @@ SESSION_SAME_SITE=lax
 SESSION_COOKIE_DOMAIN=
 MEDIA_LOCAL_ROOT=YOUR_VPS_MEDIA_PATH
 SEED_ADMIN_ENABLED=false
+# Generate with a CSPRNG; do not paste the value into tracked files or logs.
+MPESA_CALLBACK_PATH_TOKEN=GENERATE_A_RANDOM_32_BYTE_URL_SAFE_TOKEN
+MPESA_CALLBACK_URL=https://YOUR_API_DOMAIN/api/payments/mpesa/stk/callback/GENERATED_TOKEN
+# Temporary migration switch for callbacks created before the tokenized URL cutover.
+MPESA_LEGACY_CALLBACK_QUERY_ENABLED=true
 ```
 
 `YOUR_VPS_MEDIA_PATH` must be an absolute directory outside the application release directory, owned by the backend service account, and included in media backups. Do not expose port 4000 or the MySQL port publicly; expose only the reverse proxy's HTTP/HTTPS ports. Use the VPS provider's exact public IP for the `api` DNS record and the exact Vercel-prescribed target for the apex/`www` records. Do not remove existing DNS records until their purpose is verified.
@@ -140,13 +149,14 @@ The reverse proxy must terminate HTTPS and forward the original host/protocol an
 
 Recommended deployment sequence:
 
-1. Back up the production database and media directory.
-2. Deploy the backend release and install production dependencies.
-3. Confirm the VPS environment variables without printing their values.
-4. Run `npm run prisma:migrate:deploy` against the intended database.
-5. Start one backend instance under the existing or selected process manager.
-6. Verify `/health`, `/health/db`, `/admin/login`, API login, uploads, and the M-Pesa callback path.
-7. Confirm the process restarts after failure and reboot.
+1. Back up the production database and media directory and record the currently working release for rollback.
+2. Generate a new random URL-safe callback path token outside the repository. Set `MPESA_CALLBACK_PATH_TOKEN` and `MPESA_CALLBACK_URL` to the same tokenized path, retain the old callback secret temporarily, and set `MPESA_LEGACY_CALLBACK_QUERY_ENABLED=true` for the transition. New checkouts use the tokenized path while pre-cutover checkouts remain usable through the legacy root path. Do not put the legacy secret in the new callback URL.
+3. Deploy the backend release and install production dependencies.
+4. Confirm the VPS environment variables without printing their values; verify the callback URL has no query string and its final path segment matches the token.
+5. Run `npm run prisma:migrate:deploy` against the intended database.
+6. Restart the single backend instance under the existing process manager and confirm it starts successfully.
+7. Verify `/health`, `/health/db`, `/admin/login`, API login, uploads, and the callback path with a synthetic malformed request. The callback should return `422` for a malformed authenticated request, `401` for a missing/wrong path token, and never use a live payment during verification.
+8. Confirm the process restarts after failure and reboot. If startup or callback verification fails, restore the previous release and its matching environment, restart it, and confirm `/health` before investigating further.
 
 Do not enable PM2 cluster mode or multiple backend replicas while the in-process order, payment, email, and M-Pesa workers remain enabled. Do not run live M-Pesa transactions during deployment verification.
 
@@ -348,6 +358,7 @@ Configure Daraja credentials in `.env`:
 - `MPESA_CONSUMER_KEY`
 - `MPESA_CONSUMER_SECRET`
 - `MPESA_CALLBACK_URL`
+- `MPESA_CALLBACK_PATH_TOKEN`
 - `MPESA_CALLBACK_SECRET`
 
 Sandbox safety is enforced server-side. Daraja requests use `https://sandbox.safaricom.co.ke`,
@@ -355,11 +366,26 @@ sandbox STK requests use shortcode `174379` and the passkey issued by your Daraj
 number supplied by the checkout is forwarded to Daraja. Production Daraja is blocked unless both
 `MPESA_DARAJA_ENV=production` and `MPESA_LIVE_PAYMENTS_ENABLED=true` are explicitly set.
 
-Production deployments must set `MPESA_CALLBACK_URL` to a public HTTPS callback URL and set `MPESA_CALLBACK_SECRET`, then include the secret in callback requests as
-`x-mpesa-callback-secret`, `Authorization: Bearer <secret>`, or `?secret=` on the callback URL. When
-`NODE_ENV=production` the backend refuses to start without both the callback URL and secret.
+Production deployments must set `MPESA_CALLBACK_PATH_TOKEN` to a randomly generated URL-safe value and set
+`MPESA_CALLBACK_URL` to the public HTTPS URL ending in `/api/payments/mpesa/stk/callback/<same-token>`.
+The backend refuses to start in production if the token is missing, the callback URL has a query string, or the
+URL path does not exactly match. During a controlled migration, set
+`MPESA_LEGACY_CALLBACK_QUERY_ENABLED=true` and retain `MPESA_CALLBACK_SECRET`; this permits only the exact legacy
+root callback URL and only until pre-cutover callbacks have drained. Query-string authentication is never accepted
+on the tokenized route. Disable the flag and rotate/remove the legacy secret after the drain window. Neither
+credential may be committed or logged.
 
-Prefer the header or bearer form. A query-string secret can be captured by reverse-proxy, web-server, browser-history, or monitoring logs; if the Daraja callback contract requires it, configure log redaction and rotate the secret if it is exposed. Application error logs record the request path without its query string.
+Safaricom's documented STK callback specifies the callback URL and JSON body, but does not document preserving
+merchant-added query parameters or sending custom authentication headers. The path token is therefore the
+application-level authentication mechanism. It is still sensitive URL material: configure the Nginx callback
+location to avoid logging the full request URI (the current default access log may expose it), and do not put it
+in shell history, tickets, screenshots, or tracked files. Confirm the exact callback-URL behavior with Safaricom
+before go-live; the official documentation establishes the callback URL/body contract but does not promise how
+arbitrary URL query strings are handled.
+
+Authentication only permits ingestion into the durable callback inbox. A successful callback is not payment
+proof: processing requires the matching checkout request, a successful Daraja STK Query, matching merchant and
+shortcode context, receipt/amount/phone evidence, idempotency checks, and the existing order/ticket state rules.
 
 The public STK initiation endpoint returns only buyer-safe status fields. Provider request IDs are available from
 `GET /api/admin/payments/mpesa-transactions`, and admins can retry provider verification with

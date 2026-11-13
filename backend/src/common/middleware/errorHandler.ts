@@ -24,6 +24,10 @@ function sanitizeDetails(details: unknown) {
   }
 }
 
+function redactSensitivePath(path: string) {
+  return path.replace(/(\/payments\/mpesa\/stk\/callback\/)[^/]+/, "$1[redacted]");
+}
+
 export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
     logger.warn("Handled application error", {
@@ -31,7 +35,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
       statusCode: err.statusCode,
       message: err.message,
       method: req.method,
-      path: req.path,
+      path: redactSensitivePath(req.path),
       ipAddress: req.ip,
       details: sanitizeDetails(err.details),
     });
@@ -51,7 +55,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     name: safeError.name,
     message: safeError.message,
     method: req.method,
-    path: req.path,
+    path: redactSensitivePath(req.path),
     ipAddress: req.ip,
   });
 

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,40 +6,52 @@
 
 @layer base {
   :root {
-    /* Light Mode: Lavender & Midnight Palette */
-    /* brand-bg: #FFFFFF | brand-surface: #E8E4F5 | brand-text: #141738 | brand-muted: #3E458D | brand-accent: #7B6AB5 */
+    /* Art Galore Editorial: warm paper, deep purple ink, restrained violet. */
+    --paper: 42 33% 97%;
+    --paper-deep: 40 28% 92%;
+    --ink: 246 47% 15%;
+    --violet-deep: 263 39% 27%;
+    --violet: 265 28% 55%;
+    --editorial-accent: 17 68% 48%;
+    --space-unit: 0.25rem;
+    --radius-sm: 0.25rem;
+    --radius-md: 0.375rem;
+    --radius-lg: 0.5rem;
+    --shadow-soft: 0 12px 30px -24px hsl(var(--ink) / 0.45);
+    --transition-fast: 160ms ease;
+    --transition-standard: 220ms ease;
     
-    --background: 0 0% 100%;
-    --background-muted: 255 45% 93%;
-    --foreground: 246 47% 15%;
+    --background: var(--paper);
+    --background-muted: var(--paper-deep);
+    --foreground: var(--ink);
     --foreground-secondary: 232 39% 40%;
 
-    --card: 255 45% 93%;
-    --card-foreground: 246 47% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: var(--ink);
 
-    --popover: 255 45% 93%;
-    --popover-foreground: 246 47% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: var(--ink);
 
-    --primary: 265 28% 55%;
+    --primary: var(--violet-deep);
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 255 45% 93%;
-    --secondary-foreground: 246 47% 15%;
+    --secondary: 255 32% 93%;
+    --secondary-foreground: var(--ink);
 
     --muted: 232 39% 40%;
-    --muted-foreground: 246 47% 15%;
+    --muted-foreground: var(--ink);
 
-    --accent: 265 28% 55%;
+    --accent: var(--violet);
     --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 255 45% 93%;
-    --input: 255 45% 93%;
-    --ring: 265 28% 55%;
+    --border: 255 25% 86%;
+    --input: 255 25% 86%;
+    --ring: var(--violet);
 
-    --radius: 0.25rem;
+    --radius: var(--radius-md);
 
     --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 246 47% 15%;
@@ -51,28 +63,29 @@
     --sidebar-ring: 265 28% 55%;
 
     --font-display: 'Space Grotesk', sans-serif;
+    --font-editorial: 'Instrument Serif', Georgia, serif;
     --font-body: 'DM Sans', sans-serif;
   }
 
   .dark {
-    --background: 246 47% 15%;
+    --background: 246 47% 11%;
     --foreground: 0 0% 100%;
-    --card: 232 39% 40%;
+    --card: 263 27% 22%;
     --card-foreground: 0 0% 100%;
-    --popover: 232 39% 40%;
+    --popover: 263 27% 22%;
     --popover-foreground: 0 0% 100%;
     --primary: 265 28% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 255 45% 93%;
+    --secondary: 263 24% 25%;
     --secondary-foreground: 246 47% 15%;
-    --muted: 255 45% 85%;
+    --muted: 255 25% 78%;
     --muted-foreground: 232 39% 40%;
     --accent: 265 28% 55%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 100%;
-    --border: 232 39% 50%;
-    --input: 232 39% 40%;
+    --border: 263 22% 38%;
+    --input: 263 22% 38%;
     --ring: 265 28% 55%;
     --sidebar-background: 246 47% 12%;
     --sidebar-foreground: 0 0% 100%;
@@ -126,6 +139,11 @@
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
   }
+
+  ::selection {
+    background: hsl(var(--accent) / 0.22);
+    color: hsl(var(--foreground));
+  }
 }
 
 @layer components {
@@ -140,6 +158,16 @@
   .text-display-xl {
     font-family: var(--font-display);
     @apply text-5xl md:text-7xl lg:text-8xl font-bold leading-[0.9] tracking-tight;
+  }
+
+  .font-editorial {
+    font-family: var(--font-editorial);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+  }
+
+  .editorial-rule {
+    border-top: 1px solid hsl(var(--border));
   }
 
   .text-display-lg {
@@ -186,7 +214,22 @@
 }
 
 @layer utilities {
+  .editorial-display {
+    font-family: var(--font-editorial);
+    font-weight: 400;
+    letter-spacing: -0.02em;
+  }
+
   @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+
     .motion-safe {
       animation: none !important;
       transition: none !important;

@@ -63,7 +63,9 @@ const envSchema = z.object({
   MPESA_CONSUMER_KEY: z.string().default(""),
   MPESA_CONSUMER_SECRET: z.string().default(""),
   MPESA_CALLBACK_URL: z.string().url().or(z.literal("")).default(""),
+  MPESA_CALLBACK_PATH_TOKEN: z.string().default(""),
   MPESA_CALLBACK_SECRET: z.string().default(""),
+  MPESA_LEGACY_CALLBACK_QUERY_ENABLED: booleanEnv.default(false),
   MPESA_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
   MPESA_STK_INITIATE_COOLDOWN_SECONDS: z.coerce.number().int().positive().default(30),
   MPESA_STK_PENDING_RETRY_MINUTES: z.coerce.number().int().positive().default(5),
@@ -162,6 +164,46 @@ function assertProductionCorsOrigins(value: string, requiredOrigin?: string) {
   }
 }
 
+export function isLegacyMpesaCallbackConfigured(configuration: {
+  API_PREFIX: string;
+  MPESA_CALLBACK_URL: string;
+  MPESA_CALLBACK_PATH_TOKEN: string;
+  MPESA_CALLBACK_SECRET: string;
+  MPESA_LEGACY_CALLBACK_QUERY_ENABLED: boolean;
+}) {
+  if (!configuration.MPESA_CALLBACK_SECRET) return false;
+  if (configuration.MPESA_LEGACY_CALLBACK_QUERY_ENABLED) return true;
+  if (configuration.MPESA_CALLBACK_PATH_TOKEN) return false;
+  if (!configuration.MPESA_CALLBACK_URL) return false;
+  const callbackUrl = new URL(configuration.MPESA_CALLBACK_URL);
+  const expectedCallbackPath = `${configuration.API_PREFIX.replace(/\/+$/g, "")}/payments/mpesa/stk/callback`;
+  return callbackUrl.pathname === expectedCallbackPath
+    && !callbackUrl.hash
+    && (configuration.MPESA_LEGACY_CALLBACK_QUERY_ENABLED || callbackUrl.searchParams.has("secret"));
+}
+
+function assertCallbackUrlShape(configuration: {
+  API_PREFIX: string;
+  MPESA_CALLBACK_URL: string;
+  MPESA_CALLBACK_PATH_TOKEN: string;
+}) {
+  if (!configuration.MPESA_CALLBACK_URL) return;
+
+  const callbackUrl = new URL(configuration.MPESA_CALLBACK_URL);
+  const callbackBasePath = `${configuration.API_PREFIX.replace(/\/+$/g, "")}/payments/mpesa/stk/callback`;
+  const expectedPath = configuration.MPESA_CALLBACK_PATH_TOKEN
+    ? `${callbackBasePath}/${configuration.MPESA_CALLBACK_PATH_TOKEN}`
+    : callbackBasePath;
+
+  if (callbackUrl.hash || callbackUrl.pathname !== expectedPath) {
+    throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_URL must exactly match the registered callback route");
+  }
+
+  if (configuration.MPESA_CALLBACK_PATH_TOKEN && callbackUrl.search) {
+    throw new Error("Invalid backend environment configuration: tokenized MPESA_CALLBACK_URL must not contain a query string");
+  }
+}
+
 if (parsed.MPESA_DARAJA_ENV === "production" && !parsed.MPESA_LIVE_PAYMENTS_ENABLED) {
   throw new Error("Invalid backend environment configuration: production Daraja is blocked unless MPESA_LIVE_PAYMENTS_ENABLED=true");
 }
@@ -176,6 +218,12 @@ if (parsed.MPESA_DARAJA_ENV === "sandbox") {
   }
 }
 
+assertCallbackUrlShape(parsed);
+
+if (parsed.MPESA_LEGACY_CALLBACK_QUERY_ENABLED && !parsed.MPESA_CALLBACK_SECRET) {
+  throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_SECRET is required while legacy callback authentication is enabled");
+}
+
 if (parsed.EMAIL_DELIVERY_ENABLED) {
   if (!parsed.SMTP_HOST) {
     throw new Error("Invalid backend environment configuration: SMTP_HOST is required when email delivery is enabled");
@@ -186,10 +234,6 @@ if (parsed.EMAIL_DELIVERY_ENABLED) {
   if (Boolean(parsed.SMTP_USER) !== Boolean(parsed.SMTP_PASSWORD)) {
     throw new Error("Invalid backend environment configuration: SMTP_USER and SMTP_PASSWORD must be provided together");
   }
-}
-
-if (parsed.NODE_ENV === "production" && !parsed.MPESA_CALLBACK_SECRET) {
-  throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_SECRET is required in production");
 }
 
 if (parsed.NODE_ENV === "production") {
@@ -210,6 +254,25 @@ if (parsed.NODE_ENV === "production") {
   assertProductionCorsOrigins(parsed.CORS_ORIGIN, parsed.ADMIN_APP_URL);
   assertProductionPublicUrl(parsed.MPESA_CALLBACK_URL, "MPESA_CALLBACK_URL");
 
+  const callbackUrl = new URL(parsed.MPESA_CALLBACK_URL);
+  const callbackBasePath = `${parsed.API_PREFIX.replace(/\/+$/g, "")}/payments/mpesa/stk/callback`;
+  if (parsed.MPESA_CALLBACK_PATH_TOKEN) {
+    if (!/^[A-Za-z0-9_-]{32,256}$/.test(parsed.MPESA_CALLBACK_PATH_TOKEN)) {
+      throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_PATH_TOKEN must be a 32-256 character URL-safe token in production");
+    }
+    const expectedCallbackPath = `${callbackBasePath}/${parsed.MPESA_CALLBACK_PATH_TOKEN}`;
+    if (callbackUrl.search || callbackUrl.hash || callbackUrl.pathname !== expectedCallbackPath) {
+      throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_URL must exactly contain the callback path token and no query string");
+    }
+  } else {
+    if (!parsed.MPESA_CALLBACK_SECRET) {
+      throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_SECRET is required for the legacy M-Pesa callback contract");
+    }
+    if (callbackUrl.pathname !== callbackBasePath || callbackUrl.hash || !isLegacyMpesaCallbackConfigured(parsed)) {
+      throw new Error("Invalid backend environment configuration: legacy MPESA_CALLBACK_URL must use the exact callback path and include an authenticated secret query parameter");
+    }
+  }
+
   if (parsed.MPESA_LIVE_PAYMENTS_ENABLED) {
     const requiredMpesaValues = [
       ["MPESA_SHORTCODE", parsed.MPESA_SHORTCODE],
@@ -221,6 +284,10 @@ if (parsed.NODE_ENV === "production") {
     if (missingMpesaValues.length > 0) {
       throw new Error(`Invalid backend environment configuration: ${missingMpesaValues.join(", ")} are required when live M-Pesa is enabled`);
     }
+  }
+
+  if (parsed.MPESA_LEGACY_CALLBACK_QUERY_ENABLED && !parsed.MPESA_CALLBACK_SECRET) {
+    throw new Error("Invalid backend environment configuration: MPESA_CALLBACK_SECRET is required while legacy callback query authentication is enabled");
   }
 
   if (!parsed.SESSION_COOKIE_SECURE) {

@@ -1,0 +1,61 @@
+# Art Galore Checkout/Fulfillment Release Candidate
+
+- Baseline source: `d6a1c0da98727c8229b2e4378261dc7d8d8c418e`
+- Candidate commit: resolve with `git rev-parse HEAD` (the final commit is reported with this manifest)
+- Database migration: none
+- Production migration compatibility: production already has the checkout migrations through `20261015230000_harden_mpesa_checkout`
+- M-Pesa callback compatibility: supports the existing exact legacy callback path with its configured callback secret/query contract; tokenized callbacks remain available and strict
+- Test-only files not included: `.env`, `node_modules`, generated `dist/`
+
+## Source file SHA-256
+
+```text
+0ce849c7e6baee32b4ebda2f7114c17c77f464717add9ea185f31f2b3e30365d  backend/.env.example
+e2458a7001ddd094a89d5d5df12eda4c268eb3462e35a22b6dbd5387f5bac91e  backend/src/common/errors/httpErrors.ts
+ed122cd9c15cd63657aba906a694a4d2a6303856bc425845b0907b9ed6a5b97b  backend/src/common/middleware/errorHandler.ts
+529e2e259e14eb973b6eb3799bfd53e5173d71e4100f6d236e2880fff16d389e  backend/src/config/env.ts
+e825ff454c0cb0c919c3a17d2efb7499259598ffa66b6a9ad22ee997432ebdb3  backend/src/modules/events/events.schema.ts
+0c21a582ae27d2310ed5fbcd38d09f44c6b361fbd2937795ec6e154a520b2d39  backend/src/modules/events/events.service.ts
+ab2361e041b2f5e57350974390fd1af4b023fbc438c1d60048a2b9227968fac2  backend/src/modules/events/events.types.ts
+66f9e035e77cbc3237aaecfd5460dfb0d603a3c0cedc2079346b82e9287745ff  backend/src/modules/events/ticketAvailability.test.ts
+3dfcbac272c573d6081950209dd57fa9e71cd91727426f2142858dbe0f8cc2ff  backend/src/modules/events/ticketAvailability.ts
+678bdecd0e61e4ab46a808d529d5c32243d38a2d4b6ac16e434cd75027628d34  backend/src/modules/events/timezone.test.ts
+40f6aaff6365fb2dbb71c052902a40fb630bab42a9f99ad3595d95c7e034baf9  backend/src/modules/events/timezone.ts
+7de9823ec8d072c14a528c8072e332bfc7aa8eb5f10db3e305496a9554397600  backend/src/modules/orders/orders.service.ts
+97f9b28188bdffc3aab9d097cf53be1e80c56c410abfa4c96b1e89e8a3ece59a  backend/src/modules/payments/mpesaReconciliationPolicy.ts
+8617cf85915d3ce52171ddd407486a8609c35b27e5542cf1770cfe6ed75eca56  backend/src/modules/payments/mpesaReconciliationSignal.ts
+8bb1be0efd3f0452d3a44d781f6949ee78729a4168f42a1cf4c20bf8b520e172  backend/src/modules/payments/mpesaReconciliationWorker.test.ts
+302c5a405b14e4217751d384f55ca7879c9cd898c0929aa9c1f9fb78b327e10b  backend/src/modules/payments/mpesaReconciliationWorker.ts
+5e66223d4e26219b10d531ef7e00a726b7cf50ed7f883ce2518ca410a9e10e64  backend/src/modules/payments/payments.callbackAuth.test.ts
+25464729189a1374fcacb6f248c4ee9a9023e6276318ee60b36af5482f2850be  backend/src/modules/payments/payments.repository.ts
+6b6e52116c263205a577094ecff444fe7cd26dee7e90d084eaf4fc49cb87c499  backend/src/modules/payments/payments.routes.ts
+b018a0adb95ce72175982a931108d494b251e40ae56f864cb27d9f72347002f1  backend/src/modules/payments/payments.service.test.ts
+4183fc06ebe7b527387c6a8f44b7cfc9e4cb60f866855a7321d2e4dadc0ee87c  backend/src/modules/payments/payments.service.ts
+8199f31ae27c847c882689c4dd87167c5e443973b2ca210a7fbb084ad9d27f21  backend/src/modules/payments/payments.workflow.test.ts
+08972427c07ec3c016a9bee07488ceae27349e27f7738fcc989ebf94c5622cab  backend/src/modules/tickets/tickets.service.ts
+c067bee3a9c00d7dc8c45807341bd6ecc0909bdea9eed89c0f88eef62f905838  frontend/src/api/endpoints/orders.ts
+55ced318b86bbc4ea71b380fd056fd0264abde5bf2ab1f866dc7c58d11cb9c08  frontend/src/components/tickets/OrderSummaryCard.test.tsx
+dc2055f6017f796fd08e14aba14310b631d7a92c9a9cd3ecbac1c72527264a43  frontend/src/components/tickets/OrderSummaryCard.tsx
+2755471e6d85764eabba5ddcb656d7a19b860a7c030d94dcde2378abc9146a49  frontend/src/components/tickets/TicketTierSelector.test.tsx
+cecf8a7ed998bbc69fbfc2c542d2125d05f4827b9b46b503b9729abcfd8c75f5  frontend/src/components/tickets/TicketTierSelector.tsx
+0a369a56c803e2ff4ee204deeb82295b11e49b48d9b4bd457a883d71a6f92dff  frontend/src/hooks/queries/useTrackOrderQuery.test.ts
+aa2b4629324c615dfb7260d38cb5b93268c5e74e774b89174821367de6116dbe  frontend/src/hooks/queries/useTrackOrderQuery.ts
+0bc2e80b79970159751c24aa380cb08ace26436b15bb9ee74aba89b5e4eed8fe  frontend/src/lib/orderDateTime.test.ts
+a2512eb43d2d37d2a56a619a14c8ecbe0bd0b0d1f5c9bbd050d4c3edd2592598  frontend/src/lib/orderDateTime.ts
+14c081d36a760c6b350ae0dc5fd445ed13f9d728d5421ab9c3f49d75f418fe1f  frontend/src/pages/EventDetail.test.tsx
+5340d6d5bbda199252966b52ca3004b2a81c51174f65ae02727bfd8658c8ec22  frontend/src/pages/EventDetail.tsx
+c8f6c1200574af2bb09d9b52afdbceec978c1061936549556bda014f4f12334  frontend/src/pages/OrderTracking.tsx
+24065cf134a40893176c7c38bc1eb2beadd4c89178c79d998153f6d553ede104  frontend/src/pages/orderTrackingFeedback.test.ts
+52b8ef1a8fb99d1de4de5830740fcbe6c6de6afb64843d3a822afc3884e751a7  frontend/src/pages/orderTrackingFeedback.ts
+893200522cf84ef97d8631b74b69102fc9192edcfaaed16b61803af00d53d306  frontend/src/types/models.ts
+```
+
+## Verification
+
+- Backend build: passed
+- Backend tests: 72 passed, 0 failed
+- Frontend build: passed
+- Frontend tests: 47 passed, 0 failed
+- Frontend TypeScript: passed
+- Frontend lint: passed
+- Prisma validation: passed

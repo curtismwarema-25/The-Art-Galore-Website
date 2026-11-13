@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import PageHeader from "@/components/common/PageHeader";
 import FilterBar from "@/components/common/FilterBar";
 import EmptyState from "@/components/common/EmptyState";
@@ -12,6 +12,10 @@ export default function Gallery() {
   const [search, setSearch] = useState("");
   const [eventFilter, setEventFilter] = useState("all");
   const [lightboxId, setLightboxId] = useState<string | null>(null);
+  const prefersReducedMotion = useReducedMotion();
+  const lightboxTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const lightboxDialogRef = useRef<HTMLDivElement | null>(null);
+  const lightboxCloseRef = useRef<HTMLButtonElement | null>(null);
 
   const { data: events = [], isLoading: isEventsLoading, isError: hasEventsError } = useEventsQuery();
   const { data: galleryImages = [], isLoading: isGalleryLoading, isError: hasGalleryError } = useGalleryQuery();
@@ -35,6 +39,55 @@ export default function Gallery() {
   }, [eventFilter, events, galleryImages, search]);
 
   const selectedImage = filteredImages.find((image) => image.id === lightboxId);
+
+  const openLightbox = (trigger: HTMLButtonElement, imageId: string) => {
+    lightboxTriggerRef.current = trigger;
+    setLightboxId(imageId);
+  };
+
+  const closeLightbox = () => {
+    setLightboxId(null);
+    const trigger = lightboxTriggerRef.current;
+    lightboxTriggerRef.current = null;
+    if (trigger) {
+      window.requestAnimationFrame(() => trigger.focus());
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedImage) return;
+
+    lightboxCloseRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeLightbox();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+
+      const focusableElements = Array.from(
+        lightboxDialogRef.current?.querySelectorAll<HTMLElement>(
+          "button:not([disabled]), a[href], input, select, textarea",
+        ) ?? [],
+      );
+      if (focusableElements.length === 0) return;
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [selectedImage]);
 
   return (
     <section className="section-padding">
@@ -86,7 +139,9 @@ export default function Gallery() {
               return (
                 <button
                   key={image.id}
-                  onClick={() => setLightboxId(image.id)}
+                  type="button"
+                  onClick={(event) => openLightbox(event.currentTarget, image.id)}
+                  aria-label={`Open ${image.caption} in lightbox`}
                   className="block w-full break-inside-avoid relative group"
                 >
                   <img src={image.image} alt={image.caption} className="w-full object-cover" />
@@ -106,15 +161,22 @@ export default function Gallery() {
       <AnimatePresence>
         {selectedImage && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            ref={lightboxDialogRef}
+            initial={prefersReducedMotion ? false : { opacity: 0 }}
+            animate={prefersReducedMotion ? undefined : { opacity: 1 }}
+            exit={prefersReducedMotion ? undefined : { opacity: 0 }}
+            transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.2 }}
             className="fixed inset-0 z-50 bg-foreground/90 flex items-center justify-center p-4"
-            onClick={() => setLightboxId(null)}
+            onClick={closeLightbox}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="gallery-lightbox-title"
           >
             <button
+              ref={lightboxCloseRef}
               className="absolute top-4 right-4 text-background hover:text-accent transition-colors"
-              onClick={() => setLightboxId(null)}
+              type="button"
+              onClick={closeLightbox}
               aria-label="Close lightbox"
             >
               <X size={28} />
@@ -122,7 +184,7 @@ export default function Gallery() {
             <div onClick={(event) => event.stopPropagation()} className="max-w-4xl w-full">
               <img src={selectedImage.image} alt={selectedImage.caption} className="w-full max-h-[78vh] object-contain" />
               <div className="mt-3 text-center">
-                <p className="text-background font-display text-base">{selectedImage.caption}</p>
+                <p id="gallery-lightbox-title" className="text-background font-display text-base">{selectedImage.caption}</p>
                 <p className="text-background/75 text-sm">
                   {events.find((event) => event.id === selectedImage.eventId)?.title}
                 </p>

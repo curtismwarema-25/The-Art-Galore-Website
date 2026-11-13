@@ -8,7 +8,7 @@ type PersonCardProps = {
 
 export default function PersonCard({ person, compact = false }: PersonCardProps) {
   return (
-    <article className="border border-border bg-card overflow-hidden transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_-20px_hsl(var(--foreground)/0.35)]">
+    <article className="border border-border bg-card overflow-hidden transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:shadow-[var(--shadow-soft)]">
       {!compact && (
         <img src={person.image} alt={person.name} className="w-full aspect-[4/5] object-cover" />
       )}

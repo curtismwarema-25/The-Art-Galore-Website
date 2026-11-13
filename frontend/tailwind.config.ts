@@ -16,6 +16,7 @@ export default {
     extend: {
       fontFamily: {
         display: ['Space Grotesk', 'sans-serif'],
+        editorial: ['Instrument Serif', 'Georgia', 'serif'],
         body: ['DM Sans', 'sans-serif'],
       },
       spacing: {
@@ -80,11 +81,15 @@ export default {
           muted: "hsl(232, 39%, 40%)",     /* #3E458D - Mid-tone indigo for secondary text */
           accent: "hsl(265, 28%, 55%)",    /* #7B6AB5 - Royal purple for buttons & interactions */
         },
+        paper: "hsl(var(--paper))",
+        ink: "hsl(var(--ink))",
+        editorial: "hsl(var(--editorial-accent))",
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "var(--radius-lg)",
+        md: "var(--radius-md)",
+        sm: "var(--radius-sm)",
+        editorial: "var(--radius-md)",
       },
       keyframes: {
         "accordion-down": {

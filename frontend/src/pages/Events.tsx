@@ -63,7 +63,9 @@ export default function Events() {
           ].map((tab) => (
             <button
               key={tab.key}
+              type="button"
               onClick={() => setActiveTab(tab.key as "upcoming" | "past")}
+              aria-pressed={activeTab === tab.key}
               className={`px-4 py-2 text-xs md:text-sm font-display tracking-[0.16em] uppercase transition-colors rounded-sm ${
                 activeTab === tab.key ? "bg-accent text-accent-foreground" : "text-foreground-secondary hover:text-foreground"
               }`}

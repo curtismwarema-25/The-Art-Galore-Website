@@ -21,6 +21,31 @@ import {
   formInputClassName,
   formLabelClassName,
 } from "@/lib/formStyles";
+import { getTicketPurchaseLimit, type TicketTier } from "@/types/models";
+
+function isPurchasableTier(tier: TicketTier) {
+  return tier.availabilityState === "AVAILABLE" && getTicketPurchaseLimit(tier) > 0;
+}
+
+function getValidQuantity(tier: TicketTier, quantities: Record<string, number>) {
+  return Math.min(Math.max(quantities[tier.id] ?? 0, 0), getTicketPurchaseLimit(tier));
+}
+
+function quantitiesAreEqual(left: Record<string, number>, right: Record<string, number>) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key) => left[key] === right[key]);
+}
+
+function unavailableTicketMessage(tiers: TicketTier[]) {
+  const states = new Set(tiers.map((tier) => tier.availabilityState));
+  if (states.has("UPCOMING")) return "Ticket sales have not opened yet. Review the opening date above and check back soon.";
+  if (states.has("AVAILABLE")) return "Select an available ticket to continue.";
+  if (states.has("SOLD_OUT")) return "All ticket categories are currently sold out.";
+  if (states.has("SALES_CLOSED")) return "Ticket sales for this event have closed.";
+  if (states.has("CANCELLED")) return "This event has been cancelled and tickets cannot be purchased.";
+  return "Tickets are not currently available for this event.";
+}
 
 export default function EventDetail() {
   const { slug = "" } = useParams();
@@ -48,12 +73,22 @@ export default function EventDetail() {
   }, [uploadPreview]);
 
   useEffect(() => {
-    const firstAvailableTier = event?.ticketTiers?.find((tier) => tier.available > 0);
-    if (!firstAvailableTier) return;
+    const eventTiers = event?.ticketTiers ?? [];
+    setQuantities((current) => {
+      const next: Record<string, number> = {};
 
-    setQuantities((current) => (
-      Object.keys(current).length > 0 ? current : { [firstAvailableTier.id]: 1 }
-    ));
+      eventTiers.forEach((tier) => {
+        const quantity = getValidQuantity(tier, current);
+        if (quantity > 0) next[tier.id] = quantity;
+      });
+
+      if (Object.keys(next).length === 0) {
+        const firstAvailableTier = eventTiers.find(isPurchasableTier);
+        if (firstAvailableTier) next[firstAvailableTier.id] = 1;
+      }
+
+      return quantitiesAreEqual(current, next) ? current : next;
+    });
   }, [event]);
 
   if (isLoading) {
@@ -83,19 +118,45 @@ export default function EventDetail() {
   const tiers = event.ticketTiers ?? [];
   const approvedUploads = event.approvedUploads ?? [];
   const gallery = event.galleryImages ?? [];
-  const selectedTicketCount = tiers.reduce((total, tier) => total + (quantities[tier.id] ?? 0), 0);
-  const selectedTotal = tiers.reduce((total, tier) => total + (quantities[tier.id] ?? 0) * tier.price, 0);
-  const selectedCurrency = tiers.find((tier) => (quantities[tier.id] ?? 0) > 0)?.currency ?? "KES";
-  const ticketingAvailable = event.lifecycle !== "past" && tiers.some((tier) => tier.available > 0);
+  const selectedRows = tiers
+    .map((tier) => ({ tier, quantity: getValidQuantity(tier, quantities) }))
+    .filter((row) => row.quantity > 0);
+  const selectedTicketCount = selectedRows.reduce((total, row) => total + row.quantity, 0);
+  const selectedTotal = selectedRows.reduce((total, row) => total + row.quantity * row.tier.price, 0);
+  const selectedCurrencies = Array.from(new Set(selectedRows.map((row) => row.tier.currency)));
+  const selectedCurrency = selectedCurrencies.length === 1 ? selectedCurrencies[0] : undefined;
+  const hasCurrencyMismatch = selectedCurrencies.length > 1;
+  const ticketingAvailable = event.lifecycle !== "past"
+    && event.lifecycle !== "cancelled"
+    && tiers.some(isPurchasableTier);
+  const hasValidSelection = ticketingAvailable
+    && selectedTicketCount > 0
+    && Boolean(selectedCurrency)
+    && !hasCurrencyMismatch;
 
   const scrollToTicketPurchase = () => {
     document.getElementById("ticket-purchase")?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  const increaseTier = (tierId: string) => setQuantities((current) => ({ ...current, [tierId]: (current[tierId] ?? 0) + 1 }));
+  const increaseTier = (tierId: string) => {
+    const tier = tiers.find((item) => item.id === tierId);
+    if (!tier) return;
+
+    setQuantities((current) => {
+      const currentQuantity = getValidQuantity(tier, current);
+      const nextQuantity = Math.min(currentQuantity + 1, getTicketPurchaseLimit(tier));
+      return nextQuantity > 0 ? { ...current, [tierId]: nextQuantity } : current;
+    });
+  };
+
   const decreaseTier = (tierId: string) => setQuantities((current) => ({ ...current, [tierId]: Math.max((current[tierId] ?? 0) - 1, 0) }));
 
   const initiatePayment = async () => {
+    if (!hasValidSelection) {
+      toast.error(hasCurrencyMismatch ? "Select tickets in one currency." : unavailableTicketMessage(tiers));
+      return;
+    }
+
     const parsed = ticketPurchaseFormSchema.safeParse({
       eventId: event.id,
       buyerName: fullName,
@@ -112,7 +173,7 @@ export default function EventDetail() {
     const selectedItems = tiers
       .map((tier) => ({
         ticketTierId: tier.id,
-        quantity: quantities[tier.id] ?? 0,
+        quantity: getValidQuantity(tier, quantities),
       }))
       .filter((item) => item.quantity > 0);
 
@@ -287,8 +348,9 @@ export default function EventDetail() {
               <h3 className="font-display text-xl text-foreground mb-4">Community Upload</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-3">
-                  <label className={formLabelClassName}>Alias</label>
+                  <label htmlFor="community-upload-alias" className={formLabelClassName}>Alias</label>
                   <input
+                    id="community-upload-alias"
                     value={alias}
                     onChange={(eventInput) => setAlias(eventInput.target.value)}
                     placeholder="How should we credit you?"
@@ -360,23 +422,41 @@ export default function EventDetail() {
           <aside className="order-first space-y-4 self-start lg:order-last lg:sticky lg:top-20">
             <div id="ticket-purchase" className="scroll-mt-24 border border-accent/35 bg-card p-5 md:p-6 shadow-sm">
               <div className="mb-4">
-                <p className="font-display text-xs uppercase tracking-[0.2em] text-accent">Reserve your place</p>
-                <h3 className="mt-2 font-display text-2xl text-foreground">Get Your Ticket</h3>
-                <p className="mt-1 text-sm text-foreground-secondary">Choose your ticket, enter your details, and pay securely with M-Pesa.</p>
-              </div>
-              {tiers.length === 0 ? (
-                <p className="text-xs text-foreground-secondary mb-4">
-                  Ticket tiers are not available for this event yet. Check back soon or contact support.
+                <p className="font-display text-xs uppercase tracking-[0.2em] text-accent">
+                  {ticketingAvailable ? "Reserve your place" : "Ticket availability"}
                 </p>
-              ) : (
-                <TicketTierSelector tiers={tiers} quantities={quantities} onIncrease={increaseTier} onDecrease={decreaseTier} />
+                <h3 className="mt-2 font-display text-2xl text-foreground">
+                  {ticketingAvailable ? "Get Your Ticket" : "Tickets"}
+                </h3>
+                <p className="mt-1 text-sm text-foreground-secondary">
+                  {ticketingAvailable
+                    ? "Choose your ticket, enter your details, and pay securely with M-Pesa."
+                    : "Review the ticket status above. Purchase controls will appear when sales are available."}
+                </p>
+              </div>
+
+              {tiers.length > 0 && (
+                <TicketTierSelector
+                  tiers={tiers}
+                  quantities={quantities}
+                  timezone={event.timezone}
+                  onIncrease={increaseTier}
+                  onDecrease={decreaseTier}
+                />
               )}
 
+              {!ticketingAvailable ? (
+                <p className="mt-4 border-l-2 border-accent pl-3 text-xs leading-relaxed text-foreground-secondary">
+                  {tiers.length === 0 ? "Ticket tiers are not available for this event yet. Check back soon or contact support." : unavailableTicketMessage(tiers)}
+                </p>
+              ) : (
+                <>
               <div className="mt-4">
-                <label className={formLabelClassName}>
+                    <label htmlFor="ticket-buyer-name" className={formLabelClassName}>
                   Full Name *
                 </label>
                 <input
+                      id="ticket-buyer-name"
                   value={fullName}
                   onChange={(eventInput) => setFullName(eventInput.target.value)}
                   placeholder="Your full name"
@@ -387,10 +467,11 @@ export default function EventDetail() {
               </div>
 
               <div className="mt-3">
-                <label className={formLabelClassName}>
+                    <label htmlFor="ticket-buyer-phone" className={formLabelClassName}>
                   M-Pesa Phone Number *
                 </label>
                 <input
+                      id="ticket-buyer-phone"
                   value={phone}
                   onChange={(eventInput) => setPhone(eventInput.target.value)}
                   placeholder="07XXXXXXXX or 2547XXXXXXXX"
@@ -403,10 +484,11 @@ export default function EventDetail() {
               </div>
 
               <div className="mt-3">
-                <label className={formLabelClassName}>
+                    <label htmlFor="ticket-buyer-email" className={formLabelClassName}>
                   Email for Tickets *
                 </label>
                 <input
+                      id="ticket-buyer-email"
                   type="email"
                   value={email}
                   onChange={(eventInput) => setEmail(eventInput.target.value)}
@@ -421,20 +503,30 @@ export default function EventDetail() {
                 <OrderSummaryCard tiers={tiers} quantities={quantities} phoneNumber={phone} />
               </div>
 
+              {hasCurrencyMismatch && (
+                <p className="mt-3 text-xs text-destructive">Select tickets in one currency to continue.</p>
+              )}
+
               <Button
                 variant="accent"
                 size="lg"
                 className="w-full mt-4"
                 onClick={() => void initiatePayment()}
-                disabled={createOrderMutation.isPending || selectedTicketCount === 0}
+                disabled={createOrderMutation.isPending || !hasValidSelection}
               >
                 {createOrderMutation.isPending
                   ? "Creating Order..."
-                  : `Pay ${selectedCurrency} ${selectedTotal.toLocaleString()} with M-Pesa`}
+                  : hasCurrencyMismatch
+                    ? "Choose one currency"
+                    : hasValidSelection && selectedCurrency
+                      ? `Pay ${selectedCurrency} ${selectedTotal.toLocaleString()} with M-Pesa`
+                      : "Select an available ticket"}
               </Button>
               <p className="mt-3 text-center text-[11px] text-foreground-secondary">
                 No account required · Your ticket is delivered after payment
               </p>
+                </>
+              )}
             </div>
 
             <div className="border border-border bg-secondary/15 p-4">
@@ -451,7 +543,9 @@ export default function EventDetail() {
           <div className="mx-auto flex max-w-6xl items-center gap-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-display uppercase tracking-[0.12em] text-foreground-secondary">Your ticket</p>
-              <p className="font-display text-base text-foreground">{selectedCurrency} {selectedTotal.toLocaleString()}</p>
+              <p className="font-display text-base text-foreground">
+                {selectedCurrency ? `${selectedCurrency} ${selectedTotal.toLocaleString()}` : "Choose a ticket"}
+              </p>
             </div>
             <Button type="button" variant="accent" onClick={scrollToTicketPurchase}>
               Get Ticket

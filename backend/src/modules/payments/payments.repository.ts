@@ -390,12 +390,13 @@ export class PaymentsRepository {
     });
   }
 
-  async recordReconciliationFailure(id: string, input: { nextAttemptAt: Date; error: string; manualReview: boolean; countAttempt?: boolean }) {
+  async recordReconciliationFailure(id: string, input: { nextAttemptAt?: Date; error: string; manualReview: boolean; countAttempt?: boolean; leaseOwner?: string }) {
     return prisma.paymentTransaction.updateMany({
       where: {
         id,
         provider: PaymentProvider.MPESA,
         status: { in: [PaymentStatus.INITIATED, PaymentStatus.PENDING, PaymentStatus.AMBIGUOUS] },
+        ...(input.leaseOwner ? { reconciliationLockedBy: input.leaseOwner } : {}),
       },
       data: {
         status: PaymentStatus.AMBIGUOUS,
@@ -409,8 +410,38 @@ export class PaymentsRepository {
     });
   }
 
-  async releaseReconciliationLease(id: string) {
-    return prisma.paymentTransaction.updateMany({ where: { id }, data: { reconciliationLockedAt: null, reconciliationLockedBy: null } });
+  async releaseReconciliationLease(id: string, leaseOwner?: string) {
+    return prisma.paymentTransaction.updateMany({
+      where: { id, ...(leaseOwner ? { reconciliationLockedBy: leaseOwner } : {}) },
+      data: { reconciliationLockedAt: null, reconciliationLockedBy: null },
+    });
+  }
+
+  async recordMpesaStkQueryMetadata(
+    id: string,
+    metadata: Prisma.InputJsonValue,
+    tx: Prisma.TransactionClient,
+  ) {
+    const transaction = await tx.paymentTransaction.findUnique({
+      where: { id },
+      select: { rawResponse: true },
+    });
+    if (!transaction) return false;
+
+    const existingResponse = transaction.rawResponse && typeof transaction.rawResponse === "object" && !Array.isArray(transaction.rawResponse)
+      ? transaction.rawResponse as Prisma.JsonObject
+      : {};
+
+    await tx.paymentTransaction.update({
+      where: { id },
+      data: {
+        rawResponse: {
+          ...existingResponse,
+          mpesaStkQuery: metadata,
+        },
+      },
+    });
+    return true;
   }
 
   async markOrderPaidAfterFulfillment(orderId: string, now: Date) {
@@ -427,7 +458,7 @@ export class PaymentsRepository {
     });
   }
 
-  async markPaymentAmbiguous(id: string, input: { resultCode?: string; resultMessage?: string; rawCallback?: Prisma.InputJsonValue; nextReconciliationAt: Date; error?: string; manualReview?: boolean }, tx: Prisma.TransactionClient) {
+  async markPaymentAmbiguous(id: string, input: { resultCode?: string; resultMessage?: string; rawCallback?: Prisma.InputJsonValue; nextReconciliationAt?: Date; error?: string; manualReview?: boolean }, tx: Prisma.TransactionClient) {
     return tx.paymentTransaction.update({
       where: { id },
       data: {
@@ -720,6 +751,11 @@ export class PaymentsRepository {
         providerReceipt: input.providerReceipt,
         providerConfirmedAt: input.providerConfirmedAt,
         rawCallback: input.rawCallback,
+        nextReconciliationAt: null,
+        reconciliationRequiresManualReview: false,
+        reconciliationLockedAt: null,
+        reconciliationLockedBy: null,
+        lastReconciliationError: null,
       },
     });
   }
@@ -754,6 +790,11 @@ export class PaymentsRepository {
         providerReceipt: input.providerReceipt,
         providerConfirmedAt: input.providerConfirmedAt,
         rawCallback: input.rawCallback,
+        nextReconciliationAt: null,
+        reconciliationRequiresManualReview: false,
+        reconciliationLockedAt: null,
+        reconciliationLockedBy: null,
+        lastReconciliationError: null,
       },
     });
     return updated.count > 0;

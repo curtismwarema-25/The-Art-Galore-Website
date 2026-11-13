@@ -1,4 +1,9 @@
-import type { OrderLifecycleStatus, OrderPaymentStatus } from "@/api/endpoints/orders";
+import type {
+  OrderLifecycleStatus,
+  OrderPaymentStatus,
+  TicketDeliveryStatus,
+  VerificationStatus,
+} from "@/api/endpoints/orders";
 
 export type StkFeedbackKind =
   | "submitting"
@@ -35,6 +40,33 @@ export type CanStartPaymentInput = {
   paymentProcessing: boolean;
   stkRequested: boolean;
 };
+
+export type PaymentPollingInput = {
+  orderStatus: OrderLifecycleStatus;
+  paymentStatus: OrderPaymentStatus;
+  verificationStatus: VerificationStatus;
+  mpesaPaymentPending: boolean;
+  ticketCount: number;
+  ticketEmailDeliveryEnabled: boolean;
+  ticketDeliveryStatus: TicketDeliveryStatus;
+};
+
+export function shouldPollPaymentStatus(input: PaymentPollingInput) {
+  const awaitingMpesaVerification = input.orderStatus === "payment_submitted"
+    && input.paymentStatus === "pending"
+    && input.verificationStatus === "not_submitted";
+  const awaitingTicketFulfillment = input.paymentStatus === "paid"
+    && (input.ticketCount === 0 || (input.ticketEmailDeliveryEnabled && input.ticketDeliveryStatus === "pending"));
+
+  return input.mpesaPaymentPending || awaitingMpesaVerification || awaitingTicketFulfillment;
+}
+
+export function shouldClearStkRequest(status: OrderLifecycleStatus) {
+  return status === "payment_verified"
+    || status === "paid"
+    || status === "expired"
+    || status === "payment_rejected";
+}
 
 export function canStartPayment(input: CanStartPaymentInput) {
   return input.canSubmitPaymentProof

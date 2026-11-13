@@ -3,6 +3,7 @@ export type UserRole = "admin" | "staff" | "moderator" | "public";
 export type RecordStatus = "draft" | "published" | "archived" | "cancelled";
 export type EventPhase = "upcoming" | "past";
 export type EventLifecycle = "draft" | EventPhase | "cancelled";
+export type TicketAvailabilityState = "HIDDEN" | "CANCELLED" | "SALES_CLOSED" | "UPCOMING" | "SOLD_OUT" | "AVAILABLE";
 
 export type PaymentStatus = "idle" | "initiating" | "pending" | "paid" | "failed" | "refunded";
 export type OrderStatus =
@@ -106,9 +107,19 @@ export interface TicketTier extends BaseRecord {
   currency: "KES";
   perks: string[];
   available: number;
+  availabilityState?: TicketAvailabilityState;
+  allocatedQuantity?: number;
+  remainingQuantity?: number;
   saleStartAt?: string;
   saleEndAt?: string;
   maxPerOrder?: number;
+}
+
+export function getTicketPurchaseLimit(tier: TicketTier) {
+  if (tier.availabilityState !== "AVAILABLE") return 0;
+
+  const remainingQuantity = Math.max(tier.remainingQuantity ?? 0, 0);
+  return Math.min(remainingQuantity, tier.maxPerOrder ?? remainingQuantity);
 }
 
 export interface EventLineupItem {
@@ -246,6 +257,15 @@ export interface SiteSettings extends BaseRecord {
   privacyPolicyLink: string;
   termsLink: string;
   refundPolicyLink: string;
+  aboutTitle: string;
+  aboutIntro: string;
+  aboutBody: string;
+  aboutImage?: string;
+  contactTitle: string;
+  contactIntro: string;
+  privacyPolicyContent: string;
+  termsContent: string;
+  refundPolicyContent: string;
   manualPaymentEnabled: boolean;
   bankAccountName?: string;
   bankAccountNumber?: string;

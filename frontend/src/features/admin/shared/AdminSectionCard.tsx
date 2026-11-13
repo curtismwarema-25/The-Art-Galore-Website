@@ -8,7 +8,7 @@ export default function AdminSectionCard({ title, description, children, default
     <details
       open={isOpen}
       onToggle={(event) => setIsOpen(event.currentTarget.open)}
-      className="group rounded-lg border border-border bg-card p-5 md:p-6"
+      className="group rounded-[var(--radius-md)] border border-border bg-card p-5 md:p-6 shadow-none"
     >
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 [&::-webkit-details-marker]:hidden">
         <span>

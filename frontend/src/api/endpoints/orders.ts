@@ -65,6 +65,7 @@ export type OrderDetailsRecord = {
     startAt: string;
     endAt: string;
     venueName: string;
+    timezone?: string;
   };
   buyer: {
     buyerName: string;
@@ -113,6 +114,7 @@ export type PublicTrackedOrderRecord = {
     startAt: string;
     endAt: string;
     venueName: string;
+    timezone?: string;
   };
   ticketQuantities: Array<{
     tierName: string;
@@ -221,10 +223,11 @@ export async function createOrder(input: CreateOrderInput, idempotencyKey?: stri
   };
 }
 
-export async function trackOrder(publicToken: string) {
+export async function trackOrder(publicToken: string, signal?: AbortSignal) {
   try {
     const response = await apiRequest<ApiData<PublicTrackedOrderRecord>>(`/orders/track/${publicToken}`, {
       method: "GET",
+      signal,
     });
     return response.data;
   } catch (error) {

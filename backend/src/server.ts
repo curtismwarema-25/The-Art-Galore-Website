@@ -12,6 +12,15 @@ async function start() {
   try {
     await prisma.$connect();
     logger.info("Prisma connected.");
+    logger.info("M-Pesa runtime configuration", {
+      darajaEnvironment: env.MPESA_DARAJA_ENV,
+      livePaymentsEnabled: env.MPESA_LIVE_PAYMENTS_ENABLED,
+      sandboxEndpointSelected: env.MPESA_DARAJA_ENV === "sandbox" && !env.MPESA_LIVE_PAYMENTS_ENABLED,
+      callbackUrlConfigured: Boolean(env.MPESA_CALLBACK_URL),
+      callbackPathTokenConfigured: Boolean(env.MPESA_CALLBACK_PATH_TOKEN),
+      callbackSecretConfigured: Boolean(env.MPESA_CALLBACK_SECRET),
+      legacyCallbackEnabled: env.MPESA_LEGACY_CALLBACK_QUERY_ENABLED,
+    });
 
     const ordersRepository = new OrdersRepository();
     const paymentsRepository = new PaymentsRepository();

@@ -17,7 +17,7 @@ export default function Partners() {
             <p className="font-display text-xs tracking-[0.3em] uppercase text-accent mb-4">
               Partners & Collaborations
             </p>
-            <h1 className="text-display-lg mb-5">Partners & Collaborations</h1>
+            <h1 className="editorial-display text-display-lg mb-5">Partners & Collaborations</h1>
             <p className="text-body-lg max-w-3xl">
               Art Galore International collaborates with artists, institutions, brands, and
               community organizations to create vibrant cultural experiences.

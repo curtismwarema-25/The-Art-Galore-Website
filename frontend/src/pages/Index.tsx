@@ -9,6 +9,7 @@ import { useEventQuery } from "@/hooks/queries/useEventQuery";
 import { usePublicSiteSettingsQuery } from "@/hooks/queries/usePublicSiteSettingsQuery";
 import type { EventRecord } from "@/types/models";
 import { hasActiveTicketTier } from "@/lib/homepageState";
+import { formInputClassName } from "@/lib/formStyles";
 
 type SiteSettingsPreview = { heroTitle?: string; heroSubtitle?: string; whatsappLink?: string };
 type EventDetail = NonNullable<ReturnType<typeof useEventQuery>["data"]>;
@@ -37,7 +38,7 @@ function TicketRecovery() {
         </div>
       </div>
       <form onSubmit={submit} className="mt-4 flex flex-col gap-3 sm:flex-row">
-        <input value={token} onChange={(event) => setToken(event.target.value)} placeholder="Order tracking token" aria-label="Order tracking token" className="min-w-0 flex-1 rounded-md border border-border bg-background px-3 py-2.5 text-sm text-foreground outline-none focus:border-accent" />
+        <input value={token} onChange={(event) => setToken(event.target.value)} placeholder="Order tracking token" aria-label="Order tracking token" className={`${formInputClassName} min-w-0 flex-1`} />
         <Button type="submit" variant="outline" disabled={!token.trim()}>Open Order</Button>
       </form>
     </div>
@@ -51,7 +52,7 @@ function BrandHero({ title, subtitle, action }: { title: string; subtitle: strin
       <div className="relative mx-auto flex min-h-[520px] max-w-screen-xl items-end px-4 py-16 md:min-h-[600px] md:px-8 md:py-24">
         <div className="max-w-3xl">
           <p className="font-display text-xs uppercase tracking-[0.3em] text-accent">Art Galore International</p>
-          <h1 className="mt-4 text-display-xl text-primary-foreground">{title}</h1>
+          <h1 className="editorial-display mt-4 text-display-xl text-primary-foreground">{title}</h1>
           <p className="mt-6 max-w-2xl text-body-lg text-primary-foreground/75">{subtitle}</p>
           {action && <div className="mt-8 flex flex-wrap gap-3">{action}</div>}
         </div>

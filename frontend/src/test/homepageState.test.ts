@@ -13,6 +13,8 @@ const baseTier: TicketTier = {
   perks: ["Entry"],
   available: 10,
   status: "published",
+  availabilityState: "AVAILABLE",
+  remainingQuantity: 10,
   saleStartAt: null,
   saleEndAt: null,
   displayOrder: 0,
@@ -21,14 +23,18 @@ const baseTier: TicketTier = {
 };
 
 describe("homepage ticketed event state", () => {
-  it("recognizes a published tier that is currently on sale", () => {
-    expect(hasActiveTicketTier([baseTier], Date.parse("2026-09-07T00:00:00.000Z"))).toBe(true);
+  it("recognizes a backend-derived available tier", () => {
+    expect(hasActiveTicketTier([baseTier])).toBe(true);
   });
 
-  it("does not promote sold-out, draft, or out-of-window tiers", () => {
-    expect(hasActiveTicketTier([{ ...baseTier, available: 0 }])).toBe(false);
-    expect(hasActiveTicketTier([{ ...baseTier, status: "draft" }])).toBe(false);
-    expect(hasActiveTicketTier([{ ...baseTier, saleStartAt: "2026-09-08T00:00:00.000Z" }], Date.parse("2026-09-07T00:00:00.000Z"))).toBe(false);
-    expect(hasActiveTicketTier([{ ...baseTier, saleEndAt: "2026-09-06T00:00:00.000Z" }], Date.parse("2026-09-07T00:00:00.000Z"))).toBe(false);
+  it("does not promote unavailable backend states or exhausted inventory", () => {
+    for (const availabilityState of ["UPCOMING", "SOLD_OUT", "SALES_CLOSED", "HIDDEN", "CANCELLED"] as const) {
+      expect(hasActiveTicketTier([{ ...baseTier, availabilityState }])).toBe(false);
+    }
+    expect(hasActiveTicketTier([{ ...baseTier, remainingQuantity: 0 }])).toBe(false);
+  });
+
+  it("does not recreate sales-window logic when the backend says a tier is available", () => {
+    expect(hasActiveTicketTier([{ ...baseTier, saleStartAt: "2099-09-08T00:00:00.000Z" }])).toBe(true);
   });
 });

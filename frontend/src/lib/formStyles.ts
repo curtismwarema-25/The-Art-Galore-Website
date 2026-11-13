@@ -1,5 +1,5 @@
 export const formControlBaseClassName =
-  "w-full rounded-md border border-border bg-background px-3.5 py-2.5 font-body text-sm leading-5 text-foreground transition-[border-color,box-shadow,background-color,color] duration-200 placeholder:text-foreground-secondary/70 placeholder:opacity-100 hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25 focus-visible:border-accent disabled:cursor-not-allowed disabled:bg-secondary/25 disabled:text-foreground-secondary disabled:placeholder:text-foreground-secondary/60 read-only:cursor-default read-only:bg-secondary/20 read-only:text-foreground-secondary";
+  "w-full rounded-[var(--radius-sm)] border border-border bg-background px-3.5 py-2.5 font-body text-sm leading-5 text-foreground transition-[border-color,box-shadow,background-color,color] duration-200 placeholder:text-foreground-secondary/70 placeholder:opacity-100 hover:border-border/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25 focus-visible:border-accent disabled:cursor-not-allowed disabled:bg-secondary/25 disabled:text-foreground-secondary disabled:placeholder:text-foreground-secondary/60 read-only:cursor-default read-only:bg-secondary/20 read-only:text-foreground-secondary";
 
 export const formInputClassName = `${formControlBaseClassName} h-11`;
 

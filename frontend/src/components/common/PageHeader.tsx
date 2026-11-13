@@ -13,7 +13,7 @@ export default function PageHeader({ eyebrow, title, description, compact = fals
           {eyebrow}
         </p>
       )}
-      <h1 className={compact ? "font-display text-3xl md:text-4xl text-foreground mb-3" : "text-display-xl mb-4"}>
+      <h1 className={compact ? "font-display text-3xl md:text-4xl text-foreground mb-3" : "editorial-display text-display-xl text-foreground mb-4"}>
         {title}
       </h1>
       {description && (

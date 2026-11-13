@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   canStartPayment,
   getStkFeedbackState,
+  shouldClearStkRequest,
+  shouldPollPaymentStatus,
   type StkFeedbackInput,
 } from "./orderTrackingFeedback";
 
@@ -91,6 +93,49 @@ describe("persistent M-Pesa checkout feedback", () => {
 
     expect(state?.kind).toBe("tickets_pending");
     expect(state?.message).toContain("preparing your tickets");
+  });
+
+  it("treats payment_verified as confirmed payment while fulfilment is pending", () => {
+    const state = getStkFeedbackState({ ...baseInput, orderStatus: "payment_verified", paymentStatus: "paid" });
+
+    expect(state?.kind).toBe("tickets_pending");
+    expect(state?.canRetry).toBe(false);
+  });
+
+  it("does not retain payment feedback after paid tickets are available", () => {
+    expect(getStkFeedbackState({
+      ...baseInput,
+      orderStatus: "paid",
+      paymentStatus: "paid",
+      ticketCount: 2,
+      stkRequested: true,
+    })).toBeNull();
+  });
+
+  it("continues refreshing after payment verification until tickets are issued", () => {
+    expect(shouldPollPaymentStatus({
+      orderStatus: "payment_verified",
+      paymentStatus: "paid",
+      verificationStatus: "not_submitted",
+      mpesaPaymentPending: false,
+      ticketCount: 0,
+      ticketEmailDeliveryEnabled: true,
+      ticketDeliveryStatus: "pending",
+    })).toBe(true);
+
+    expect(shouldClearStkRequest("payment_verified")).toBe(true);
+  });
+
+  it("stops payment refresh after a terminal paid order has tickets", () => {
+    expect(shouldPollPaymentStatus({
+      orderStatus: "paid",
+      paymentStatus: "paid",
+      verificationStatus: "approved",
+      mpesaPaymentPending: false,
+      ticketCount: 1,
+      ticketEmailDeliveryEnabled: true,
+      ticketDeliveryStatus: "sent",
+    })).toBe(false);
   });
 
   it("stops rendering payment feedback once tickets are available", () => {

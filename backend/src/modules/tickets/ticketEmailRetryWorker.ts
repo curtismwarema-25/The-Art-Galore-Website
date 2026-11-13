@@ -14,6 +14,14 @@ export class TicketEmailRetryWorker {
       return;
     }
 
+    if (this.sweepHandle) return;
+
+    logger.info("Ticket email retry worker enabled", {
+      emailDeliveryEnabled: env.EMAIL_DELIVERY_ENABLED,
+      intervalSeconds: env.EMAIL_DELIVERY_RETRY_SWEEP_INTERVAL_SECONDS,
+      maxAttempts: env.EMAIL_DELIVERY_RETRY_MAX_ATTEMPTS,
+    });
+
     this.sweepHandle = setInterval(() => {
       void this.runOnce();
     }, env.EMAIL_DELIVERY_RETRY_SWEEP_INTERVAL_SECONDS * 1000);

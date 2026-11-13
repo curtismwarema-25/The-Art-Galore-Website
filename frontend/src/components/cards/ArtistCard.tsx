@@ -20,7 +20,7 @@ export default function ArtistCard({ artist }: ArtistCardProps) {
   return (
     <Link
       to={`/artists/${artist.slug}`}
-      className="group grid h-full overflow-hidden rounded-md border border-border bg-card transition-all duration-300 hover:-translate-y-0.5 hover:border-accent/45 hover:shadow-[0_18px_36px_-24px_hsl(var(--foreground)/0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      className="group grid h-full overflow-hidden rounded-md border border-border bg-card transition-[border-color,box-shadow,transform] duration-300 hover:-translate-y-0.5 hover:border-accent/45 hover:shadow-[var(--shadow-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
     >
       <div className="relative overflow-hidden">
         <img

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { mediaMetadataSchema, mediaUrlOrPathSchema } from "../../common/validation/mediaUrl.js";
+import { isValidEventTimezone } from "./timezone.js";
 
 const phaseSchema = z.enum(["upcoming", "past", "all"]);
 const adminEventStatusSchema = z.enum(["draft", "published", "cancelled", "archived"]);
@@ -67,7 +68,13 @@ const adminCreateEventBodySchema = z.object({
   venue: z.string().trim().min(1).max(191),
   startAt: z.coerce.date(),
   endAt: z.coerce.date(),
-  timezone: z.string().trim().min(1).max(64).optional(),
+  timezone: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .refine(isValidEventTimezone, "Timezone must be a valid IANA timezone identifier")
+    .optional(),
   capacity: z.number().int().positive().optional(),
   status: adminEventStatusSchema.optional(),
   lifecycle: adminEventLifecycleSchema.optional(),

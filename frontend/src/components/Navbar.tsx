@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useEventsQuery } from "@/hooks/queries/useEventsQuery";
 import { useEventQuery } from "@/hooks/queries/useEventQuery";
 import { hasActiveTicketTier } from "@/lib/homepageState";
@@ -15,13 +15,14 @@ const navLinks = [
 
 export default function Navbar() {
   const [open, setOpen] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const location = useLocation();
   const { data: events = [] } = useEventsQuery();
   const upcomingEvent = events.find((event) => event.lifecycle === "upcoming");
   const { data: eventDetail, isLoading: isEventLoading } = useEventQuery(upcomingEvent?.slug ?? "");
   const hasTickets = Boolean(eventDetail && hasActiveTicketTier(eventDetail.ticketTiers));
   const ctaPath = !isEventLoading && hasTickets && upcomingEvent ? `/events/${upcomingEvent.slug}` : "/events";
-  const ctaLabel = ctaPath === "/events" ? "Next Event" : "Get Tickets";
+  const ctaLabel = ctaPath === "/events" ? "View Events" : "Get Tickets";
 
   const isLinkActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
@@ -36,11 +37,12 @@ export default function Navbar() {
         </Link>
 
         {/* Desktop */}
-        <div className="hidden md:flex items-center gap-8">
+        <div className="hidden lg:flex items-center gap-5">
           {navLinks.map((link) => (
             <Link
               key={link.path}
               to={link.path}
+              aria-current={isLinkActive(link.path) ? "page" : undefined}
               className={`font-display text-sm tracking-wider uppercase transition-colors duration-200 ${
                 isLinkActive(link.path)
                   ? "text-accent"
@@ -61,8 +63,10 @@ export default function Navbar() {
         {/* Mobile toggle */}
         <button
           onClick={() => setOpen(!open)}
-          className="md:hidden text-foreground p-2"
+          className="lg:hidden text-foreground p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
           aria-label="Toggle menu"
+          aria-expanded={open}
+          aria-controls="public-mobile-navigation"
         >
           {open ? <X size={24} /> : <Menu size={24} />}
         </button>
@@ -72,11 +76,12 @@ export default function Navbar() {
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.2 }}
-            className="md:hidden bg-background border-b border-border"
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: -8 }}
+                    animate={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+                    exit={prefersReducedMotion ? undefined : { opacity: 0, y: -8 }}
+                    transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.2 }}
+            id="public-mobile-navigation"
+            className="lg:hidden bg-background border-b border-border"
           >
             <div className="px-4 py-6 flex flex-col gap-4">
               {navLinks.map((link) => (
@@ -84,7 +89,8 @@ export default function Navbar() {
                   key={link.path}
                   to={link.path}
                   onClick={() => setOpen(false)}
-                  className={`font-display text-lg tracking-wide ${
+                  aria-current={isLinkActive(link.path) ? "page" : undefined}
+                  className={`font-display text-lg tracking-wide focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 ${
                     isLinkActive(link.path)
                       ? "text-accent"
                       : "text-foreground"

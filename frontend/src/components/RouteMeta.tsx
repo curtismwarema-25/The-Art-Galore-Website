@@ -109,19 +109,19 @@ function getRouteMeta(pathname: string): RouteMeta {
         "View your Art Galore International ticket confirmation, QR code, and order details.",
     };
   }
-  if (pathname === "/privacy-policy") {
+  if (pathname === "/privacy-policy" || pathname === "/privacy") {
     return {
       title: `Privacy Policy | ${brandName}`,
       description: "Read the Art Galore International privacy policy.",
     };
   }
-  if (pathname === "/terms-of-use") {
+  if (pathname === "/terms-of-use" || pathname === "/terms") {
     return {
       title: `Terms of Use | ${brandName}`,
       description: "Read the Art Galore International terms of use.",
     };
   }
-  if (pathname === "/ticket-refund-policy") {
+  if (pathname === "/ticket-refund-policy" || pathname === "/refund-policy") {
     return {
       title: `Ticket Refund Policy | ${brandName}`,
       description: "Read the Art Galore International ticket refund policy.",
