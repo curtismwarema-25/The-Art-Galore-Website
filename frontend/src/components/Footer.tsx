@@ -30,6 +30,10 @@ export default function Footer() {
               {[
                 { label: "Home", path: "/" },
                 { label: "Events", path: "/events" },
+                { label: "Artists", path: "/artists" },
+                { label: "Gallery", path: "/gallery" },
+                { label: "Community", path: "/share" },
+                { label: "Partners", path: "/partners" },
                 { label: "About", path: "/about" },
                 { label: "Contact", path: "/contact" },
               ].map((link) => (

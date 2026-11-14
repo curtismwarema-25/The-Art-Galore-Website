@@ -9,6 +9,10 @@ import { hasActiveTicketTier } from "@/lib/homepageState";
 const navLinks = [
   { label: "Home", path: "/" },
   { label: "Events", path: "/events" },
+  { label: "Artists", path: "/artists" },
+  { label: "Gallery", path: "/gallery" },
+  { label: "Community", path: "/share" },
+  { label: "Partners", path: "/partners" },
   { label: "About", path: "/about" },
   { label: "Contact", path: "/contact" },
 ];
